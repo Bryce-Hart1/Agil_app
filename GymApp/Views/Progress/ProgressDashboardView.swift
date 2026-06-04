@@ -1,0 +1,369 @@
+import SwiftUI
+import Charts
+
+/// The Progress tab: at-a-glance stat cards, volume & estimated-1RM trends,
+/// workouts-per-week, sets-per-muscle-group, and a personal-records list.
+struct ProgressDashboardView: View {
+    @EnvironmentObject private var store: AppStore
+    @EnvironmentObject private var theme: ThemeManager
+
+    @State private var selectedExerciseID: UUID?
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if store.workouts.isEmpty {
+                    Text("Log some workouts to see your progress here.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    summarySection
+                    volumeSection
+                    oneRepMaxSection
+                    frequencySection
+                    muscleGroupSection
+                    personalRecordsSection
+                }
+            }
+            .navigationTitle("Progress")
+            .themed(theme.current)
+            .onAppear {
+                if selectedExerciseID == nil {
+                    selectedExerciseID = loggedExercises.first?.id
+                }
+            }
+        }
+    }
+
+    // MARK: - Sections
+
+    private var summarySection: some View {
+        Section {
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                StatCard(title: "Total workouts", value: "\(store.workouts.count)",
+                         systemImage: "calendar", surface: theme.current.surface, accent: theme.current.accent)
+                StatCard(title: "Week streak", value: "\(currentStreak)",
+                         systemImage: "flame", surface: theme.current.surface, accent: theme.current.accent)
+                StatCard(title: "Total volume", value: "\(compactVolume(totalVolume)) lb",
+                         systemImage: "scalemass", surface: theme.current.surface, accent: theme.current.accent)
+                StatCard(title: "Last workout", value: lastWorkoutText,
+                         systemImage: "clock.arrow.circlepath", surface: theme.current.surface, accent: theme.current.accent)
+            }
+            .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+            .listRowBackground(Color.clear)
+        }
+    }
+
+    private var volumeSection: some View {
+        Section("Volume over time") {
+            TrendChart(points: volumePoints, color: theme.current.accent, unit: "lb")
+        }
+    }
+
+    @ViewBuilder
+    private var oneRepMaxSection: some View {
+        Section("Estimated 1RM") {
+            Picker("Exercise", selection: $selectedExerciseID) {
+                ForEach(loggedExercises) { exercise in
+                    Text(exercise.name).tag(Optional(exercise.id))
+                }
+            }
+            if oneRepMaxPoints.count >= 1 {
+                TrendChart(points: oneRepMaxPoints, color: theme.current.accent, unit: "lb")
+            } else {
+                Text("Not enough data for this exercise yet.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var frequencySection: some View {
+        Section("Workouts per week") {
+            FrequencyChart(weeks: weeklyCounts, color: theme.current.accent)
+        }
+    }
+
+    @ViewBuilder
+    private var muscleGroupSection: some View {
+        if !categorySets.isEmpty {
+            Section("Sets per muscle group") {
+                MuscleGroupChart(rows: categorySets, color: theme.current.accent)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var personalRecordsSection: some View {
+        if !personalRecords.isEmpty {
+            Section("Personal records") {
+                ForEach(personalRecords) { pr in
+                    PRRow(record: pr)
+                }
+            }
+        }
+    }
+
+    // MARK: - Derived data
+
+    private func volume(of workout: Workout) -> Double {
+        workout.exercises.reduce(0) { total, logged in
+            total + logged.sets.reduce(0) { $0 + Double($1.reps) * $1.weight }
+        }
+    }
+
+    private var totalVolume: Double {
+        store.workouts.reduce(0) { $0 + volume(of: $1) }
+    }
+
+    /// Consecutive weeks (ending this week) that contain at least one workout.
+    private var currentStreak: Int {
+        let calendar = Calendar.current
+        guard let thisWeek = calendar.dateInterval(of: .weekOfYear, for: Date())?.start else { return 0 }
+        var weeksWithWorkouts = Set<Date>()
+        for workout in store.workouts {
+            if let weekStart = calendar.dateInterval(of: .weekOfYear, for: workout.date)?.start {
+                weeksWithWorkouts.insert(weekStart)
+            }
+        }
+        var streak = 0
+        var cursor = thisWeek
+        while weeksWithWorkouts.contains(cursor) {
+            streak += 1
+            guard let previous = calendar.date(byAdding: .weekOfYear, value: -1, to: cursor) else { break }
+            cursor = previous
+        }
+        return streak
+    }
+
+    private var lastWorkoutText: String {
+        guard let date = store.workouts.map(\.date).max() else { return "—" }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter.localizedString(for: date, relativeTo: Date())
+    }
+
+    private func compactVolume(_ value: Double) -> String {
+        if value >= 10_000 { return String(format: "%.0fk", value / 1000) }
+        if value >= 1_000 { return String(format: "%.1fk", value / 1000) }
+        return "\(Int(value.rounded()))"
+    }
+
+    private var volumePoints: [DatedValue] {
+        store.workouts
+            .map { DatedValue(date: $0.date, value: volume(of: $0)) }
+            .sorted { $0.date < $1.date }
+    }
+
+    /// Exercises that appear in at least one workout, sorted by name.
+    private var loggedExercises: [Exercise] {
+        let usedIDs = Set(store.workouts.flatMap { $0.exercises.map(\.exerciseId) })
+        return store.exercises.filter { usedIDs.contains($0.id) }.sorted { $0.name < $1.name }
+    }
+
+    /// Best estimated 1RM per workout date for the selected exercise.
+    private var oneRepMaxPoints: [DatedValue] {
+        guard let id = selectedExerciseID else { return [] }
+        var points: [DatedValue] = []
+        for workout in store.workouts.sorted(by: { $0.date < $1.date }) {
+            let sets = workout.exercises.filter { $0.exerciseId == id }.flatMap { $0.sets }
+            let best = sets.map { $0.weight * (1 + Double($0.reps) / 30.0) }.max()
+            if let best, best > 0 {
+                points.append(DatedValue(date: workout.date, value: best))
+            }
+        }
+        return points
+    }
+
+    private var weeklyCounts: [WeekBar] {
+        let calendar = Calendar.current
+        guard let thisWeekStart = calendar.dateInterval(of: .weekOfYear, for: Date())?.start
+        else { return [] }
+
+        var buckets: [Date: Int] = [:]
+        for workout in store.workouts {
+            if let weekStart = calendar.dateInterval(of: .weekOfYear, for: workout.date)?.start {
+                buckets[weekStart, default: 0] += 1
+            }
+        }
+
+        return (0..<8).reversed().compactMap { offset in
+            guard let weekStart = calendar.date(byAdding: .weekOfYear, value: -offset, to: thisWeekStart)
+            else { return nil }
+            return WeekBar(weekStart: weekStart, count: buckets[weekStart] ?? 0)
+        }
+    }
+
+    private var categorySets: [CategoryBar] {
+        var counts: [String: Int] = [:]
+        for workout in store.workouts {
+            for logged in workout.exercises {
+                let category = store.exercise(for: logged.exerciseId)?.category ?? "Other"
+                counts[category, default: 0] += logged.sets.count
+            }
+        }
+        return counts
+            .map { CategoryBar(category: $0.key, sets: $0.value) }
+            .sorted { $0.sets > $1.sets }
+    }
+
+    private var personalRecords: [PersonalRecord] {
+        var best: [UUID: (weight: Double, oneRepMax: Double)] = [:]
+        for workout in store.workouts {
+            for logged in workout.exercises {
+                for set in logged.sets where set.weight > 0 {
+                    let oneRepMax = set.weight * (1 + Double(set.reps) / 30.0)
+                    var record = best[logged.exerciseId] ?? (0, 0)
+                    record.weight = max(record.weight, set.weight)
+                    record.oneRepMax = max(record.oneRepMax, oneRepMax)
+                    best[logged.exerciseId] = record
+                }
+            }
+        }
+        return best.compactMap { id, value in
+            guard let exercise = store.exercise(for: id) else { return nil }
+            return PersonalRecord(id: id, name: exercise.name,
+                                  bestWeight: value.weight, estOneRepMax: value.oneRepMax)
+        }
+        .sorted { $0.estOneRepMax > $1.estOneRepMax }
+    }
+}
+
+// MARK: - Row models
+
+private struct DatedValue: Identifiable {
+    let date: Date
+    let value: Double
+    var id: Date { date }
+}
+
+private struct WeekBar: Identifiable {
+    let weekStart: Date
+    let count: Int
+    var id: Date { weekStart }
+    var label: String { weekStart.formatted(.dateTime.month(.defaultDigits).day()) }
+}
+
+private struct CategoryBar: Identifiable {
+    let category: String
+    let sets: Int
+    var id: String { category }
+}
+
+private struct PersonalRecord: Identifiable {
+    let id: UUID
+    let name: String
+    let bestWeight: Double
+    let estOneRepMax: Double
+}
+
+// MARK: - Cards & charts
+
+private struct StatCard: View {
+    let title: String
+    let value: String
+    let systemImage: String
+    let surface: Color
+    let accent: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Image(systemName: systemImage).foregroundStyle(accent)
+            Text(value)
+                .font(.title2).fontWeight(.bold)
+                .lineLimit(1).minimumScaleFactor(0.6)
+            Text(title).font(.caption).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, minHeight: 84, alignment: .leading)
+        .padding(12)
+        .background(surface, in: RoundedRectangle(cornerRadius: 12))
+    }
+}
+
+/// A line+point trend chart over time (used for volume and estimated 1RM).
+private struct TrendChart: View {
+    let points: [DatedValue]
+    let color: Color
+    let unit: String
+
+    var body: some View {
+        Chart(points) { point in
+            LineMark(x: .value("Date", point.date), y: .value(unit, point.value))
+                .foregroundStyle(color)
+                .interpolationMethod(.monotone)
+            PointMark(x: .value("Date", point.date), y: .value(unit, point.value))
+                .foregroundStyle(color)
+        }
+        .chartYAxis { AxisMarks(values: .automatic(desiredCount: 4)) }
+        .frame(height: 200)
+        .padding(.vertical, 4)
+    }
+}
+
+private struct FrequencyChart: View {
+    let weeks: [WeekBar]
+    let color: Color
+
+    var body: some View {
+        Chart(weeks) { week in
+            BarMark(x: .value("Week", week.label), y: .value("Workouts", week.count))
+                .foregroundStyle(color.gradient)
+                .annotation(position: .top) {
+                    if week.count > 0 {
+                        Text("\(week.count)").font(.caption2).foregroundStyle(.secondary)
+                    }
+                }
+        }
+        .chartXScale(domain: weeks.map(\.label))
+        .chartYAxis { AxisMarks(values: .automatic(desiredCount: 4)) }
+        .frame(height: 200)
+        .padding(.vertical, 4)
+    }
+}
+
+private struct MuscleGroupChart: View {
+    let rows: [CategoryBar]
+    let color: Color
+
+    var body: some View {
+        Chart(rows) { row in
+            BarMark(x: .value("Sets", row.sets), y: .value("Group", row.category))
+                .foregroundStyle(color.gradient)
+                .annotation(position: .trailing) {
+                    Text("\(row.sets)").font(.caption2).foregroundStyle(.secondary)
+                }
+        }
+        .chartXAxis { AxisMarks(values: .automatic(desiredCount: 4)) }
+        .frame(height: CGFloat(rows.count) * 38 + 20)
+        .padding(.vertical, 4)
+    }
+}
+
+private struct PRRow: View {
+    let record: PersonalRecord
+
+    var body: some View {
+        HStack {
+            Text(record.name)
+            Spacer()
+            VStack(alignment: .trailing, spacing: 2) {
+                Text("\(Int(record.bestWeight.rounded())) lb").font(.subheadline)
+                Text("est 1RM \(Int(record.estOneRepMax.rounded())) lb")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+#Preview {
+    let store = AppStore()
+    let workout = Workout(exercises: [
+        LoggedExercise(exerciseId: store.exercises[0].id,
+                       sets: [ExerciseSet(reps: 8, weight: 135), ExerciseSet(reps: 5, weight: 165)]),
+        LoggedExercise(exerciseId: store.exercises[2].id,
+                       sets: [ExerciseSet(reps: 5, weight: 225)])
+    ])
+    store.addWorkout(workout)
+    return ProgressDashboardView()
+        .environmentObject(store)
+        .environmentObject(ThemeManager())
+}
