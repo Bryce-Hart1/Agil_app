@@ -38,7 +38,14 @@ private struct WorkoutEditor: View {
                         workout.exercises.removeAll { $0.id == logged.id }
                     }
                 } header: {
-                    Text(store.exercise(for: logged.exerciseId)?.name ?? "Exercise")
+                    HStack {
+                        Text(store.exercise(for: logged.exerciseId)?.name ?? "Exercise")
+                        if let range = logged.targetRepRange {
+                            Spacer()
+                            Text("\(range.display) reps")
+                                .foregroundStyle(theme.current.accent)
+                        }
+                    }
                 }
             }
 
@@ -79,8 +86,15 @@ private struct ExerciseLogSection: View {
     let onRemove: () -> Void
 
     var body: some View {
+        RepRangeRow(targetRepRange: $logged.targetRepRange)
+
+        TextField("Note (form cues…)",
+                  text: Binding($logged.note, replacingNilWith: ""),
+                  axis: .vertical)
+            .lineLimit(1...4)
+
         ForEach(logged.sets.indices, id: \.self) { index in
-            SetRow(number: index + 1, set: $logged.sets[index])
+            SetRow(number: index + 1, set: $logged.sets[index], targetRange: logged.targetRepRange)
         }
         .onDelete { logged.sets.remove(atOffsets: $0) }
 
@@ -97,27 +111,39 @@ private struct ExerciseLogSection: View {
         }
     }
 
-    /// Adds a set, defaulting to the previous set's reps/weight for fast entry.
+    /// Adds a set, defaulting to the previous set's reps/weight (or the low end
+    /// of the target rep range) for fast entry.
     private func addSet() {
         let last = logged.sets.last
-        logged.sets.append(ExerciseSet(reps: last?.reps ?? 8, weight: last?.weight ?? 0))
+        let defaultReps = last?.reps
+            ?? logged.targetRepRange.map { Swift.min($0.min, $0.max) }
+            ?? 8
+        logged.sets.append(ExerciseSet(reps: defaultReps, weight: last?.weight ?? 0))
     }
 }
 
 /// A single editable set: "Set N — [reps] reps × [weight] lb".
+/// When the exercise has a target rep range, a colored mark and reps color show
+/// whether this set landed in range (green) or not (red).
 private struct SetRow: View {
     let number: Int
     @Binding var set: ExerciseSet
+    let targetRange: RepRange?
 
     var body: some View {
         HStack {
+            Circle()
+                .fill(markColor ?? .clear)
+                .frame(width: 8, height: 8)
+
             Text("Set \(number)")
                 .foregroundStyle(.secondary)
-                .frame(width: 56, alignment: .leading)
+                .frame(width: 50, alignment: .leading)
 
             TextField("Reps", value: $set.reps, format: .number)
                 .keyboardType(.numberPad)
                 .multilineTextAlignment(.center)
+                .foregroundStyle(markColor ?? .primary)
                 .frame(width: 48)
             Text("reps")
                 .foregroundStyle(.secondary)
@@ -131,6 +157,15 @@ private struct SetRow: View {
             Text("lb")
                 .foregroundStyle(.secondary)
         }
+    }
+
+    /// Green when the set's reps fall within the target range, red when not,
+    /// nil when the exercise has no target range (no mark shown).
+    private var markColor: Color? {
+        guard let range = targetRange else { return nil }
+        let low = Swift.min(range.min, range.max)
+        let high = Swift.max(range.min, range.max)
+        return (set.reps >= low && set.reps <= high) ? .green : .red
     }
 }
 

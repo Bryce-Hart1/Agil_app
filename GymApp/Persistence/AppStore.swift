@@ -11,11 +11,13 @@ import SwiftUI
 final class AppStore: ObservableObject {
     @Published var exercises: [Exercise] { didSet { persistence.save(exercises, to: Self.exercisesFile) } }
     @Published var workouts: [Workout] { didSet { persistence.save(workouts, to: Self.workoutsFile) } }
+    @Published var presets: [WorkoutPreset] { didSet { persistence.save(presets, to: Self.presetsFile) } }
 
     private let persistence: PersistenceService
 
     private static let exercisesFile = "exercises.json"
     private static let workoutsFile = "workouts.json"
+    private static let presetsFile = "presets.json"
 
     init(persistence: PersistenceService = PersistenceService()) {
         self.persistence = persistence
@@ -25,6 +27,7 @@ final class AppStore: ObservableObject {
         let loadedExercises = persistence.load(Self.exercisesFile, default: [Exercise]())
         self.exercises = loadedExercises.isEmpty ? AppStore.seedExercises : loadedExercises
         self.workouts = persistence.load(Self.workoutsFile, default: [Workout]())
+        self.presets = persistence.load(Self.presetsFile, default: [WorkoutPreset]())
 
         if loadedExercises.isEmpty {
             persistence.save(self.exercises, to: Self.exercisesFile)
@@ -68,6 +71,41 @@ final class AppStore: ObservableObject {
                 }
             }
         )
+    }
+
+    // MARK: - Presets
+
+    func addPreset(_ preset: WorkoutPreset) {
+        presets.append(preset)
+    }
+
+    func deletePreset(id: UUID) {
+        presets.removeAll { $0.id == id }
+    }
+
+    func deletePresets(at offsets: IndexSet) {
+        presets.remove(atOffsets: offsets)
+    }
+
+    /// A reorder-safe two-way binding to a preset, mirroring `binding(for:)`.
+    func presetBinding(for id: UUID) -> Binding<WorkoutPreset>? {
+        guard presets.contains(where: { $0.id == id }) else { return nil }
+        return Binding(
+            get: { self.presets.first(where: { $0.id == id }) ?? WorkoutPreset() },
+            set: { newValue in
+                if let index = self.presets.firstIndex(where: { $0.id == id }) {
+                    self.presets[index] = newValue
+                }
+            }
+        )
+    }
+
+    /// Builds a fresh workout from a preset: each preset item becomes a logged
+    /// exercise carrying the target rep range, with no sets yet (you fill those in).
+    func workout(from preset: WorkoutPreset) -> Workout {
+        Workout(exercises: preset.items.map {
+            LoggedExercise(exerciseId: $0.exerciseId, targetRepRange: $0.targetRepRange, note: $0.note)
+        })
     }
 }
 

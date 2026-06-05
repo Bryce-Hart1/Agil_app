@@ -43,8 +43,8 @@ struct ProgressDashboardView: View {
                          systemImage: "calendar", surface: theme.current.surface, accent: theme.current.accent)
                 StatCard(title: "Week streak", value: "\(currentStreak)",
                          systemImage: "flame", surface: theme.current.surface, accent: theme.current.accent)
-                StatCard(title: "Total volume", value: "\(compactVolume(totalVolume)) lb",
-                         systemImage: "scalemass", surface: theme.current.surface, accent: theme.current.accent)
+                StatCard(title: "This week", value: "\(workoutsThisWeek)",
+                         systemImage: "calendar.badge.clock", surface: theme.current.surface, accent: theme.current.accent)
                 StatCard(title: "Last workout", value: lastWorkoutText,
                          systemImage: "clock.arrow.circlepath", surface: theme.current.surface, accent: theme.current.accent)
             }
@@ -111,8 +111,17 @@ struct ProgressDashboardView: View {
         }
     }
 
+    /// Lifetime total volume (Σ reps×weight). Intentionally NOT shown in the UI —
+    /// retained so it can be synced to the server later as a profile/"flex" stat.
     private var totalVolume: Double {
         store.workouts.reduce(0) { $0 + volume(of: $1) }
+    }
+
+    /// Number of workouts logged in the current calendar week.
+    private var workoutsThisWeek: Int {
+        let calendar = Calendar.current
+        guard let interval = calendar.dateInterval(of: .weekOfYear, for: Date()) else { return 0 }
+        return store.workouts.filter { interval.contains($0.date) }.count
     }
 
     /// Consecutive weeks (ending this week) that contain at least one workout.
@@ -140,12 +149,6 @@ struct ProgressDashboardView: View {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .abbreviated
         return formatter.localizedString(for: date, relativeTo: Date())
-    }
-
-    private func compactVolume(_ value: Double) -> String {
-        if value >= 10_000 { return String(format: "%.0fk", value / 1000) }
-        if value >= 1_000 { return String(format: "%.1fk", value / 1000) }
-        return "\(Int(value.rounded()))"
     }
 
     private var volumePoints: [DatedValue] {

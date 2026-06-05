@@ -45,27 +45,27 @@ extension AppTheme {
     static let classic = AppTheme(
         id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
         name: "Classic", isBuiltIn: true, isDark: false,
-        accentHex: "#0a6300", backgroundHex: "#F2F2F7", surfaceHex: "#FFFFFF")
+        accentHex: "#610567", backgroundHex: "#000000", surfaceHex: "#cc00f0")
 
     static let midnight = AppTheme(
         id: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!,
         name: "Midnight", isBuiltIn: true, isDark: true,
         accentHex: "#5E5CE6", backgroundHex: "#0B0B0F", surfaceHex: "#1C1C1E")
 
-    static let outside = AppTheme(
+    static let deep_sea = AppTheme(
         id: UUID(uuidString: "00000000-0000-0000-0000-000000000003")!,
         name: "Deep Sea", isBuiltIn: true, isDark: false,
         accentHex: "#17646c", backgroundHex: "#EAF6F8", surfaceHex: "#FFFFFF")
 
     static let sunset = AppTheme(
         id: UUID(uuidString: "00000000-0000-0000-0000-000000000004")!,
-        name: "Slide", isBuiltIn: true, isDark: false,
+        name: "sunset", isBuiltIn: true, isDark: false,
         accentHex: "#FF7043", backgroundHex: "#bb5f2a", surfaceHex: "#000000")
 
-    static let forest = AppTheme(
+    static let leaf = AppTheme(
         id: UUID(uuidString: "00000000-0000-0000-0000-000000000005")!,
         name: "Leaf", isBuiltIn: true, isDark: true,
         accentHex: "#34C759", backgroundHex: "#0E1511", surfaceHex: "#16201A")
 
-    static let builtIns: [AppTheme] = [classic, midnight, ocean, sunset, forest]
+    static let builtIns: [AppTheme] = [classic, midnight, deep_sea, sunset, leaf]
 }

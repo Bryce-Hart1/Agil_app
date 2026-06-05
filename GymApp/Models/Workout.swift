@@ -14,15 +14,39 @@ struct ExerciseSet: Identifiable, Codable, Hashable {
     }
 }
 
+/// A target repetition range for an exercise, e.g. 6–8 reps. Used as a goal
+/// annotation while logging and as the basis for saved exercise presets later.
+struct RepRange: Codable, Hashable {
+    var min: Int
+    var max: Int
+
+    init(min: Int, max: Int) {
+        self.min = min
+        self.max = max
+    }
+
+    /// Always reads low–high regardless of input order, e.g. "6–8" (or "8" if equal).
+    var display: String {
+        let low = Swift.min(min, max)
+        let high = Swift.max(min, max)
+        return low == high ? "\(low)" : "\(low)–\(high)"
+    }
+}
+
 /// All the sets performed for one exercise during a single workout.
 struct LoggedExercise: Identifiable, Codable, Hashable {
     let id: UUID
-    var exerciseId: UUID   // references an Exercise in the library
+    var exerciseId: UUID            // references an Exercise in the library
+    var targetRepRange: RepRange?   // optional per-exercise rep-range goal (e.g. 6–8)
+    var note: String?               // optional form cue (e.g. "pause at chest")
     var sets: [ExerciseSet]
 
-    init(id: UUID = UUID(), exerciseId: UUID, sets: [ExerciseSet] = []) {
+    init(id: UUID = UUID(), exerciseId: UUID, targetRepRange: RepRange? = nil,
+         note: String? = nil, sets: [ExerciseSet] = []) {
         self.id = id
         self.exerciseId = exerciseId
+        self.targetRepRange = targetRepRange
+        self.note = note
         self.sets = sets
     }
 }

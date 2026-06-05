@@ -12,17 +12,21 @@ struct RootTabView: View {
                 .tabItem { Label("Workouts", systemImage: "dumbbell") }
                 .tag(0)
 
+            PresetsListView()
+                .tabItem { Label("Presets", systemImage: "square.stack") }
+                .tag(1)
+
             ProgressDashboardView()
                 .tabItem { Label("Progress", systemImage: "chart.bar.xaxis") }
-                .tag(1)
+                .tag(2)
 
             ExercisesListView()
                 .tabItem { Label("Exercises", systemImage: "list.bullet") }
-                .tag(2)
+                .tag(3)
 
             SettingsView()
                 .tabItem { Label("Settings", systemImage: "gear") }
-                .tag(3)
+                .tag(4)
         }
         .tint(theme.current.accent)
         .preferredColorScheme(theme.current.colorScheme)

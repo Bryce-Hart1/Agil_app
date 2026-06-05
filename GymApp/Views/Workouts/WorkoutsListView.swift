@@ -35,16 +35,39 @@ struct WorkoutsListView: View {
             }
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        let workout = Workout()
-                        store.addWorkout(workout)
-                        path.append(workout.id)
+                    Menu {
+                        Button {
+                            start(Workout())
+                        } label: {
+                            Label("Empty Workout", systemImage: "square.and.pencil")
+                        }
+
+                        if !store.presets.isEmpty {
+                            Menu {
+                                ForEach(store.presets) { preset in
+                                    Button {
+                                        start(store.workout(from: preset))
+                                    } label: {
+                                        Label(preset.name.isEmpty ? "Untitled Preset" : preset.name,
+                                              systemImage: preset.symbolName)
+                                    }
+                                }
+                            } label: {
+                                Label("From Preset", systemImage: "square.stack")
+                            }
+                        }
                     } label: {
                         Image(systemName: "plus")
                     }
                 }
             }
         }
+    }
+
+    /// Adds a workout to the store and navigates into its editor.
+    private func start(_ workout: Workout) {
+        store.addWorkout(workout)
+        path.append(workout.id)
     }
 }
 
