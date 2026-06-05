@@ -21,6 +21,7 @@ private struct PresetEditor: View {
     @EnvironmentObject private var theme: ThemeManager
     @Binding var preset: WorkoutPreset
     @State private var showingExercisePicker = false
+    @State private var showingReorder = false
 
     var body: some View {
         Form {
@@ -61,6 +62,15 @@ private struct PresetEditor: View {
         .navigationBarTitleDisplayMode(.inline)
         .themed(theme.current)
         .toolbar {
+            if preset.items.count > 1 {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        showingReorder = true
+                    } label: {
+                        Label("Reorder Exercises", systemImage: "arrow.up.arrow.down")
+                    }
+                }
+            }
             ToolbarItemGroup(placement: .keyboard) {
                 Spacer()
                 Button("Done") { hideKeyboard() }
@@ -73,6 +83,11 @@ private struct PresetEditor: View {
                 preset.items.append(
                     PresetItem(exerciseId: exercise.id, targetRepRange: RepRange(min: 8, max: 12))
                 )
+            }
+        }
+        .sheet(isPresented: $showingReorder) {
+            ReorderExercisesSheet(title: "Reorder", items: $preset.items) {
+                store.exercise(for: $0.exerciseId)?.name ?? "Exercise"
             }
         }
     }

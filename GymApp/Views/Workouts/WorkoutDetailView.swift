@@ -24,6 +24,10 @@ private struct WorkoutEditor: View {
     @EnvironmentObject private var theme: ThemeManager
     @Binding var workout: Workout
     @State private var showingExercisePicker = false
+    @State private var showingReorder = false
+    @State private var showingSaveAsPreset = false
+    @State private var presetName = ""
+    @State private var savedPresetConfirmation = false
 
     var body: some View {
         Form {
@@ -66,6 +70,28 @@ private struct WorkoutEditor: View {
         .navigationBarTitleDisplayMode(.inline)
         .themed(theme.current)
         .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Menu {
+                    if workout.exercises.count > 1 {
+                        Button {
+                            showingReorder = true
+                        } label: {
+                            Label("Reorder Exercises", systemImage: "arrow.up.arrow.down")
+                        }
+                    }
+                    if !workout.exercises.isEmpty {
+                        Button {
+                            presetName = ""
+                            showingSaveAsPreset = true
+                        } label: {
+                            Label("Save as Preset", systemImage: "square.stack.badge.plus")
+                        }
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+                .disabled(workout.exercises.isEmpty)
+            }
             ToolbarItemGroup(placement: .keyboard) {
                 Spacer()
                 Button("Done") { hideKeyboard() }
@@ -75,6 +101,27 @@ private struct WorkoutEditor: View {
             ExercisePickerView { exercise in
                 workout.exercises.append(LoggedExercise(exerciseId: exercise.id))
             }
+        }
+        .sheet(isPresented: $showingReorder) {
+            ReorderExercisesSheet(title: "Reorder", items: $workout.exercises) {
+                store.exercise(for: $0.exerciseId)?.name ?? "Exercise"
+            }
+        }
+        .alert("Save as Preset", isPresented: $showingSaveAsPreset) {
+            TextField("Preset name", text: $presetName)
+            Button("Save") {
+                let name = presetName.trimmingCharacters(in: .whitespaces)
+                store.addPreset(store.makePreset(from: workout, name: name.isEmpty ? "New Preset" : name))
+                savedPresetConfirmation = true
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Save these exercises and rep ranges as a reusable preset.")
+        }
+        .alert("Saved to Presets", isPresented: $savedPresetConfirmation) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Find it on the Presets tab to set an icon or tweak it.")
         }
     }
 }

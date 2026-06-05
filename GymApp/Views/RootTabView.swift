@@ -24,8 +24,8 @@ struct RootTabView: View {
                 .tabItem { Label("Exercises", systemImage: "list.bullet") }
                 .tag(3)
 
-            SettingsView()
-                .tabItem { Label("Settings", systemImage: "gear") }
+            ProfileView()
+                .tabItem { Label("Profile", systemImage: "person.crop.circle") }
                 .tag(4)
         }
         .tint(theme.current.accent)

@@ -261,27 +261,6 @@ private struct PersonalRecord: Identifiable {
 
 // MARK: - Cards & charts
 
-private struct StatCard: View {
-    let title: String
-    let value: String
-    let systemImage: String
-    let surface: Color
-    let accent: Color
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Image(systemName: systemImage).foregroundStyle(accent)
-            Text(value)
-                .font(.title2).fontWeight(.bold)
-                .lineLimit(1).minimumScaleFactor(0.6)
-            Text(title).font(.caption).foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, minHeight: 84, alignment: .leading)
-        .padding(12)
-        .background(surface, in: RoundedRectangle(cornerRadius: 12))
-    }
-}
-
 /// A line+point trend chart over time (used for volume and estimated 1RM).
 private struct TrendChart: View {
     let points: [DatedValue]

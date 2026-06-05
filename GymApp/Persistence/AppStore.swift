@@ -107,6 +107,14 @@ final class AppStore: ObservableObject {
             LoggedExercise(exerciseId: $0.exerciseId, targetRepRange: $0.targetRepRange, note: $0.note)
         })
     }
+
+    /// Builds a preset from a workout: each logged exercise becomes a preset item
+    /// carrying its rep range and note (sets are dropped — presets hold no sets).
+    func makePreset(from workout: Workout, name: String) -> WorkoutPreset {
+        WorkoutPreset(name: name, items: workout.exercises.map {
+            PresetItem(exerciseId: $0.exerciseId, targetRepRange: $0.targetRepRange, note: $0.note)
+        })
+    }
 }
 
 // MARK: - Seed data

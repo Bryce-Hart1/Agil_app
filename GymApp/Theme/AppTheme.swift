@@ -45,7 +45,7 @@ extension AppTheme {
     static let classic = AppTheme(
         id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
         name: "Classic", isBuiltIn: true, isDark: false,
-        accentHex: "#610567", backgroundHex: "#000000", surfaceHex: "#cc00f0")
+        accentHex: "#bf52c7", backgroundHex: "#000000", surfaceHex: "#cc00f0")
 
     static let midnight = AppTheme(
         id: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!,
