@@ -11,8 +11,21 @@ GymApp.xcodeproj/
 #local md files for ideas and claude
 new_ideas.md
 claude_notes.md
+CLAUDE.md
 #for looking over current design
 polish.md
 
 # macOS
 .DS_Store
+
+
+#Backend internals
+#just showing src
+.cargo
+.vscode
+backend/migrations
+Cargo.lock
+gym.db
+gym.db-shm
+gym.db-wal
+

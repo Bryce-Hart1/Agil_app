@@ -40,6 +40,16 @@ private struct PresetEditor: View {
                               text: Binding($item.note, replacingNilWith: ""),
                               axis: .vertical)
                         .lineLimit(1...4)
+                    // Claude  Date 06/12/2026
+                    // Rest duration carried into workouts started from this preset.
+                    Picker(selection: $item.restSeconds) {
+                        Text("None").tag(Int?.none)
+                        ForEach(RestDuration.options, id: \.self) { seconds in
+                            Text(RestDuration.label(seconds)).tag(Int?.some(seconds))
+                        }
+                    } label: {
+                        Label("Rest timer", systemImage: "timer")
+                    }
                     Button(role: .destructive) {
                         preset.items.removeAll { $0.id == item.id }
                     } label: {

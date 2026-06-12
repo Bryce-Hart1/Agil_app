@@ -1,7 +1,18 @@
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// A visual theme. Colors are stored as hex strings so the whole thing is
 /// Codable and can be persisted to JSON alongside the rest of the app's data.
+///
+// Claude  Date 06/09/2026
+// A theme may optionally provide dark-mode colors (darkAccentHex/…). When it
+// does, it is "adaptive": its color accessors return a dynamic Color that
+// auto-switches with the system appearance, and the app follows the system
+// light/dark setting instead of being forced to one mode. Themes without dark
+// colors behave exactly as before (single palette, forced appearance), so this
+// is fully backward compatible with previously saved custom themes.
 struct AppTheme: Identifiable, Codable, Hashable {
     var id: UUID
     var name: String
@@ -10,9 +21,13 @@ struct AppTheme: Identifiable, Codable, Hashable {
     var accentHex: String
     var backgroundHex: String
     var surfaceHex: String
+    var darkAccentHex: String?
+    var darkBackgroundHex: String?
+    var darkSurfaceHex: String?
 
     init(id: UUID = UUID(), name: String, isBuiltIn: Bool = false, isDark: Bool,
-         accentHex: String, backgroundHex: String, surfaceHex: String) {
+         accentHex: String, backgroundHex: String, surfaceHex: String,
+         darkAccentHex: String? = nil, darkBackgroundHex: String? = nil, darkSurfaceHex: String? = nil) {
         self.id = id
         self.name = name
         self.isBuiltIn = isBuiltIn
@@ -20,12 +35,42 @@ struct AppTheme: Identifiable, Codable, Hashable {
         self.accentHex = accentHex
         self.backgroundHex = backgroundHex
         self.surfaceHex = surfaceHex
+        self.darkAccentHex = darkAccentHex
+        self.darkBackgroundHex = darkBackgroundHex
+        self.darkSurfaceHex = darkSurfaceHex
     }
 
-    var accent: Color { Color(hex: accentHex) }
-    var background: Color { Color(hex: backgroundHex) }
-    var surface: Color { Color(hex: surfaceHex) }
-    var colorScheme: ColorScheme { isDark ? .dark : .light }
+    // Claude  Date 06/09/2026
+    // True when the theme carries any dark-mode color (so it adapts to system appearance).
+    var isAdaptive: Bool {
+        darkAccentHex != nil || darkBackgroundHex != nil || darkSurfaceHex != nil
+    }
+
+    var accent: Color { dynamicColor(light: accentHex, dark: darkAccentHex) }
+    var background: Color { dynamicColor(light: backgroundHex, dark: darkBackgroundHex) }
+    var surface: Color { dynamicColor(light: surfaceHex, dark: darkSurfaceHex) }
+
+    // Claude  Date 06/09/2026
+    // Adaptive themes follow the system (nil = don't force); fixed themes pin their mode.
+    var preferredColorScheme: ColorScheme? {
+        isAdaptive ? nil : (isDark ? .dark : .light)
+    }
+
+    // Claude  Date 06/09/2026
+    // Build a Color that resolves to the dark hex in dark mode (if provided) and
+    // the light hex otherwise. Falls back to a static color off UIKit-less platforms.
+    private func dynamicColor(light: String, dark: String?) -> Color {
+        guard let dark else { return Color(hex: light) }
+        #if canImport(UIKit)
+        return Color(UIColor { traits in
+            traits.userInterfaceStyle == .dark
+                ? UIColor(Color(hex: dark))
+                : UIColor(Color(hex: light))
+        })
+        #else
+        return Color(hex: light)
+        #endif
+    }
 
     /// A fresh, editable copy seeded from this theme's colors (used to start a
     /// new custom theme from the currently selected one).
@@ -42,10 +87,15 @@ struct AppTheme: Identifiable, Codable, Hashable {
  */
 
 extension AppTheme {
+    // Claude  Date 06/09/2026 last changed: 06/10/2026 by: Claude
+    // Classic: built around the logo pink (#EA0F8B). Adaptive — light mode is a
+    // soft pink-tinted white; dark mode is a deep near-black magenta with a
+    // brighter pink accent so it reads on dark.
     static let classic = AppTheme(
         id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
-        name: "Classic", isBuiltIn: true, isDark: false,
-        accentHex: "#bf52c7", backgroundHex: "#000000", surfaceHex: "#cc00f0")
+        name: "Classic", isBuiltIn: true, isDark: true,
+        accentHex: "#EA0F8B", backgroundHex: "#FCEEF6", surfaceHex: "#FFFFFF",
+        darkAccentHex: "#FF4FB0", darkBackgroundHex: "#130810", darkSurfaceHex: "#211019")
 
     static let midnight = AppTheme(
         id: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!,

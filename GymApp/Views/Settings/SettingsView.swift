@@ -8,6 +8,12 @@ struct SettingsView: View {
 
     var body: some View {
         List {
+            // Claude  Date 06/09/2026
+            // Editable display name, saved locally. Shown on the Profile card.
+            Section("Profile") {
+                TextField("Display name", text: $store.profile.displayName)
+                    .textInputAutocapitalization(.words)
+            }
             Section("Appearance") {
                 NavigationLink {
                     ThemeSettingsView()
@@ -20,7 +26,8 @@ struct SettingsView: View {
                 }
             }
             Section("About") {
-                LabeledContent("App", value: "gym_app")
+                LabeledContent("App", value: "Agil")
+                LabeledContent("Tagline", value: "Your Tracking & Marking App")
                 LabeledContent("Version", value: "0.1.0")
             }
             Section("Stored data") {

@@ -12,12 +12,16 @@ final class AppStore: ObservableObject {
     @Published var exercises: [Exercise] { didSet { persistence.save(exercises, to: Self.exercisesFile) } }
     @Published var workouts: [Workout] { didSet { persistence.save(workouts, to: Self.workoutsFile) } }
     @Published var presets: [WorkoutPreset] { didSet { persistence.save(presets, to: Self.presetsFile) } }
+    // Claude  Date 06/09/2026
+    // Local user profile (display name). Persisted like everything else.
+    @Published var profile: UserProfile { didSet { persistence.save(profile, to: Self.profileFile) } }
 
     private let persistence: PersistenceService
 
     private static let exercisesFile = "exercises.json"
     private static let workoutsFile = "workouts.json"
     private static let presetsFile = "presets.json"
+    private static let profileFile = "profile.json"
 
     init(persistence: PersistenceService = PersistenceService()) {
         self.persistence = persistence
@@ -28,6 +32,7 @@ final class AppStore: ObservableObject {
         self.exercises = loadedExercises.isEmpty ? AppStore.seedExercises : loadedExercises
         self.workouts = persistence.load(Self.workoutsFile, default: [Workout]())
         self.presets = persistence.load(Self.presetsFile, default: [WorkoutPreset]())
+        self.profile = persistence.load(Self.profileFile, default: UserProfile())
 
         if loadedExercises.isEmpty {
             persistence.save(self.exercises, to: Self.exercisesFile)
@@ -36,8 +41,13 @@ final class AppStore: ObservableObject {
 
     // MARK: - Exercises
 
-    func addExercise(name: String, category: String) {
-        exercises.append(Exercise(name: name, category: category))
+    // Claude  Date 06/09/2026
+    // Create an exercise, returning it so callers (e.g. the picker) can select it.
+    @discardableResult
+    func addExercise(name: String, category: String, isUnilateral: Bool = false) -> Exercise {
+        let exercise = Exercise(name: name, category: category, isUnilateral: isUnilateral)
+        exercises.append(exercise)
+        return exercise
     }
 
     func deleteExercises(at offsets: IndexSet) {
@@ -104,7 +114,8 @@ final class AppStore: ObservableObject {
     /// exercise carrying the target rep range, with no sets yet (you fill those in).
     func workout(from preset: WorkoutPreset) -> Workout {
         Workout(exercises: preset.items.map {
-            LoggedExercise(exerciseId: $0.exerciseId, targetRepRange: $0.targetRepRange, note: $0.note)
+            LoggedExercise(exerciseId: $0.exerciseId, targetRepRange: $0.targetRepRange,
+                           note: $0.note, restSeconds: $0.restSeconds)
         })
     }
 
@@ -112,7 +123,8 @@ final class AppStore: ObservableObject {
     /// carrying its rep range and note (sets are dropped — presets hold no sets).
     func makePreset(from workout: Workout, name: String) -> WorkoutPreset {
         WorkoutPreset(name: name, items: workout.exercises.map {
-            PresetItem(exerciseId: $0.exerciseId, targetRepRange: $0.targetRepRange, note: $0.note)
+            PresetItem(exerciseId: $0.exerciseId, targetRepRange: $0.targetRepRange,
+                       note: $0.note, restSeconds: $0.restSeconds)
         })
     }
 }

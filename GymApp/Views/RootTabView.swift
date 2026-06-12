@@ -3,8 +3,15 @@ import SwiftUI
 /// The app's top-level tab bar. Each tab is an independent navigation stack.
 /// Applies the selected theme's accent tint and light/dark appearance app-wide.
 struct RootTabView: View {
+    @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var theme: ThemeManager
     @State private var selection = 0
+
+    // Claude  Date 06/12/2026
+    // First-run onboarding shows until the user completes it (enters a name).
+    private var showOnboarding: Binding<Bool> {
+        Binding(get: { !store.profile.hasOnboarded }, set: { _ in })
+    }
 
     var body: some View {
         TabView(selection: $selection) {
@@ -29,7 +36,10 @@ struct RootTabView: View {
                 .tag(4)
         }
         .tint(theme.current.accent)
-        .preferredColorScheme(theme.current.colorScheme)
+        .preferredColorScheme(theme.current.preferredColorScheme)
+        .fullScreenCover(isPresented: showOnboarding) {
+            OnboardingView()
+        }
     }
 }
 

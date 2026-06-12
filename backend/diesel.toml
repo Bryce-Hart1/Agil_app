@@ -1,0 +1,7 @@
+# Claude  Date 06/08/2026
+# Diesel CLI config: where to emit the generated schema and find migrations.
+[print_schema]
+file = "src/schema.rs"
+
+[migrations_directory]
+dir = "migrations"

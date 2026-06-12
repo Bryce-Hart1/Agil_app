@@ -5,10 +5,14 @@ import SwiftUI
 struct WorkoutDetailView: View {
     @EnvironmentObject private var store: AppStore
     let workoutID: UUID
+    // Claude  Date 06/10/2026
+    // True when this was a freshly created workout (vs editing an existing one),
+    // which changes the bottom button to "Finish Workout" vs "Finish Edit".
+    var isNew: Bool = false
 
     var body: some View {
         if let binding = store.binding(for: workoutID) {
-            WorkoutEditor(workout: binding)
+            WorkoutEditor(workout: binding, isNew: isNew)
         } else {
             Text("This workout no longer exists.")
                 .foregroundStyle(.secondary)
@@ -22,7 +26,9 @@ struct WorkoutDetailView: View {
 private struct WorkoutEditor: View {
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var theme: ThemeManager
+    @Environment(\.dismiss) private var dismiss
     @Binding var workout: Workout
+    let isNew: Bool
     @State private var showingExercisePicker = false
     @State private var showingReorder = false
     @State private var showingSaveAsPreset = false
@@ -38,7 +44,7 @@ private struct WorkoutEditor: View {
 
             ForEach($workout.exercises) { $logged in
                 Section {
-                    ExerciseLogSection(logged: $logged) {
+                    ExerciseLogSection(logged: $logged, accent: theme.current.accent) {
                         workout.exercises.removeAll { $0.id == logged.id }
                     }
                 } header: {
@@ -65,10 +71,28 @@ private struct WorkoutEditor: View {
                 TextField("Notes", text: $workout.notes, axis: .vertical)
                     .lineLimit(1...5)
             }
+
+            // Claude  Date 06/09/2026
+            // Conclude the workout and return to the list. The workout is already
+            // saved automatically, so this is just navigation — it can be reopened
+            // and edited later from the Workouts tab.
+            Section {
+                Button {
+                    hideKeyboard()
+                    dismiss()
+                } label: {
+                    Text(isNew ? "Finish Workout" : "Finish Edit")
+                        .fontWeight(.semibold)
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .listRowBackground(Color.clear)
+            }
         }
         .navigationTitle(workout.date.formatted(.dateTime.month().day()))
         .navigationBarTitleDisplayMode(.inline)
         .themed(theme.current)
+        .selectAllWhenEditingNumberFields()
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Menu {
@@ -130,6 +154,7 @@ private struct WorkoutEditor: View {
 /// and a "remove exercise" button.
 private struct ExerciseLogSection: View {
     @Binding var logged: LoggedExercise
+    let accent: Color
     let onRemove: () -> Void
 
     var body: some View {
@@ -139,6 +164,13 @@ private struct ExerciseLogSection: View {
                   text: Binding($logged.note, replacingNilWith: ""),
                   axis: .vertical)
             .lineLimit(1...4)
+
+        // Claude  Date 06/12/2026
+        // Live rest timer, shown only when this exercise carries a rest duration
+        // (i.e. it came from a preset). Ad-hoc exercises have no timer for now.
+        if let rest = logged.restSeconds {
+            RestTimerView(duration: rest, accent: accent)
+        }
 
         ForEach(logged.sets.indices, id: \.self) { index in
             SetRow(number: index + 1, set: $logged.sets[index], targetRange: logged.targetRepRange)
@@ -206,13 +238,16 @@ private struct SetRow: View {
         }
     }
 
-    /// Green when the set's reps fall within the target range, red when not,
-    /// nil when the exercise has no target range (no mark shown).
+    // Claude  Date 06/09/2026
+    // Green when reps land in the target range, yellow when ABOVE it (going over
+    // isn't a bad thing), red only when BELOW it. Nil = no target range, no mark.
     private var markColor: Color? {
         guard let range = targetRange else { return nil }
         let low = Swift.min(range.min, range.max)
         let high = Swift.max(range.min, range.max)
-        return (set.reps >= low && set.reps <= high) ? .green : .red
+        if set.reps < low { return .red }
+        if set.reps > high { return .yellow }
+        return .green
     }
 }
 

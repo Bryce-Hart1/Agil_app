@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// A modal list of the exercise library. Picking one calls `onPick` and
-/// dismisses. Includes a search field and the ability to create a new exercise
-/// inline if it isn't in the library yet.
+/// dismisses. Has a search field, an inline "create the typed name" shortcut,
+/// and a "Create New" button (top-right) for making one from scratch.
 struct ExercisePickerView: View {
     @EnvironmentObject private var store: AppStore
     @Environment(\.dismiss) private var dismiss
@@ -10,6 +10,7 @@ struct ExercisePickerView: View {
     let onPick: (Exercise) -> Void
 
     @State private var search = ""
+    @State private var showingNew = false
 
     private var filtered: [Exercise] {
         let query = search.trimmingCharacters(in: .whitespaces)
@@ -31,23 +32,26 @@ struct ExercisePickerView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(exercise.name)
                                 .foregroundStyle(.primary)
-                            Text(exercise.category)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                            HStack(spacing: 6) {
+                                Text(exercise.category)
+                                if exercise.isUnilateral {
+                                    Text("Unilateral").fontWeight(.semibold)
+                                }
+                            }
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                         }
                     }
                 }
 
-                // Offer to create the typed name if it doesn't already exist.
+                // Quick "create the typed name" shortcut when it isn't found.
                 let query = search.trimmingCharacters(in: .whitespaces)
                 if !query.isEmpty,
                    !store.exercises.contains(where: { $0.name.localizedCaseInsensitiveCompare(query) == .orderedSame }) {
                     Section {
                         Button {
-                            store.addExercise(name: query, category: "Other")
-                            if let created = store.exercises.last {
-                                onPick(created)
-                            }
+                            let created = store.addExercise(name: query, category: "Other")
+                            onPick(created)
                             dismiss()
                         } label: {
                             Label("Add \"\(query)\"", systemImage: "plus")
@@ -62,6 +66,20 @@ struct ExercisePickerView: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
+                // Claude  Date 06/09/2026
+                // Create a brand-new exercise (with category + unilateral options)
+                // without having to search first.
+                ToolbarItem(placement: .primaryAction) {
+                    Button { showingNew = true } label: {
+                        Label("Create New", systemImage: "plus")
+                    }
+                }
+            }
+            .sheet(isPresented: $showingNew) {
+                NewExerciseView(initialName: search) { created in
+                    onPick(created)
+                    dismiss()
+                }
             }
         }
     }
@@ -70,4 +88,5 @@ struct ExercisePickerView: View {
 #Preview {
     ExercisePickerView { _ in }
         .environmentObject(AppStore())
+        .environmentObject(ThemeManager())
 }

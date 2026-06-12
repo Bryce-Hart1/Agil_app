@@ -6,19 +6,12 @@ struct ExercisesListView: View {
     @EnvironmentObject private var theme: ThemeManager
 
     @State private var showingAdd = false
-    @State private var newName = ""
-    @State private var newCategory = ""
 
     var body: some View {
         NavigationStack {
             List {
                 ForEach(store.exercises) { exercise in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(exercise.name)
-                        Text(exercise.category)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                    ExerciseRow(exercise: exercise, accent: theme.current.accent)
                 }
                 .onDelete(perform: store.deleteExercises)
             }
@@ -29,28 +22,36 @@ struct ExercisesListView: View {
                     Button { showingAdd = true } label: { Image(systemName: "plus") }
                 }
             }
-            .alert("New Exercise", isPresented: $showingAdd) {
-                TextField("Name", text: $newName)
-                TextField("Category", text: $newCategory)
-                Button("Add", action: addExercise)
-                Button("Cancel", role: .cancel, action: resetForm)
-            } message: {
-                Text("Add a movement to your library.")
+            .sheet(isPresented: $showingAdd) {
+                NewExerciseView()
             }
         }
     }
+}
 
-    private func addExercise() {
-        let name = newName.trimmingCharacters(in: .whitespaces)
-        guard !name.isEmpty else { return }
-        let category = newCategory.trimmingCharacters(in: .whitespaces)
-        store.addExercise(name: name, category: category.isEmpty ? "Other" : category)
-        resetForm()
-    }
+// Claude  Date 06/09/2026
+// One exercise row: name, category, and a small "Unilateral" badge when set.
+private struct ExerciseRow: View {
+    let exercise: Exercise
+    let accent: Color
 
-    private func resetForm() {
-        newName = ""
-        newCategory = ""
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(exercise.name)
+            HStack(spacing: 6) {
+                Text(exercise.category)
+                if exercise.isUnilateral {
+                    Text("Unilateral")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(accent)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(accent.opacity(0.18), in: Capsule())
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
     }
 }
 

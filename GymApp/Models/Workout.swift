@@ -39,14 +39,16 @@ struct LoggedExercise: Identifiable, Codable, Hashable {
     var exerciseId: UUID            // references an Exercise in the library
     var targetRepRange: RepRange?   // optional per-exercise rep-range goal (e.g. 6–8)
     var note: String?               // optional form cue (e.g. "pause at chest")
+    var restSeconds: Int?           // rest timer duration (s), carried from a preset
     var sets: [ExerciseSet]
 
     init(id: UUID = UUID(), exerciseId: UUID, targetRepRange: RepRange? = nil,
-         note: String? = nil, sets: [ExerciseSet] = []) {
+         note: String? = nil, restSeconds: Int? = nil, sets: [ExerciseSet] = []) {
         self.id = id
         self.exerciseId = exerciseId
         self.targetRepRange = targetRepRange
         self.note = note
+        self.restSeconds = restSeconds
         self.sets = sets
     }
 }

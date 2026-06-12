@@ -7,12 +7,18 @@ struct PresetItem: Identifiable, Codable, Hashable {
     var exerciseId: UUID
     var targetRepRange: RepRange?
     var note: String?               // optional form cue, carried into started workouts
+    // Claude  Date 06/12/2026
+    // Optional rest duration (seconds) between sets, carried into started workouts
+    // where it drives a live countdown timer. nil = no rest timer for this exercise.
+    var restSeconds: Int?
 
-    init(id: UUID = UUID(), exerciseId: UUID, targetRepRange: RepRange? = nil, note: String? = nil) {
+    init(id: UUID = UUID(), exerciseId: UUID, targetRepRange: RepRange? = nil,
+         note: String? = nil, restSeconds: Int? = nil) {
         self.id = id
         self.exerciseId = exerciseId
         self.targetRepRange = targetRepRange
         self.note = note
+        self.restSeconds = restSeconds
     }
 }
 

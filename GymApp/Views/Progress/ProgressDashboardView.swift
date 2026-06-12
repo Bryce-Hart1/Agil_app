@@ -64,7 +64,7 @@ struct ProgressDashboardView: View {
         Section("Estimated 1RM") {
             Picker("Exercise", selection: $selectedExerciseID) {
                 ForEach(loggedExercises) { exercise in
-                    Text(exercise.name).tag(Optional(exercise.id))
+                    Text(exercise.displayLabel).tag(Optional(exercise.id))
                 }
             }
             if oneRepMaxPoints.count >= 1 {
@@ -224,7 +224,7 @@ struct ProgressDashboardView: View {
         }
         return best.compactMap { id, value in
             guard let exercise = store.exercise(for: id) else { return nil }
-            return PersonalRecord(id: id, name: exercise.name,
+            return PersonalRecord(id: id, name: exercise.name, isUnilateral: exercise.isUnilateral,
                                   bestWeight: value.weight, estOneRepMax: value.oneRepMax)
         }
         .sorted { $0.estOneRepMax > $1.estOneRepMax }
@@ -255,6 +255,7 @@ private struct CategoryBar: Identifiable {
 private struct PersonalRecord: Identifiable {
     let id: UUID
     let name: String
+    let isUnilateral: Bool
     let bestWeight: Double
     let estOneRepMax: Double
 }
@@ -326,6 +327,11 @@ private struct PRRow: View {
     var body: some View {
         HStack {
             Text(record.name)
+            if record.isUnilateral {
+                Text("(unilateral)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             Spacer()
             VStack(alignment: .trailing, spacing: 2) {
                 Text("\(Int(record.bestWeight.rounded())) lb").font(.subheadline)

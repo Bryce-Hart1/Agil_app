@@ -1,11 +1,19 @@
 import SwiftUI
 
+// Claude  Date 06/10/2026
+// Navigation target for the workout editor. `isNew` distinguishes logging a
+// brand-new workout ("Finish Workout") from editing an existing one ("Finish Edit").
+struct WorkoutRoute: Hashable {
+    let id: UUID
+    let isNew: Bool
+}
+
 /// Lists past workouts (newest first). Tap a row to open the editor; the +
 /// button creates a new workout and navigates straight into it.
 struct WorkoutsListView: View {
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var theme: ThemeManager
-    @State private var path: [UUID] = []
+    @State private var path: [WorkoutRoute] = []
 
     private var sortedWorkouts: [Workout] {
         store.workouts.sorted { $0.date > $1.date }
@@ -19,7 +27,7 @@ struct WorkoutsListView: View {
                         .foregroundStyle(.secondary)
                 } else {
                     ForEach(sortedWorkouts) { workout in
-                        NavigationLink(value: workout.id) {
+                        NavigationLink(value: WorkoutRoute(id: workout.id, isNew: false)) {
                             WorkoutRow(workout: workout)
                         }
                     }
@@ -30,8 +38,8 @@ struct WorkoutsListView: View {
             }
             .navigationTitle("Workouts")
             .themed(theme.current)
-            .navigationDestination(for: UUID.self) { id in
-                WorkoutDetailView(workoutID: id)
+            .navigationDestination(for: WorkoutRoute.self) { route in
+                WorkoutDetailView(workoutID: route.id, isNew: route.isNew)
             }
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
@@ -64,10 +72,10 @@ struct WorkoutsListView: View {
         }
     }
 
-    /// Adds a workout to the store and navigates into its editor.
+    /// Adds a new workout to the store and navigates into its editor (as new).
     private func start(_ workout: Workout) {
         store.addWorkout(workout)
-        path.append(workout.id)
+        path.append(WorkoutRoute(id: workout.id, isNew: true))
     }
 }
 
