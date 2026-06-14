@@ -50,9 +50,7 @@ struct ExercisePickerView: View {
                    !store.exercises.contains(where: { $0.name.localizedCaseInsensitiveCompare(query) == .orderedSame }) {
                     Section {
                         Button {
-                            let created = store.addExercise(name: query, category: "Other")
-                            onPick(created)
-                            dismiss()
+                            createExercise(named: query)
                         } label: {
                             Label("Add \"\(query)\"", systemImage: "plus")
                         }
@@ -60,6 +58,13 @@ struct ExercisePickerView: View {
                 }
             }
             .searchable(text: $search, prompt: "Search exercises")
+            // Claude  Date 06/13/2026
+            // QoL: when the search matches no exercises, the Return key creates the
+            // typed exercise instead of just dismissing the keyboard. (With matches
+            // present, Return behaves as a normal search submit.)
+            .onSubmit(of: .search) {
+                if filtered.isEmpty { createExercise(named: search) }
+            }
             .navigationTitle("Add Exercise")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -82,6 +87,17 @@ struct ExercisePickerView: View {
                 }
             }
         }
+    }
+
+    // Claude  Date 06/13/2026
+    // Create an exercise from a typed name (category "Other"), pick it, and close.
+    // Shared by the inline "Add …" row and the no-results Return shortcut.
+    private func createExercise(named name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
+        let created = store.addExercise(name: trimmed, category: "Other")
+        onPick(created)
+        dismiss()
     }
 }
 

@@ -1,54 +1,35 @@
 import SwiftUI
 
-/// Lists preset and custom themes for selection, and lets the user create,
-/// edit, or delete custom themes.
+// Claude  Date 06/13/2026 last changed: 06/13/2026 by: Claude
+/// Lists the themes you currently own for quick selection. Buying new themes
+/// now happens in the Shop (Profile → Shop), and custom themes are disabled for
+/// now — so this shows only unlocked presets. (ThemeEditorView is kept in the
+/// project for when custom themes return.)
 struct ThemeSettingsView: View {
     @EnvironmentObject private var theme: ThemeManager
 
-    @State private var editingTheme: AppTheme?
-    @State private var creatingTheme: AppTheme?
+    // Claude  Date 06/13/2026
+    // Only themes the user has unlocked are selectable here; locked ones live in the Shop.
+    private var ownedPresets: [AppTheme] {
+        AppTheme.builtIns.filter { theme.isUnlocked($0) }
+    }
 
     var body: some View {
         List {
-            Section("Presets") {
-                ForEach(AppTheme.builtIns) { preset in
+            Section {
+                ForEach(ownedPresets) { preset in
                     ThemeRow(theme: preset, isSelected: preset.id == theme.selectedID) {
                         theme.select(preset)
                     }
                 }
-            }
-
-            Section("Custom") {
-                ForEach(theme.customThemes) { custom in
-                    ThemeRow(theme: custom, isSelected: custom.id == theme.selectedID) {
-                        theme.select(custom)
-                    }
-                    .swipeActions(edge: .trailing) {
-                        Button(role: .destructive) {
-                            theme.delete(custom)
-                        } label: {
-                            Label("Delete", systemImage: "trash")
-                        }
-                        Button {
-                            editingTheme = custom
-                        } label: {
-                            Label("Edit", systemImage: "pencil")
-                        }
-                        .tint(.gray)
-                    }
-                }
-
-                Button {
-                    creatingTheme = theme.current.asNewTemplate()
-                } label: {
-                    Label("Create Custom Theme", systemImage: "plus")
-                }
+            } header: {
+                Text("Your Themes")
+            } footer: {
+                Text("Unlock more themes in the Shop (Profile → Shop).")
             }
         }
         .navigationTitle("Theme")
         .themed(theme.current)
-        .sheet(item: $editingTheme) { ThemeEditorView(base: $0) }
-        .sheet(item: $creatingTheme) { ThemeEditorView(base: $0) }
     }
 }
 

@@ -10,6 +10,7 @@ import Foundation
 struct ProfileStats: Codable, Hashable {
     var totalWorkouts: Int
     var totalSets: Int
+    var daysLogged: Int          // distinct calendar days with at least one workout
     var totalVolume: Double      // Σ reps×weight across all sets, in lb
     var heaviestLift: Double     // single heaviest set weight, in lb
     var weekStreak: Int          // consecutive calendar weeks (incl. current) with a workout
@@ -22,6 +23,9 @@ struct ProfileStats: Codable, Hashable {
     init(workouts: [Workout], exercises: [Exercise]) {
         totalWorkouts = workouts.count
         totalSets = workouts.reduce(0) { $0 + $1.totalSets }
+        // Claude  Date 06/13/2026
+        // Distinct days trained (used as the "Days Logged" achievement).
+        daysLogged = Set(workouts.map { Calendar.current.startOfDay(for: $0.date) }).count
 
         var volume = 0.0
         var heaviest = 0.0
@@ -65,11 +69,11 @@ struct ProfileStats: Codable, Hashable {
         }
         weekStreak = streak
 
-        // Claude  Date 06/10/2026
-        // Initialize Bryce's added fields so the struct compiles.
+        // Claude  Date 06/10/2026 last changed: 06/13/2026 by: Claude
         // favoriteCurrentExercise = the most-performed exercise (by set count)
-        // across the most recent 15 workouts. totalPoints has no scoring formula
-        // defined yet, so it defaults to 0 (TODO: define the points system).
+        // across the most recent 15 workouts. totalPoints is now the lifetime
+        // coins earned from workout consistency (see Coins.earned) — this is the
+        // *earned* total; the spendable balance subtracts what's been spent.
         let recentWorkouts = workouts.sorted { $0.date > $1.date }.prefix(15)
         var setsByExercise: [UUID: Int] = [:]
         for workout in recentWorkouts {
@@ -82,6 +86,6 @@ struct ProfileStats: Codable, Hashable {
         )
         favoriteCurrentExercise = setsByExercise.max { $0.value < $1.value }
             .flatMap { nameByExercise[$0.key] }
-        totalPoints = 0
+        totalPoints = Coins.earned(from: workouts)
     }
 }

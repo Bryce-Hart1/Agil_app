@@ -1,52 +1,110 @@
 import SwiftUI
 
+// Bryce Hart 6/4/26 last changed: 06/13/2026 by: Claude
 /// Sets or edits a target rep range. Shows an "add" affordance when no range is
 /// set, and inline min/max fields (with a clear button) once it is.
 ///
 /// Shared by the workout editor (per logged exercise) and the preset editor
 /// (per preset item).
+///
+// Claude  Date 06/13/2026
+// Reworked the inputs to be string-backed instead of `.number`-formatted Int
+// fields. The old Int fields refused an empty string, so clearing a value to
+// retype it snapped back — frustrating to change. Now each field:
+//   • accepts digits only (no negatives, no junk),
+//   • can be left blank while you're editing (no snap-back),
+//   • is normalized when focus leaves: both blank → range removed; one blank →
+//     mirrors the other (a single target); otherwise kept as entered. Display
+//     order is handled by RepRange.display, so min/max order doesn't matter.
 struct RepRangeRow: View {
     @Binding var targetRepRange: RepRange?
 
+    @State private var minText = ""
+    @State private var maxText = ""
+    @FocusState private var focused: Field?
+
+    private enum Field: Hashable { case min, max }
+
     var body: some View {
-        if targetRepRange != nil {
-            HStack {
-                Label("Target", systemImage: "target")
-                    .foregroundStyle(.secondary)
-                Spacer()
-                TextField("min", value: minBinding, format: .number)
-                    .keyboardType(.numberPad)
-                    .multilineTextAlignment(.center)
-                    .frame(width: 40)
-                Text("–").foregroundStyle(.secondary)
-                TextField("max", value: maxBinding, format: .number)
-                    .keyboardType(.numberPad)
-                    .multilineTextAlignment(.center)
-                    .frame(width: 40)
-                Text("reps").foregroundStyle(.secondary)
+        Group {
+            if targetRepRange != nil {
+                activeRow
+            } else {
                 Button {
-                    targetRepRange = nil
+                    targetRepRange = RepRange(min: 8, max: 12)
                 } label: {
-                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                    Label("Set rep range", systemImage: "target")
                 }
-                .buttonStyle(.plain)
             }
-        } else {
+        }
+        .onAppear(perform: syncText)
+        // Re-seed the text when the range is (re)added via the button.
+        .onChange(of: targetRepRange == nil) { isNil in if !isNil { syncText() } }
+        // Settle edge cases once the user taps away from the fields.
+        .onChange(of: focused) { newValue in if newValue == nil { normalize() } }
+    }
+
+    private var activeRow: some View {
+        HStack {
+            Label("Target", systemImage: "target")
+                .foregroundStyle(.secondary)
+            Spacer()
+            numberField($minText, placeholder: "min", field: .min)
+            Text("–").foregroundStyle(.secondary)
+            numberField($maxText, placeholder: "max", field: .max)
+            Text("reps").foregroundStyle(.secondary)
             Button {
-                targetRepRange = RepRange(min: 8, max: 12)
+                targetRepRange = nil
             } label: {
-                Label("Set rep range", systemImage: "target")
+                Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
             }
+            .buttonStyle(.plain)
         }
     }
 
-    private var minBinding: Binding<Int> {
-        Binding(get: { targetRepRange?.min ?? 0 },
-                set: { targetRepRange?.min = $0 })
+    private func numberField(_ text: Binding<String>, placeholder: String, field: Field) -> some View {
+        TextField(placeholder, text: text)
+            .keyboardType(.numberPad)
+            .multilineTextAlignment(.center)
+            .frame(width: 44)
+            .focused($focused, equals: field)
+            .onChange(of: text.wrappedValue) { newValue in
+                // Keep digits only (blocks "-" and other characters); cap length.
+                let digits = String(newValue.filter(\.isNumber).prefix(3))
+                if digits != newValue { text.wrappedValue = digits }
+                liveCommit()
+            }
     }
 
-    private var maxBinding: Binding<Int> {
-        Binding(get: { targetRepRange?.max ?? 0 },
-                set: { targetRepRange?.max = $0 })
+    // Keep the model in sync as the user types so the value isn't lost if the
+    // sheet closes without a blur. Leaves the range untouched while *both* fields
+    // are blank (normalize() handles that on focus loss) to avoid churning to 0–0.
+    private func liveCommit() {
+        guard targetRepRange != nil else { return }
+        let lo = Int(minText)
+        let hi = Int(maxText)
+        guard lo != nil || hi != nil else { return }
+        targetRepRange = RepRange(min: lo ?? 0, max: hi ?? 0)
+    }
+
+    // Resolve the edge cases when the fields lose focus.
+    private func normalize() {
+        guard targetRepRange != nil else { return }
+        switch (Int(minText), Int(maxText)) {
+        case (nil, nil):
+            targetRepRange = nil                          // left entirely blank → no range
+        case (let only?, nil), (nil, let only?):
+            targetRepRange = RepRange(min: only, max: only) // one side blank → single target
+            syncText()
+        case (let lo?, let hi?):
+            targetRepRange = RepRange(min: lo, max: hi)
+        }
+    }
+
+    private func syncText() {
+        if let range = targetRepRange {
+            minText = "\(range.min)"
+            maxText = "\(range.max)"
+        }
     }
 }

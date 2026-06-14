@@ -24,10 +24,15 @@ struct AppTheme: Identifiable, Codable, Hashable {
     var darkAccentHex: String?
     var darkBackgroundHex: String?
     var darkSurfaceHex: String?
+    // Claude  Date 06/13/2026
+    // Coin cost to unlock this theme in the Shop. 0 = free (Classic + any custom
+    // theme you make yourself); paid built-ins cost 500.
+    var price: Int
 
     init(id: UUID = UUID(), name: String, isBuiltIn: Bool = false, isDark: Bool,
          accentHex: String, backgroundHex: String, surfaceHex: String,
-         darkAccentHex: String? = nil, darkBackgroundHex: String? = nil, darkSurfaceHex: String? = nil) {
+         darkAccentHex: String? = nil, darkBackgroundHex: String? = nil, darkSurfaceHex: String? = nil,
+         price: Int = 0) {
         self.id = id
         self.name = name
         self.isBuiltIn = isBuiltIn
@@ -38,6 +43,30 @@ struct AppTheme: Identifiable, Codable, Hashable {
         self.darkAccentHex = darkAccentHex
         self.darkBackgroundHex = darkBackgroundHex
         self.darkSurfaceHex = darkSurfaceHex
+        self.price = price
+    }
+
+    // Claude  Date 06/13/2026
+    // Explicit CodingKeys + decoder so custom themes saved before `price` existed
+    // still load (absent price → 0). Declaring the keys keeps the synthesized
+    // encoder in sync (it now writes `price` too).
+    enum CodingKeys: String, CodingKey {
+        case id, name, isBuiltIn, isDark, accentHex, backgroundHex, surfaceHex
+        case darkAccentHex, darkBackgroundHex, darkSurfaceHex, price
+    }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        isBuiltIn = try c.decode(Bool.self, forKey: .isBuiltIn)
+        isDark = try c.decode(Bool.self, forKey: .isDark)
+        accentHex = try c.decode(String.self, forKey: .accentHex)
+        backgroundHex = try c.decode(String.self, forKey: .backgroundHex)
+        surfaceHex = try c.decode(String.self, forKey: .surfaceHex)
+        darkAccentHex = try c.decodeIfPresent(String.self, forKey: .darkAccentHex)
+        darkBackgroundHex = try c.decodeIfPresent(String.self, forKey: .darkBackgroundHex)
+        darkSurfaceHex = try c.decodeIfPresent(String.self, forKey: .darkSurfaceHex)
+        price = try c.decodeIfPresent(Int.self, forKey: .price) ?? 0
     }
 
     // Claude  Date 06/09/2026
@@ -97,25 +126,31 @@ extension AppTheme {
         accentHex: "#EA0F8B", backgroundHex: "#FCEEF6", surfaceHex: "#FFFFFF",
         darkAccentHex: "#FF4FB0", darkBackgroundHex: "#130810", darkSurfaceHex: "#211019")
 
+    // Claude  Date 06/13/2026
+    // The non-Classic built-ins cost 500 coins each to unlock in the Shop.
     static let midnight = AppTheme(
         id: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!,
         name: "Midnight", isBuiltIn: true, isDark: true,
-        accentHex: "#5E5CE6", backgroundHex: "#0B0B0F", surfaceHex: "#1C1C1E")
+        accentHex: "#5E5CE6", backgroundHex: "#0B0B0F", surfaceHex: "#1C1C1E",
+        price: 500)
 
     static let deep_sea = AppTheme(
         id: UUID(uuidString: "00000000-0000-0000-0000-000000000003")!,
         name: "Deep Sea", isBuiltIn: true, isDark: false,
-        accentHex: "#17646c", backgroundHex: "#EAF6F8", surfaceHex: "#FFFFFF")
+        accentHex: "#17646c", backgroundHex: "#EAF6F8", surfaceHex: "#FFFFFF",
+        price: 500)
 
     static let sunset = AppTheme(
         id: UUID(uuidString: "00000000-0000-0000-0000-000000000004")!,
         name: "sunset", isBuiltIn: true, isDark: false,
-        accentHex: "#FF7043", backgroundHex: "#bb5f2a", surfaceHex: "#000000")
+        accentHex: "#FF7043", backgroundHex: "#bb5f2a", surfaceHex: "#000000",
+        price: 500)
 
     static let leaf = AppTheme(
         id: UUID(uuidString: "00000000-0000-0000-0000-000000000005")!,
         name: "Leaf", isBuiltIn: true, isDark: true,
-        accentHex: "#34C759", backgroundHex: "#0E1511", surfaceHex: "#16201A")
+        accentHex: "#34C759", backgroundHex: "#0E1511", surfaceHex: "#16201A",
+        price: 500)
 
     static let builtIns: [AppTheme] = [classic, midnight, deep_sea, sunset, leaf]
 }

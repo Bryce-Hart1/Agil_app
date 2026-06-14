@@ -1,31 +1,55 @@
 import Foundation
 
-// Claude  Date 06/09/2026 last changed: 06/12/2026 by: Claude
+// Claude  Date 06/13/2026
+// Where the user wants their data to live (chosen during onboarding). "friends"
+// (add others via a friend code, see their profile card) is a stated direction
+// but not built yet — for now this just records the preference.
+enum DataMode: String, Codable, Hashable {
+    case offline   // all data stays on device; can't add other users
+    case friends   // can add others via a friend code (future)
+}
+
+// Claude  Date 06/09/2026 last changed: 06/13/2026 by: Claude
 // The local user profile. Drives onboarding, the profile card, and (later) the
 // online/shareable profile. Codable so it can sync to the backend.
+// (Added dataMode — the onboarding data-storage choice.)
 struct UserProfile: Codable, Hashable {
     var displayName: String
     // Whether first-run onboarding (the welcome name prompt) has been completed.
     var hasOnboarded: Bool
-    // The profile card's color (hex). Customizable via "Edit Profile Card".
-    var cardColorHex: String
+    // The chosen profile-card style (CardStyle.id). Customizable via "Edit Profile Card".
+    var cardStyleID: String
+    // The data-storage mode chosen during onboarding.
+    var dataMode: DataMode
 
-    init(displayName: String = "", hasOnboarded: Bool = false, cardColorHex: String = "#EA0F8B") {
+    init(displayName: String = "", hasOnboarded: Bool = false,
+         cardStyleID: String = CardStyle.defaultStyle.id, dataMode: DataMode = .offline) {
         self.displayName = displayName
         self.hasOnboarded = hasOnboarded
-        self.cardColorHex = cardColorHex
+        self.cardStyleID = cardStyleID
+        self.dataMode = dataMode
     }
 
-    // Claude  Date 06/12/2026
+    // Claude  Date 06/12/2026 last changed: 06/13/2026 by: Claude
     // Custom decode so profiles saved before these fields existed still load. If
-    // hasOnboarded is absent, treat an already-named user as onboarded so we
-    // don't re-show the welcome prompt to existing users.
-    enum CodingKeys: String, CodingKey { case displayName, hasOnboarded, cardColorHex }
+    // hasOnboarded is absent, treat an already-named user as onboarded so we don't
+    // re-show the welcome prompt. dataMode defaults to .offline. cardStyleID is
+    // new: if absent, migrate from the legacy cardColorHex (#000000 → "black",
+    // anything else → the default style).
+    enum CodingKeys: String, CodingKey { case displayName, hasOnboarded, cardStyleID, dataMode }
+    private enum LegacyKeys: String, CodingKey { case cardColorHex }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         displayName = try c.decodeIfPresent(String.self, forKey: .displayName) ?? ""
         hasOnboarded = try c.decodeIfPresent(Bool.self, forKey: .hasOnboarded) ?? !displayName.isEmpty
-        cardColorHex = try c.decodeIfPresent(String.self, forKey: .cardColorHex) ?? "#EA0F8B"
+        dataMode = try c.decodeIfPresent(DataMode.self, forKey: .dataMode) ?? .offline
+        if let id = try c.decodeIfPresent(String.self, forKey: .cardStyleID) {
+            cardStyleID = id
+        } else {
+            let legacy = try decoder.container(keyedBy: LegacyKeys.self)
+            let hex = try legacy.decodeIfPresent(String.self, forKey: .cardColorHex)
+            cardStyleID = CardStyle.id(forLegacyHex: hex) ?? CardStyle.defaultStyle.id
+        }
     }
 
     /// Name to show in the UI, falling back to a placeholder when unset.
