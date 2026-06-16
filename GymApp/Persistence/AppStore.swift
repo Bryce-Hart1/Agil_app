@@ -391,6 +391,21 @@ final class AppStore: ObservableObject {
     }
 
     // Claude  Date 06/16/2026
+    // Persist a food fetched from Open Food Facts into the local library so it works
+    // offline next time. Deduped by barcode: if we already cached this product,
+    // return the existing copy (don't append a duplicate) so logging links to one
+    // stable library entry. Foods without a barcode are always added.
+    @discardableResult
+    func cacheFood(_ food: FoodItem) -> FoodItem {
+        if let code = food.barcode, !code.isEmpty,
+           let existing = foods.first(where: { $0.barcode == code }) {
+            return existing
+        }
+        foods.append(food)
+        return food
+    }
+
+    // Claude  Date 06/16/2026
     // Log a library food into the diary at `servings` of its reference serving,
     // under `meal`, on the calendar day `date`. The entry SNAPSHOTS the food's
     // name + per-serving nutrients (see FoodEntry.from), so later edits to the
@@ -403,6 +418,16 @@ final class AppStore: ObservableObject {
 
     func deleteFoodEntry(id: UUID) {
         foodLog.removeAll { $0.id == id }
+    }
+
+    // Claude  Date 06/16/2026
+    // Replace a logged entry in place (matched by id), e.g. after correcting its
+    // servings or meal in the editor. The nutrient snapshot is preserved by the
+    // caller — this just writes the edited entry back, which persists via didSet.
+    func updateFoodEntry(_ entry: FoodEntry) {
+        if let index = foodLog.firstIndex(where: { $0.id == entry.id }) {
+            foodLog[index] = entry
+        }
     }
 
     // Claude  Date 06/16/2026

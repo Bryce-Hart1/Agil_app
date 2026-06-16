@@ -14,6 +14,9 @@ struct NutritionJournalView: View {
     @State private var selectedDate = Date()
     // Which meal the food picker is logging into (nil = picker closed).
     @State private var addingToMeal: MealType?
+    // Claude  Date 06/16/2026
+    // The logged entry being edited (nil = editor closed). Tapping a row opens it.
+    @State private var editingEntry: FoodEntry?
 
     private var day: NutritionDay { store.nutritionDay(for: selectedDate) }
 
@@ -40,6 +43,9 @@ struct NutritionJournalView: View {
             }
             .sheet(item: $addingToMeal) { meal in
                 FoodPickerView(meal: meal, date: selectedDate)
+            }
+            .sheet(item: $editingEntry) { entry in
+                EditFoodEntryView(entry: entry)
             }
         }
     }
@@ -130,7 +136,10 @@ struct NutritionJournalView: View {
         let mealKcal = Int(day.totals(for: meal).calories.rounded())
         return Section {
             ForEach(entries) { entry in
-                FoodEntryRow(entry: entry)
+                Button { editingEntry = entry } label: {
+                    FoodEntryRow(entry: entry)
+                }
+                .buttonStyle(.plain)
             }
             .onDelete { offsets in
                 offsets.map { entries[$0].id }.forEach(store.deleteFoodEntry)
