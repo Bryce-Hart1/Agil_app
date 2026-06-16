@@ -5,7 +5,15 @@ import SwiftUI
 struct RootTabView: View {
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var theme: ThemeManager
-    @State private var selection = 0
+    // Claude  Date 06/16/2026
+    // The bar leads with a mode switcher (tag 0). Real tabs start at tag 1, so the
+    // first content tab is selected on launch and after every mode flip.
+    @State private var selection = 1
+    // Claude  Date 06/16/2026
+    // Which world the bar shows — lifting vs nutrition. Persisted so the app reopens
+    // where you left off. Tapping the tag-0 switcher tab flips it (see onChange).
+    @AppStorage("appMode") private var modeRaw = AppMode.lifting.rawValue
+    private var mode: AppMode { AppMode(rawValue: modeRaw) ?? .lifting }
 
     // Claude  Date 06/12/2026
     // First-run onboarding shows until the user completes it (enters a name).
@@ -15,25 +23,57 @@ struct RootTabView: View {
 
     var body: some View {
         TabView(selection: $selection) {
-            WorkoutsListView()
-                .tabItem { Label("Workouts", systemImage: "dumbbell") }
+            // Claude  Date 06/16/2026
+            // Mode switcher — the leftmost icon. It advertises the OTHER world (fork
+            // in Lifting, dumbbell in Nutrition); selecting it flips modes and bounces
+            // selection back to tag 1, so its placeholder content never actually shows.
+            Color.clear
+                .tabItem { Label(mode.switchLabel, systemImage: mode.switchIcon) }
                 .tag(0)
 
-            // Claude  Date 06/16/2026
-            // The "Build" hub: workout presets (templates), with the exercise library
-            // reachable from its top-left link. Exercises is no longer its own tab —
-            // that frees the 5th slot for a future nutrition/calories tab.
-            PresetsListView()
-                .tabItem { Label("Build", systemImage: "plus.square.on.square") }
-                .tag(1)
+            if mode == .lifting {
+                WorkoutsListView()
+                    .tabItem { Label("Workouts", systemImage: "dumbbell") }
+                    .tag(1)
 
-            ProgressDashboardView()
-                .tabItem { Label("Progress", systemImage: "chart.bar.xaxis") }
-                .tag(2)
+                // Claude  Date 06/16/2026
+                // The "Build" hub: workout presets (templates), with the exercise
+                // library reachable from its top-left link.
+                PresetsListView()
+                    .tabItem { Label("Build", systemImage: "plus.square.on.square") }
+                    .tag(2)
 
-            ProfileView()
-                .tabItem { Label("Profile", systemImage: "person.crop.circle") }
-                .tag(3)
+                ProgressDashboardView()
+                    .tabItem { Label("Progress", systemImage: "chart.bar.xaxis") }
+                    .tag(3)
+
+                ProfileView()
+                    .tabItem { Label("Profile", systemImage: "person.crop.circle") }
+                    .tag(4)
+            } else {
+                // Claude  Date 06/16/2026 Edited 6/16/26 Bryce Hart
+                // Nutrition world: per-day food Journal, the food library, and the
+                // shared profile. Goals are reached from the Journal's toolbar.
+                NutritionJournalView()
+                    .tabItem { Label("Journal", systemImage: "fork.knife") }
+                    .tag(1)
+
+                FoodLibraryView()
+                    .tabItem { Label("Foods", systemImage: "carrot") }
+                    .tag(2)
+
+                ProfileView()
+                    .tabItem { Label("Profile", systemImage: "person.crop.circle") }
+                    .tag(3)
+            }
+        }
+        // Claude  Date 06/16/2026
+        // Intercept a tap on the switcher tab: flip the world and land on its first
+        // real tab instead of staying on the empty placeholder.
+        .onChange(of: selection) { newValue in
+            guard newValue == 0 else { return }
+            modeRaw = mode.toggled.rawValue
+            selection = 1
         }
         .tint(theme.current.accent)
         .preferredColorScheme(theme.current.preferredColorScheme)

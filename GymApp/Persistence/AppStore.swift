@@ -34,6 +34,16 @@ final class AppStore: ObservableObject {
     // Claude  Date 06/09/2026
     // Local user profile (display name). Persisted like everything else.
     @Published var profile: UserProfile { didSet { persistence.save(profile, to: Self.profileFile) } }
+    // Claude  Date 06/16/2026
+    // Nutrition tracking. Mirrors the workouts model: `foods` is the reusable food
+    // library (seeded on first launch, like seedExercises; later augmented by the
+    // Open Food Facts cache), `foodLog`/`waterLog` are the dated diary entries, and
+    // `nutritionGoals` holds the daily targets the diary fills toward. Each auto-
+    // saves on change via its own JSON file.
+    @Published var foods: [FoodItem] { didSet { persistence.save(foods, to: Self.foodsFile) } }
+    @Published var foodLog: [FoodEntry] { didSet { persistence.save(foodLog, to: Self.foodLogFile) } }
+    @Published var waterLog: [WaterEntry] { didSet { persistence.save(waterLog, to: Self.waterLogFile) } }
+    @Published var nutritionGoals: NutritionGoals { didSet { persistence.save(nutritionGoals, to: Self.nutritionGoalsFile) } }
     // Claude  Date 06/13/2026
     // Achievement ids the user has unlocked. Sticky — once earned, never removed
     // (so e.g. a streak badge survives a missed week). Recomputed from history by
@@ -67,6 +77,11 @@ final class AppStore: ObservableObject {
     private static let celebratedFile = "celebrated_achievements.json"
     private static let activityLogFile = "activity_log.json"
     private static let rankFile = "strategist_rank.json"
+    // Claude  Date 06/16/2026 — nutrition data files.
+    private static let foodsFile = "foods.json"
+    private static let foodLogFile = "nutrition_log.json"
+    private static let waterLogFile = "water_log.json"
+    private static let nutritionGoalsFile = "nutrition_goals.json"
 
     init(persistence: PersistenceService = PersistenceService()) {
         self.persistence = persistence
@@ -83,8 +98,20 @@ final class AppStore: ObservableObject {
         self.celebratedRank = persistence.load(Self.rankFile, default: StrategistRank.pawn)
         self.activityLog = persistence.load(Self.activityLogFile, default: [ActivityEvent]())
 
+        // Claude  Date 06/16/2026
+        // Nutrition: seed the food library on first launch (same pattern as
+        // exercises). The diary/water logs start empty; goals fall back to defaults.
+        let loadedFoods = persistence.load(Self.foodsFile, default: [FoodItem]())
+        self.foods = loadedFoods.isEmpty ? AppStore.seedFoods : loadedFoods
+        self.foodLog = persistence.load(Self.foodLogFile, default: [FoodEntry]())
+        self.waterLog = persistence.load(Self.waterLogFile, default: [WaterEntry]())
+        self.nutritionGoals = persistence.load(Self.nutritionGoalsFile, default: NutritionGoals())
+
         if loadedExercises.isEmpty {
             persistence.save(self.exercises, to: Self.exercisesFile)
+        }
+        if loadedFoods.isEmpty {
+            persistence.save(self.foods, to: Self.foodsFile)
         }
 
         // Claude  Date 06/13/2026
@@ -348,6 +375,64 @@ final class AppStore: ObservableObject {
         )
     }
 
+    // MARK: - Nutrition
+
+    // Claude  Date 06/16/2026
+    // Add a food to the library, returning it so callers (e.g. the picker) can log
+    // it immediately after creating it. Mirrors addExercise.
+    @discardableResult
+    func addFood(_ food: FoodItem) -> FoodItem {
+        foods.append(food)
+        return food
+    }
+
+    func deleteFood(_ food: FoodItem) {
+        foods.removeAll { $0.id == food.id }
+    }
+
+    // Claude  Date 06/16/2026
+    // Log a library food into the diary at `servings` of its reference serving,
+    // under `meal`, on the calendar day `date`. The entry SNAPSHOTS the food's
+    // name + per-serving nutrients (see FoodEntry.from), so later edits to the
+    // library never rewrite this diary record. `date` is stamped with the current
+    // time-of-day so entries on the selected day stay chronologically ordered.
+    func logFood(_ food: FoodItem, servings: Double, meal: MealType, on date: Date = Date()) {
+        foodLog.append(FoodEntry.from(food, servings: servings, mealType: meal,
+                                      loggedAt: Self.stamp(date)))
+    }
+
+    func deleteFoodEntry(id: UUID) {
+        foodLog.removeAll { $0.id == id }
+    }
+
+    // Claude  Date 06/16/2026
+    // Add water (canonical milliliters) toward the day's goal, stamped onto `date`.
+    func logWater(milliliters: Double, on date: Date = Date()) {
+        waterLog.append(WaterEntry(milliliters: milliliters, loggedAt: Self.stamp(date)))
+    }
+
+    func deleteWaterEntry(id: UUID) {
+        waterLog.removeAll { $0.id == id }
+    }
+
+    // Claude  Date 06/16/2026
+    // The derived diary view for one calendar day (totals + per-meal grouping).
+    func nutritionDay(for date: Date) -> NutritionDay {
+        NutritionDay(date: date, foodLog: foodLog, waterLog: waterLog)
+    }
+
+    // Claude  Date 06/16/2026
+    // Logging onto the diary's selected day: keep "now" for today, otherwise pin the
+    // chosen day at the current time-of-day so back-dated entries sort sensibly and
+    // never land on the wrong calendar day.
+    private static func stamp(_ date: Date) -> Date {
+        let cal = Calendar.current
+        if cal.isDateInToday(date) { return Date() }
+        let t = cal.dateComponents([.hour, .minute, .second], from: Date())
+        return cal.date(bySettingHour: t.hour ?? 12, minute: t.minute ?? 0,
+                        second: t.second ?? 0, of: date) ?? date
+    }
+
     // MARK: - Presets
 
     func addPreset(_ preset: WorkoutPreset) {
@@ -478,5 +563,42 @@ extension AppStore {
         Exercise(name: "Hanging Leg Raise", region: .core, category: "Core", primaryMover: "Rectus Abdominis (Lower)", quality: .optimal),
         Exercise(name: "Pallof Press", region: .core, category: "Core", isUnilateral: true, primaryMover: "Obliques", quality: .optimal),
         Exercise(name: "Plank", region: .core, category: "Core", primaryMover: "Transverse Abdominis", quality: .classic),
+    ]
+}
+
+// MARK: - Seed foods
+
+extension AppStore {
+    // Claude  Date 06/16/2026
+    // A small starter food library pre-loaded on first launch (the nutrition analog
+    // of seedExercises), so the diary is usable before the Open Food Facts search
+    // lands in Phase 2. Values are approximate per the stated reference serving:
+    // calories kcal; protein/carbs/fat/fiber/sugar grams; sodium mg. `source: .seed`
+    // marks them as shipped (vs custom / API-cached).
+    static let seedFoods: [FoodItem] = [
+        FoodItem(name: "Chicken Breast, cooked", servingSize: 100, servingUnit: "g",
+                 nutrients: Nutrients(calories: 165, protein: 31, carbs: 0, fat: 3.6, sodium: 74), source: .seed),
+        FoodItem(name: "Salmon, cooked", servingSize: 100, servingUnit: "g",
+                 nutrients: Nutrients(calories: 206, protein: 22, carbs: 0, fat: 13, sodium: 61), source: .seed),
+        FoodItem(name: "Whole Egg", servingSize: 1, servingUnit: "large egg",
+                 nutrients: Nutrients(calories: 72, protein: 6.3, carbs: 0.4, fat: 4.8, sodium: 71), source: .seed),
+        FoodItem(name: "White Rice, cooked", servingSize: 100, servingUnit: "g",
+                 nutrients: Nutrients(calories: 130, protein: 2.7, carbs: 28, fat: 0.3, fiber: 0.4, sodium: 1), source: .seed),
+        FoodItem(name: "Rolled Oats, dry", servingSize: 40, servingUnit: "g",
+                 nutrients: Nutrients(calories: 156, protein: 6.8, carbs: 26, fat: 2.8, fiber: 4.2, sugar: 0.4), source: .seed),
+        FoodItem(name: "Sweet Potato, cooked", servingSize: 100, servingUnit: "g",
+                 nutrients: Nutrients(calories: 90, protein: 2, carbs: 21, fat: 0.1, fiber: 3.3, sugar: 6.5, sodium: 36), source: .seed),
+        FoodItem(name: "Broccoli, cooked", servingSize: 100, servingUnit: "g",
+                 nutrients: Nutrients(calories: 35, protein: 2.4, carbs: 7, fat: 0.4, fiber: 3.3, sugar: 1.4, sodium: 41), source: .seed),
+        FoodItem(name: "Banana", servingSize: 1, servingUnit: "medium",
+                 nutrients: Nutrients(calories: 105, protein: 1.3, carbs: 27, fat: 0.4, fiber: 3.1, sugar: 14, sodium: 1), source: .seed),
+        FoodItem(name: "Greek Yogurt, plain nonfat", servingSize: 170, servingUnit: "g",
+                 nutrients: Nutrients(calories: 100, protein: 17, carbs: 6, fat: 0.7, sugar: 4, sodium: 61), source: .seed),
+        FoodItem(name: "Whole Milk", servingSize: 240, servingUnit: "ml",
+                 nutrients: Nutrients(calories: 149, protein: 7.7, carbs: 12, fat: 8, sugar: 12, sodium: 105), source: .seed),
+        FoodItem(name: "Almonds", servingSize: 28, servingUnit: "g",
+                 nutrients: Nutrients(calories: 164, protein: 6, carbs: 6, fat: 14, fiber: 3.5, sugar: 1.2, sodium: 0), source: .seed),
+        FoodItem(name: "Peanut Butter", servingSize: 32, servingUnit: "g",
+                 nutrients: Nutrients(calories: 188, protein: 8, carbs: 6, fat: 16, fiber: 2, sugar: 3, sodium: 147), source: .seed),
     ]
 }
