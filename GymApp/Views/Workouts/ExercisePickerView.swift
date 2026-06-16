@@ -24,22 +24,29 @@ struct ExercisePickerView: View {
     var body: some View {
         NavigationStack {
             List {
-                ForEach(filtered) { exercise in
-                    Button {
-                        onPick(exercise)
-                        dismiss()
-                    } label: {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(exercise.name)
-                                .foregroundStyle(.primary)
-                            HStack(spacing: 6) {
-                                Text(exercise.category)
-                                if exercise.isUnilateral {
-                                    Text("Unilateral").fontWeight(.semibold)
+                // Claude  Date 06/14/2026
+                // Grouped by body region → muscle sub-group, mirroring the Exercises
+                // tab. Search filters first, then the remaining matches are sectioned.
+                ForEach(store.exercisesByRegion(filtered), id: \.region) { group in
+                    Section(group.region.title) {
+                        ForEach(group.exercises) { exercise in
+                            Button {
+                                onPick(exercise)
+                                dismiss()
+                            } label: {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(exercise.name)
+                                        .foregroundStyle(.primary)
+                                    HStack(spacing: 6) {
+                                        Text(exercise.category)
+                                        if exercise.isUnilateral {
+                                            Text("Unilateral").fontWeight(.semibold)
+                                        }
+                                    }
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
                                 }
                             }
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
                         }
                     }
                 }

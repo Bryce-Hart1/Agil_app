@@ -1,16 +1,52 @@
 import Foundation
 
+// Claude  Date 06/14/2026
+// Which side a set was performed on, for unilateral movements (single-arm/leg).
+// nil = a normal two-sided set. Unilateral exercises log sets as Left/Right pairs
+// so each side is tracked (and mismatches can be surfaced).
+enum ExerciseSide: String, Codable, Hashable {
+    case left, right
+
+    var title: String { self == .left ? "Left" : "Right" }
+}
+
 /// A single set within a workout.
 /// `weight` is always stored in pounds (lb) — the canonical unit. Convert only for display.
 struct ExerciseSet: Identifiable, Codable, Hashable {
     let id: UUID
     var reps: Int
     var weight: Double
+    // Claude  Date 06/14/2026
+    // Side performed for unilateral exercises (nil for normal two-sided sets).
+    var side: ExerciseSide?
+    // Claude  Date 06/14/2026
+    // Wall-clock time the set was marked complete (nil = not completed). Set ONLY
+    // by the explicit "complete set" tap — never by typing reps/weight. This is
+    // what makes a set count toward achievements: completion appends a tamper-
+    // resistant ActivityEvent to the ledger (see AppStore.completeSet), so editing
+    // numbers without completing earns no badge credit.
+    var completedAt: Date?
 
-    init(id: UUID = UUID(), reps: Int, weight: Double) {
+    init(id: UUID = UUID(), reps: Int, weight: Double,
+         side: ExerciseSide? = nil, completedAt: Date? = nil) {
         self.id = id
         self.reps = reps
         self.weight = weight
+        self.side = side
+        self.completedAt = completedAt
+    }
+
+    // Claude  Date 06/14/2026
+    // Custom decode so sets saved before `completedAt` / `side` existed still load
+    // (missing keys default to nil). encode(to:) is synthesized.
+    enum CodingKeys: String, CodingKey { case id, reps, weight, side, completedAt }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        reps = try c.decode(Int.self, forKey: .reps)
+        weight = try c.decode(Double.self, forKey: .weight)
+        side = try c.decodeIfPresent(ExerciseSide.self, forKey: .side)
+        completedAt = try c.decodeIfPresent(Date.self, forKey: .completedAt)
     }
 }
 

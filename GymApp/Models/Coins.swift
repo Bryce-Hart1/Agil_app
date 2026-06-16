@@ -1,11 +1,12 @@
 import Foundation
 
-// Claude  Date 06/13/2026
+// Claude  Date 06/13/2026 last edit Bryce Hart 6/13/26
 // The coin (points) economy. Coins are *derived* from workout history rather
 // than stored as a mutable balance: lifetime earned is a pure function of the
 // dates you trained, so it can never double-count and survives editing or
 // deleting workouts. The spendable balance is this earned total minus whatever
-// has been spent (see ThemeManager.coinsSpent). Local-only for now.
+// has been spent (see ThemeManager.coinsSpent). Local-only for now, but eventually 
+// the coin purchases will be sent to the database.
 //
 // Earning rule (from new_ideas.md): within each Mon–Sun week, every *distinct*
 // day you train awards coins on a doubling-then-capped schedule. The doubling
@@ -50,5 +51,15 @@ enum Coins {
             }
         }
         return total
+    }
+
+    // Claude  Date 06/13/2026
+    // Coins granted by unlocked achievements = Σ of their tier rewards. Driven by
+    // the persisted unlocked set (AppStore.unlockedAchievementIDs) so, like the
+    // achievements themselves, these coins stick once earned.
+    static func earnedFromAchievements(unlockedIDs: Set<String>) -> Int {
+        Achievement.all
+            .filter { unlockedIDs.contains($0.id) }
+            .reduce(0) { $0 + $1.reward }
     }
 }

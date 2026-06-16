@@ -13,8 +13,8 @@ struct ShopView: View {
     // The theme awaiting a buy-confirmation, if any.
     @State private var pendingPurchase: AppTheme?
 
-    // Lifetime coins earned from training consistency.
-    private var earned: Int { Coins.earned(from: store.workouts) }
+    // Lifetime coins earned (consistency + achievements).
+    private var earned: Int { store.totalCoinsEarned }
     // Spendable balance (earned − everything spent on themes + card styles).
     private var balance: Int { theme.balance(earned: earned) }
 

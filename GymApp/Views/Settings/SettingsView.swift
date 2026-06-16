@@ -35,6 +35,28 @@ struct SettingsView: View {
                 LabeledContent("Workouts", value: "\(store.workouts.count)")
                 LabeledContent("Presets", value: "\(store.presets.count)")
             }
+            // Claude  Date 06/13/2026
+            // Alpha-only helpers for trying the achievement-unlock celebration.
+            Section {
+                NavigationLink {
+                    BadgeGalleryView()
+                } label: {
+                    Label("Badge gallery", systemImage: "square.grid.3x3.fill")
+                }
+                Button("Unlock all achievements") {
+                    store.unlockAllAchievements()
+                }
+                Button("Replay achievement unlocks") {
+                    store.replayCelebrations()
+                }
+                Button("Reset achievements", role: .destructive) {
+                    store.resetAchievements()
+                }
+            } header: {
+                Text("Developer (alpha)")
+            } footer: {
+                Text("Gallery previews every badge + rank (tap to play its celebration). Unlock all fills in every badge so the card and lists populate. Replay re-plays earned unlocks; Reset wipes progress and re-earns it from your history.")
+            }
         }
         .navigationTitle("Settings")
         .themed(theme.current)

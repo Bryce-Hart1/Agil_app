@@ -21,13 +21,23 @@ struct UserProfile: Codable, Hashable {
     var cardStyleID: String
     // The data-storage mode chosen during onboarding.
     var dataMode: DataMode
+    // Claude  Date 06/13/2026
+    // Achievement ids pinned to the profile card's featured row (max 4, ordered).
+    var showcasedAchievementIDs: [String]
+    // Claude  Date 06/15/2026
+    // Whether the Strategist rank emblem is equipped onto the showcase card. Off by
+    // default; the rank still always shows in the banner below the card.
+    var showsRankOnCard: Bool
 
     init(displayName: String = "", hasOnboarded: Bool = false,
-         cardStyleID: String = CardStyle.defaultStyle.id, dataMode: DataMode = .offline) {
+         cardStyleID: String = CardStyle.defaultStyle.id, dataMode: DataMode = .offline,
+         showcasedAchievementIDs: [String] = [], showsRankOnCard: Bool = false) {
         self.displayName = displayName
         self.hasOnboarded = hasOnboarded
         self.cardStyleID = cardStyleID
         self.dataMode = dataMode
+        self.showcasedAchievementIDs = showcasedAchievementIDs
+        self.showsRankOnCard = showsRankOnCard
     }
 
     // Claude  Date 06/12/2026 last changed: 06/13/2026 by: Claude
@@ -36,13 +46,17 @@ struct UserProfile: Codable, Hashable {
     // re-show the welcome prompt. dataMode defaults to .offline. cardStyleID is
     // new: if absent, migrate from the legacy cardColorHex (#000000 → "black",
     // anything else → the default style).
-    enum CodingKeys: String, CodingKey { case displayName, hasOnboarded, cardStyleID, dataMode }
+    enum CodingKeys: String, CodingKey {
+        case displayName, hasOnboarded, cardStyleID, dataMode, showcasedAchievementIDs, showsRankOnCard
+    }
     private enum LegacyKeys: String, CodingKey { case cardColorHex }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         displayName = try c.decodeIfPresent(String.self, forKey: .displayName) ?? ""
         hasOnboarded = try c.decodeIfPresent(Bool.self, forKey: .hasOnboarded) ?? !displayName.isEmpty
         dataMode = try c.decodeIfPresent(DataMode.self, forKey: .dataMode) ?? .offline
+        showcasedAchievementIDs = try c.decodeIfPresent([String].self, forKey: .showcasedAchievementIDs) ?? []
+        showsRankOnCard = try c.decodeIfPresent(Bool.self, forKey: .showsRankOnCard) ?? false
         if let id = try c.decodeIfPresent(String.self, forKey: .cardStyleID) {
             cardStyleID = id
         } else {

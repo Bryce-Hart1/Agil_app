@@ -28,6 +28,20 @@ struct PresetsListView: View {
                 PresetEditorView(presetID: id)
             }
             .toolbar {
+                // Claude  Date 06/16/2026
+                // Exercises moved off the tab bar (freeing a slot for the eventual
+                // nutrition tab) to a top-left link here, since the exercise library
+                // is a building block alongside presets.
+                ToolbarItem(placement: .topBarLeading) {
+                    NavigationLink {
+                        ExercisesListView()
+                    } label: {
+                        // Show the text too — an icon alone here reads as unclear to
+                        // a new user.
+                        Label("Exercises", systemImage: "list.bullet")
+                            .labelStyle(.titleAndIcon)
+                    }
+                }
                 ToolbarItem(placement: .primaryAction) {
                     Button {
                         let preset = WorkoutPreset(name: "New Preset")

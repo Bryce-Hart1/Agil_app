@@ -3,8 +3,9 @@ import SwiftUI
 // Claude  Date 06/12/2026 last changed: 06/13/2026 by: Claude
 // The Profile tab: the show-off card fills (almost) the whole screen with its
 // original edge margins — like a "fullscreen card" view — and you scroll down
-// past it to reach Edit Profile Card / Shop / Settings. The card keeps its new
-// design (top achievements row, open lower portion).
+// past it to reach Achievements / Edit Profile Card / Shop / Settings. The card's
+// top row shows the user's featured achievement badges; the lower area is a shelf
+// of the rest of their earned badges.
 struct ProfileView: View {
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var theme: ThemeManager
@@ -24,10 +25,15 @@ struct ProfileView: View {
                         ProfileShowcaseCard(
                             name: store.profile.resolvedName,
                             style: CardStyle.style(for: store.profile.cardStyleID),
-                            traits: ProfileTrait.showcase(from: stats),
-                            memberSince: stats.memberSince
+                            unlockedIDs: store.unlockedAchievementIDs,
+                            pinnedIDs: store.profile.showcasedAchievementIDs,
+                            memberSince: stats.memberSince,
+                            rank: store.profile.showsRankOnCard ? store.strategistRank : nil,
+                            rankProgress: store.strategistProgress
                         )
                         .frame(height: max(380, geo.size.height - 32))
+
+                        rankBanner
 
                         navRows
                     }
@@ -40,12 +46,35 @@ struct ProfileView: View {
         }
     }
 
+    // Claude  Date 06/15/2026
+    // The Strategist rank banner, tappable into the full ladder. Sits between the
+    // card and the nav hub.
+    private var rankBanner: some View {
+        NavigationLink {
+            StrategistRankView()
+        } label: {
+            StrategistRankBanner(
+                rank: store.strategistRank,
+                progress: store.strategistProgress,
+                pointsToNext: StrategistScoring.pointsToNext(forScore: store.strategistScore)
+            )
+            .background(theme.current.surface, in: RoundedRectangle(cornerRadius: 14))
+            .contentShape(Rectangle())
+            .foregroundStyle(.primary)
+        }
+        .buttonStyle(.plain)
+    }
+
     // Claude  Date 06/12/2026 last changed: 06/13/2026 by: Claude
-    // The settings/shop hub revealed by scrolling below the card.
+    // The hub revealed by scrolling below the card.
     private var navRows: some View {
         VStack(spacing: 0) {
             profileNavRow("Edit Profile Card", systemImage: "slider.horizontal.3") {
                 EditProfileCardView()
+            }
+            Divider().padding(.leading, 16)
+            profileNavRow("Achievements", systemImage: "rosette") {
+                AchievementsView()
             }
             Divider().padding(.leading, 16)
             profileNavRow("Shop", systemImage: "bag") {
@@ -86,41 +115,32 @@ struct ProfileView: View {
 // MARK: - Showcase card
 
 // Claude  Date 06/12/2026 last changed: 06/13/2026 by: Claude
-// One achievement shown in the card's stats row (icon + value + label).
-struct ProfileTrait: Identifiable {
-    let id = UUID()
-    let icon: String
-    let value: String
-    let label: String
-
-    // Claude  Date 06/13/2026
-    // The four headline achievements. Placeholder picks from current stats —
-    // refine into real achievement milestones (e.g. "400 lb squat") later.
-    static func showcase(from stats: ProfileStats) -> [ProfileTrait] {
-        [
-            ProfileTrait(icon: "trophy.fill", value: compactWeight(stats.heaviestLift), label: "Heaviest"),
-            ProfileTrait(icon: "calendar", value: "\(stats.daysLogged)", label: "Days Logged"),
-            ProfileTrait(icon: "scalemass.fill", value: compactWeight(stats.totalVolume), label: "Total Lifted"),
-            ProfileTrait(icon: "flame.fill", value: "\(stats.weekStreak) wk", label: "Streak"),
-        ]
-    }
-
-    private static func compactWeight(_ value: Double) -> String {
-        if value >= 10_000 { return String(format: "%.0fk lb", value / 1000) }
-        if value >= 1_000 { return String(format: "%.1fk lb", value / 1000) }
-        return "\(Int(value.rounded())) lb"
-    }
-}
-
-// Claude  Date 06/12/2026 last changed: 06/13/2026 by: Claude
 // The shareable card: a CardStyle background (color or image) drawn by
-// CardBackgroundView, with a top achievements row and an open lower portion.
-// Rounded + shadowed so it reads as a card with the screen showing at its edges.
+// CardBackgroundView, a top row of featured achievement badges, and a shelf of
+// the rest of the earned badges below. Rounded + shadowed so it reads as a card
+// with the screen showing at its edges.
 struct ProfileShowcaseCard: View {
     let name: String
     let style: CardStyle
-    let traits: [ProfileTrait]
+    let unlockedIDs: Set<String>
+    let pinnedIDs: [String]
     let memberSince: Date?
+    // Claude  Date 06/15/2026
+    // The Strategist rank equipped onto the card (nil = not equipped); progress
+    // fills its ring toward the next rank.
+    var rank: StrategistRank? = nil
+    var rankProgress: Double = 1
+
+    // The 4 featured slots (nil = locked placeholder).
+    private var featured: [Achievement?] {
+        AchievementShowcase.featured(unlockedIDs: unlockedIDs, pinnedIDs: pinnedIDs)
+    }
+
+    // The remaining unlocked badges (everything not already in the featured row).
+    private var shelf: [Achievement] {
+        let featuredIDs = Set(featured.compactMap { $0?.id })
+        return AchievementShowcase.unlockedSorted(unlockedIDs).filter { !featuredIDs.contains($0.id) }
+    }
 
     // A representative color for the drop shadow (card color, or black for image cards).
     private var shadowColor: Color {
@@ -154,9 +174,24 @@ struct ProfileShowcaseCard: View {
                 .minimumScaleFactor(0.6)
                 .lineLimit(1)
 
-            achievementsRow
+            // Claude  Date 06/15/2026
+            // The equipped rank emblem (when the user has turned it on in Edit
+            // Profile Card), sitting just under the name.
+            if let rank {
+                HStack(spacing: 8) {
+                    StrategistEmblem(rank: rank, progress: rankProgress, size: 44)
+                    Text(rank.title)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white)
+                }
+            }
 
-            // The open lower portion — reserved for future content.
+            featuredRow
+
+            Spacer(minLength: 12)
+
+            badgeShelf
+
             Spacer(minLength: 0)
 
             if let memberSince {
@@ -181,28 +216,47 @@ struct ProfileShowcaseCard: View {
     }
 
     // Claude  Date 06/13/2026
-    // One transparent row of achievements across the top of the card (no tile
-    // backgrounds), icon over value over label.
-    private var achievementsRow: some View {
+    // The featured badges row across the top (transparent), badge over title;
+    // empty slots render as locked placeholders to bait progress.
+    private var featuredRow: some View {
         HStack(alignment: .top, spacing: 8) {
-            ForEach(traits) { trait in
-                VStack(spacing: 5) {
-                    Image(systemName: trait.icon)
-                        .font(.title3)
-                        .foregroundStyle(.white)
-                    Text(trait.value)
-                        .font(.headline)
-                        .foregroundStyle(.white)
-                        .minimumScaleFactor(0.5)
-                        .lineLimit(1)
-                    Text(trait.label)
-                        .font(.caption2)
-                        .foregroundStyle(.white.opacity(0.85))
-                        .multilineTextAlignment(.center)
-                        .lineLimit(2)
+            ForEach(Array(featured.enumerated()), id: \.offset) { _, slot in
+                VStack(spacing: 6) {
+                    if let achievement = slot {
+                        BadgeView(icon: achievement.icon, tier: achievement.tier, unlocked: true, size: 58, glimmer: true, ringed: false)
+                        Text(achievement.title)
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.7)
+                    } else {
+                        LockedBadge(size: 50)
+                        Text("Locked")
+                            .font(.caption2)
+                            .foregroundStyle(.white.opacity(0.7))
+                    }
                 }
                 .frame(maxWidth: .infinity)
             }
+        }
+    }
+
+    // Claude  Date 06/13/2026
+    // The lower "shelf" of the remaining earned badges (hidden when there are none).
+    @ViewBuilder private var badgeShelf: some View {
+        if !shelf.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Badges")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.8))
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 44), spacing: 10)], spacing: 10) {
+                    ForEach(shelf) { achievement in
+                        BadgeView(icon: achievement.icon, tier: achievement.tier, unlocked: true, size: 40, glimmer: true, ringed: false)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }

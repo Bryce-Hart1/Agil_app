@@ -16,7 +16,7 @@ struct EditProfileCardView: View {
     }
 
     // Spendable coin balance (shared pool with the Shop).
-    private var balance: Int { theme.balance(earned: Coins.earned(from: store.workouts)) }
+    private var balance: Int { theme.balance(earned: store.totalCoinsEarned) }
 
     var body: some View {
         Form {
@@ -42,12 +42,23 @@ struct EditProfileCardView: View {
                 Text("Coins: \(balance)")
             }
 
+            Section {
+                Toggle("Show rank on card", isOn: $store.profile.showsRankOnCard)
+            } header: {
+                Text("Card elements")
+            } footer: {
+                Text("Equip your Strategist rank emblem onto the card.")
+            }
+
             Section("Preview") {
                 ProfileShowcaseCard(
                     name: store.profile.resolvedName,
                     style: CardStyle.style(for: store.profile.cardStyleID),
-                    traits: ProfileTrait.showcase(from: stats),
-                    memberSince: stats.memberSince
+                    unlockedIDs: store.unlockedAchievementIDs,
+                    pinnedIDs: store.profile.showcasedAchievementIDs,
+                    memberSince: stats.memberSince,
+                    rank: store.profile.showsRankOnCard ? store.strategistRank : nil,
+                    rankProgress: store.strategistProgress
                 )
                 .frame(height: 420)
                 .listRowInsets(EdgeInsets())
