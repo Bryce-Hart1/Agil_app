@@ -122,3 +122,57 @@ struct Exercise: Identifiable, Codable, Hashable {
         quality = try c.decodeIfPresent(LiftQuality.self, forKey: .quality)
     }
 }
+
+// MARK: - Primary movers
+
+extension Exercise {
+    // Claude  Date 06/16/2026
+    // The canonical set of primary movers the app uses (every one appears in the
+    // seed library, plus a few common extras). The exercise editor offers these as
+    // autocomplete and snaps a typed name to the canonical spelling, so custom lifts
+    // reuse consistent muscle names instead of free-typed variants/typos. Not a full
+    // anatomy list — just the movers worth grouping/labeling by.
+    static let commonPrimaryMovers: [String] = [
+        "Quadriceps",
+        "Hamstrings",
+        "Gluteus Maximus",
+        "Adductors",
+        "Abductors",
+        "Gastrocnemius",
+        "Soleus",
+        "Pectorals",
+        "Pectorals (Upper)",
+        "Pectorals (Lower)",
+        "Latissimus Dorsi",
+        "Mid-Back",
+        "Rhomboids / Mid Traps",
+        "Upper Trapezius",
+        "Spinal Erectors",
+        "Lateral Deltoid",
+        "Anterior / Lateral Deltoid",
+        "Posterior Deltoid",
+        "Biceps Brachii",
+        "Brachialis / Brachioradialis",
+        "Triceps",
+        "Triceps (Long Head)",
+        "Triceps (Lateral Head)",
+        "Wrist Flexors",
+        "Wrist Extensors",
+        "Grip / Forearms",
+        "Rectus Abdominis",
+        "Rectus Abdominis (Lower)",
+        "Obliques",
+        "Transverse Abdominis",
+        "Serratus Anterior",
+    ]
+
+    // Claude  Date 06/16/2026
+    // Snap a typed mover to the canonical spelling when it matches one case-
+    // insensitively (e.g. "quadriceps" → "Quadriceps"); otherwise return it as-is
+    // (trimmed) so genuinely new movers are still allowed. Empty stays empty.
+    static func normalizedPrimaryMover(_ input: String) -> String {
+        let trimmed = input.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return "" }
+        return commonPrimaryMovers.first { $0.caseInsensitiveCompare(trimmed) == .orderedSame } ?? trimmed
+    }
+}

@@ -140,9 +140,13 @@ extension AppTheme {
         accentHex: "#17646c", backgroundHex: "#EAF6F8", surfaceHex: "#FFFFFF",
         price: 500)
 
+    // Bryce Hart 6/4/26 last changed: 06/16/2026 by: Claude
+    // Burnt-orange background with black cards. Marked isDark so the forced
+    // appearance is .dark — otherwise the app forced light mode and `.primary`
+    // text rendered black on the black surfaces (invisible nav rows / rank banner).
     static let sunset = AppTheme(
         id: UUID(uuidString: "00000000-0000-0000-0000-000000000004")!,
-        name: "sunset", isBuiltIn: true, isDark: false,
+        name: "sunset", isBuiltIn: true, isDark: true,
         accentHex: "#FF7043", backgroundHex: "#bb5f2a", surfaceHex: "#000000",
         price: 500)
 
@@ -152,5 +156,14 @@ extension AppTheme {
         accentHex: "#34C759", backgroundHex: "#0E1511", surfaceHex: "#16201A",
         price: 500)
 
-    static let builtIns: [AppTheme] = [classic, midnight, deep_sea, sunset, leaf]
+    // Claude  Date 06/16/2026
+    // Woods — first-pass outline only. A dark forest palette (bark browns + a
+    // mossy-green accent) to refine later; colours are placeholders.
+    static let woods = AppTheme(
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000006")!,
+        name: "Woods", isBuiltIn: true, isDark: true,
+        accentHex: "#8FAE5D", backgroundHex: "#1A140E", surfaceHex: "#241B12",
+        price: 500)
+
+    static let builtIns: [AppTheme] = [classic, midnight, deep_sea, sunset, leaf, woods]
 }

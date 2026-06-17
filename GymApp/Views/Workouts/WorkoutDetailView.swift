@@ -26,6 +26,7 @@ struct WorkoutDetailView: View {
 private struct WorkoutEditor: View {
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var theme: ThemeManager
+    @EnvironmentObject private var session: WorkoutSession
     @Environment(\.dismiss) private var dismiss
     @Binding var workout: Workout
     let isNew: Bool
@@ -77,16 +78,18 @@ private struct WorkoutEditor: View {
                     .lineLimit(1...5)
             }
 
-            // Claude  Date 06/09/2026
-            // Conclude the workout and return to the list. The workout is already
-            // saved automatically, so this is just navigation — it can be reopened
-            // and edited later from the Workouts tab.
+            // Claude  Date 06/09/2026 last changed: 06/16/2026 by: Claude
+            // For an in-progress workout this is "Complete Workout" — it marks the
+            // session finished (AppStore.finishWorkout), which logs its checked-off
+            // sets and awards badges. For an already-finished workout being edited it's
+            // just "Finish Edit" (navigation only; edits don't change earned credit).
             Section {
                 Button {
                     hideKeyboard()
+                    if !workout.isFinished { store.finishWorkout(id: workout.id) }
                     dismiss()
                 } label: {
-                    Text(isNew ? "Finish Workout" : "Finish Edit")
+                    Text(workout.isFinished ? "Finish Edit" : "Complete Workout")
                         .fontWeight(.semibold)
                         .frame(maxWidth: .infinity)
                 }
@@ -97,6 +100,11 @@ private struct WorkoutEditor: View {
         .navigationTitle(workout.date.formatted(.dateTime.month().day()))
         .navigationBarTitleDisplayMode(.inline)
         .themed(theme.current)
+        // Claude  Date 06/16/2026
+        // While this editor is on screen, tell the session so the global mini-bar
+        // hides itself for this workout (clearing only our own id on the way out).
+        .onAppear { session.viewingWorkoutID = workout.id }
+        .onDisappear { if session.viewingWorkoutID == workout.id { session.viewingWorkoutID = nil } }
         .selectAllWhenEditingNumberFields()
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
@@ -171,9 +179,20 @@ private struct ExerciseLogSection: View {
                   axis: .vertical)
             .lineLimit(1...4)
 
-        // Claude  Date 06/12/2026
-        // Live rest timer, shown only when this exercise carries a rest duration
-        // (i.e. it came from a preset). Ad-hoc exercises have no timer for now.
+        // Claude  Date 06/12/2026 last changed: 06/16/2026 by: Claude
+        // Optional rest timer for ANY exercise — preset items arrive with a duration,
+        // but ad-hoc exercises in a non-preset workout can now opt in here too (mirrors
+        // the preset editor's picker). Pick a duration and the live countdown appears.
+        Picker(selection: $logged.restSeconds) {
+            Text("None").tag(Int?.none)
+            ForEach(RestDuration.options, id: \.self) { seconds in
+                Text(RestDuration.label(seconds)).tag(Int?.some(seconds))
+            }
+        } label: {
+            Label("Rest timer", systemImage: "timer")
+        }
+
+        // Live countdown (drives the shared session timer + mini-bar), once set.
         if let rest = logged.restSeconds {
             RestTimerView(duration: rest, accent: accent)
         }
@@ -183,8 +202,7 @@ private struct ExerciseLogSection: View {
                    sideLabel: logged.sets[index].side?.title,
                    lagsBehind: lagsBehind(at: index),
                    set: $logged.sets[index],
-                   targetRange: logged.targetRepRange, accent: accent,
-                   onComplete: { completeSet(at: index) })
+                   targetRange: logged.targetRepRange, accent: accent)
         }
         .onDelete { deleteSets(at: $0) }
 
@@ -274,14 +292,6 @@ private struct ExerciseLogSection: View {
         return mine.weight < theirs.weight || mine.reps < theirs.reps
     }
 
-    // Claude  Date 06/14/2026
-    // Log the completed set to the activity ledger using its real values. The
-    // SetRow has already stamped `completedAt`; the store dedupes by set id.
-    private func completeSet(at index: Int) {
-        let set = logged.sets[index]
-        store.completeSet(setId: set.id, exerciseId: logged.exerciseId,
-                          reps: set.reps, weight: set.weight)
-    }
 }
 
 /// A single editable set: "Set N — [reps] reps × [weight] lb".
@@ -297,11 +307,6 @@ private struct SetRow: View {
     @Binding var set: ExerciseSet
     let targetRange: RepRange?
     let accent: Color
-    // Claude  Date 06/14/2026
-    // Called after this set is marked complete so the parent can log it to the
-    // activity ledger. Completion is one-way: a completed set locks its fields
-    // (the ledger captured these values) and can only be removed via swipe-delete.
-    let onComplete: () -> Void
 
     // Claude  Date 06/14/2026
     // `self.` is required: leading `set` in an accessor body is read as the setter
@@ -310,16 +315,15 @@ private struct SetRow: View {
 
     var body: some View {
         HStack {
-            // Claude  Date 06/14/2026
+            // Claude  Date 06/14/2026 last changed: 06/16/2026 by: Claude
             // Explicit "complete set" tap — the only thing that earns achievement
-            // credit. Filled checkmark once done; tapping an incomplete set stamps
-            // it and logs the ledger event.
-            Button(action: complete) {
+            // credit. Filled checkmark once done; tapping again un-completes it so the
+            // reps/weight can be corrected, then re-completed.
+            Button(action: toggleComplete) {
                 Image(systemName: isCompleted ? "checkmark.circle.fill" : "circle")
                     .foregroundStyle(isCompleted ? accent : .secondary)
             }
             .buttonStyle(.plain)
-            .disabled(isCompleted)
 
             Circle()
                 .fill(markColor ?? .clear)
@@ -362,13 +366,13 @@ private struct SetRow: View {
         .opacity(isCompleted ? 0.6 : 1)
     }
 
-    // Claude  Date 06/14/2026
-    // Mark the set complete (real wall-clock time) and hand off to the parent to
-    // record the ledger event. Guarded so it only ever fires once per set.
-    private func complete() {
-        guard !isCompleted else { return }
-        set.completedAt = Date()
-        onComplete()
+    // Claude  Date 06/14/2026 last changed: 06/16/2026 by: Claude
+    // Toggle completion. This only stamps/clears the set's real check-off time — no
+    // ledger write happens here. Credit is granted in one batch when the workout is
+    // marked complete (AppStore.finishWorkout), so an unfinished workout never counts.
+    // Completing locks the fields; tapping again un-completes to fix a mistyped value.
+    private func toggleComplete() {
+        set.completedAt = isCompleted ? nil : Date()
     }
 
     // Claude  Date 06/09/2026
@@ -406,5 +410,6 @@ extension View {
         WorkoutDetailView(workoutID: workout.id)
             .environmentObject(store)
             .environmentObject(ThemeManager())
+            .environmentObject(WorkoutSession())
     }
 }

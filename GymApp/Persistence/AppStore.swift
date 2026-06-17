@@ -41,6 +41,11 @@ final class AppStore: ObservableObject {
     // `nutritionGoals` holds the daily targets the diary fills toward. Each auto-
     // saves on change via its own JSON file.
     @Published var foods: [FoodItem] { didSet { persistence.save(foods, to: Self.foodsFile) } }
+    // Claude  Date 06/17/2026
+    // Local barcode → product cache (see BarcodeCache). Separate from `foods` so it
+    // can be evicted freely without touching the curated library; consulted by
+    // CachedFoodService before any Open Food Facts barcode lookup. Persists on change.
+    @Published private(set) var barcodeCache: BarcodeCache { didSet { persistence.save(barcodeCache, to: Self.barcodeCacheFile) } }
     @Published var foodLog: [FoodEntry] { didSet { persistence.save(foodLog, to: Self.foodLogFile) } }
     @Published var waterLog: [WaterEntry] { didSet { persistence.save(waterLog, to: Self.waterLogFile) } }
     @Published var nutritionGoals: NutritionGoals { didSet { persistence.save(nutritionGoals, to: Self.nutritionGoalsFile) } }
@@ -57,6 +62,17 @@ final class AppStore: ObservableObject {
     // Strategist rank promotions queued for celebration (transient, like
     // pendingCelebrations). Shown after the badge celebrations drain.
     @Published var pendingPromotions: [StrategistRank] = []
+    // Claude  Date 06/16/2026
+    // The performance card to show on finishing a workout (transient). Displayed
+    // BEFORE any badge/rank celebrations, so you see the session recap first.
+    @Published var pendingWorkoutSummary: WorkoutSummary?
+    // Claude  Date 06/16/2026
+    // Alpha dev-only: a flat coin grant folded into totalCoinsEarned, so the dev
+    // can top up the wallet to test shop/card purchases without grinding workouts.
+    // Persisted like everything else; not part of the real economy.
+    @Published private(set) var devBonusCoins: Int = 0 {
+        didSet { persistence.save(devBonusCoins, to: Self.devCoinsFile) }
+    }
 
     private let persistence: PersistenceService
     // Ids already celebrated, so we never re-show the same unlock. Persisted.
@@ -82,6 +98,10 @@ final class AppStore: ObservableObject {
     private static let foodLogFile = "nutrition_log.json"
     private static let waterLogFile = "water_log.json"
     private static let nutritionGoalsFile = "nutrition_goals.json"
+    // Claude  Date 06/16/2026 — alpha dev coin grant.
+    private static let devCoinsFile = "dev_coins.json"
+    // Claude  Date 06/17/2026 — barcode → product lookup cache.
+    private static let barcodeCacheFile = "barcode_cache.json"
 
     init(persistence: PersistenceService = PersistenceService()) {
         self.persistence = persistence
@@ -106,6 +126,8 @@ final class AppStore: ObservableObject {
         self.foodLog = persistence.load(Self.foodLogFile, default: [FoodEntry]())
         self.waterLog = persistence.load(Self.waterLogFile, default: [WaterEntry]())
         self.nutritionGoals = persistence.load(Self.nutritionGoalsFile, default: NutritionGoals())
+        self.barcodeCache = persistence.load(Self.barcodeCacheFile, default: BarcodeCache())
+        self.devBonusCoins = persistence.load(Self.devCoinsFile, default: 0)
 
         if loadedExercises.isEmpty {
             persistence.save(self.exercises, to: Self.exercisesFile)
@@ -268,12 +290,21 @@ final class AppStore: ObservableObject {
         evaluateAchievements(announce: true)
     }
 
-    // Claude  Date 06/13/2026
-    // Lifetime coins earned = weekly-consistency coins + achievement rewards.
-    // This is the "earned" side of the wallet (ThemeManager.balance subtracts spend).
+    // Claude  Date 06/13/2026 last changed: 06/16/2026 by: Claude
+    // Lifetime coins earned = weekly-consistency coins + achievement rewards
+    // (+ any alpha dev grant). This is the "earned" side of the wallet
+    // (ThemeManager.balance subtracts spend).
     var totalCoinsEarned: Int {
-        Coins.earned(from: workouts) + Coins.earnedFromAchievements(unlockedIDs: unlockedAchievementIDs)
+        Coins.earned(from: workouts)
+            + Coins.earnedFromAchievements(unlockedIDs: unlockedAchievementIDs)
+            + devBonusCoins
     }
+
+    // Claude  Date 06/16/2026
+    // Alpha dev-only: top up / reset the wallet for testing the shop and card
+    // purchases. grantDevCoins adds to the persisted grant; resetDevCoins clears it.
+    func grantDevCoins(_ amount: Int) { devBonusCoins += amount }
+    func resetDevCoins() { devBonusCoins = 0 }
 
     // Claude  Date 06/13/2026
     // Pin/unpin an achievement to the profile card's featured row. Returns false
@@ -345,19 +376,49 @@ final class AppStore: ObservableObject {
         workouts.removeAll { $0.id == id }
     }
 
-    // Claude  Date 06/14/2026
-    // Record a completed set in the append-only activity ledger. Called from the
-    // explicit "complete set" tap with the set's real values. Idempotent by
-    // `setId`, so re-completing the same set never double-counts. The big-3
-    // `liftType` is resolved here (the store owns the exercise library) and frozen
-    // into the event, so a later rename can't change earned credit. Appending
-    // re-evaluates achievements via activityLog's didSet.
-    func completeSet(setId: UUID, exerciseId: UUID, reps: Int, weight: Double) {
-        guard !activityLog.contains(where: { $0.setId == setId }) else { return }
-        let liftType = exercise(for: exerciseId)?.liftType
-        activityLog.append(ActivityEvent(
-            setId: setId, exerciseId: exerciseId,
-            reps: reps, weight: weight, liftType: liftType))
+    // Claude  Date 06/16/2026
+    // The in-progress (unfinished) workout, if any. By product decision there's only
+    // one active workout at a time; if several somehow exist, the most recent by date.
+    // Drives the global mini-bar and the "In progress" row.
+    var activeWorkout: Workout? {
+        workouts.filter { !$0.isFinished }.max { $0.date < $1.date }
+    }
+
+    // Claude  Date 06/16/2026
+    // Mark a workout complete — the ONLY moment its sets earn credit. Checking sets
+    // during the session just stamps `completedAt` locally (no ledger writes), so an
+    // abandoned/never-finished workout never counts. Finishing appends a ledger event
+    // for each checked-off set (stamped with that set's real completion time, idempotent
+    // by setId), which re-evaluates achievements via activityLog's didSet — producing
+    // the badge "burst" on completion. The big-3 `liftType` is frozen into each event.
+    func finishWorkout(id: UUID) {
+        guard let index = workouts.firstIndex(where: { $0.id == id }),
+              !workouts[index].isFinished else { return }
+
+        var newEvents: [ActivityEvent] = []
+        for logged in workouts[index].exercises {
+            let liftType = exercise(for: logged.exerciseId)?.liftType
+            for set in logged.sets where set.completedAt != nil {
+                guard !activityLog.contains(where: { $0.setId == set.id }) else { continue }
+                newEvents.append(ActivityEvent(
+                    setId: set.id, exerciseId: logged.exerciseId,
+                    reps: set.reps, weight: set.weight,
+                    loggedAt: set.completedAt ?? Date(), liftType: liftType))
+            }
+        }
+        if !newEvents.isEmpty { activityLog.append(contentsOf: newEvents) }
+        workouts[index].isFinished = true
+
+        // Claude  Date 06/16/2026
+        // Queue the performance card from the now-finished workout. RootTabView shows
+        // it first; dismissing it lets the badge celebrations (queued above) play.
+        pendingWorkoutSummary = WorkoutSummary(workout: workouts[index], exercises: exercises)
+    }
+
+    // Claude  Date 06/16/2026
+    // Dismiss the performance card (after the user taps to continue).
+    func dismissWorkoutSummary() {
+        pendingWorkoutSummary = nil
     }
 
     /// A two-way binding to a workout identified by `id`, resilient to the array
@@ -403,6 +464,23 @@ final class AppStore: ObservableObject {
         }
         foods.append(food)
         return food
+    }
+
+    // Claude  Date 06/17/2026
+    // Barcode-cache hooks used by CachedFoodService (networking stays out of here —
+    // these are purely the local read/write side of the cache).
+    //
+    // Read: return the cached product for a barcode, or nil. We guard on `contains`
+    // so a miss doesn't fire the mutating `lookup` (which would persist for nothing);
+    // a hit touches recency (LRU) and persists via didSet.
+    func cachedFood(forBarcode code: String) -> FoodItem? {
+        guard barcodeCache.contains(code) else { return nil }
+        return barcodeCache.lookup(code)
+    }
+
+    // Write: remember a freshly-fetched product (insert + LRU evict), persisting.
+    func rememberScannedFood(_ food: FoodItem, forBarcode code: String) {
+        barcodeCache.insert(food, forBarcode: code)
     }
 
     // Claude  Date 06/16/2026

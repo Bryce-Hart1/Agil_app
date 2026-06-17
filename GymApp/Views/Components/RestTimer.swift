@@ -14,60 +14,39 @@ enum RestDuration {
     }
 }
 
-// Claude  Date 06/12/2026
-// A live rest countdown for one exercise in the workout editor. Tap Start to
-// count down from `duration`; Skip cancels. Fires a success haptic at zero.
-// (Foreground only — the timer pauses if the app is backgrounded.)
+// Claude  Date 06/12/2026 last changed: 06/16/2026 by: Claude
+// A rest control for one exercise in the workout editor. Start/Skip now drive the
+// shared WorkoutSession (not local @State), so the countdown survives navigating
+// away from the workout and is mirrored in the global mini-bar. Display reflects the
+// session's single live timer; the haptic on completion fires in WorkoutSession.
 struct RestTimerView: View {
     let duration: Int
     let accent: Color
-
-    @State private var remaining = 0
-    @State private var isRunning = false
-    private let ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+    @EnvironmentObject private var session: WorkoutSession
 
     var body: some View {
         HStack {
             Image(systemName: "timer")
-                .foregroundStyle(isRunning ? accent : .secondary)
+                .foregroundStyle(session.isResting ? accent : .secondary)
 
-            Text(isRunning
-                 ? "Resting \(RestDuration.label(remaining))"
+            Text(session.isResting
+                 ? "Resting \(RestDuration.label(session.restRemaining))"
                  : "Rest \(RestDuration.label(duration))")
                 .monospacedDigit()
-                .foregroundStyle(isRunning ? .primary : .secondary)
+                .foregroundStyle(session.isResting ? .primary : .secondary)
 
             Spacer()
 
-            if isRunning {
-                Button("Skip") { isRunning = false }
+            if session.isResting {
+                Button("Skip") { session.skipRest() }
                     .buttonStyle(.bordered)
             } else {
-                Button { start() } label: {
+                Button { session.startRest(seconds: duration) } label: {
                     Label("Start", systemImage: "play.fill")
                 }
                 .buttonStyle(.bordered)
                 .tint(accent)
             }
-        }
-        .onReceive(ticker) { _ in tick() }
-    }
-
-    private func start() {
-        remaining = duration
-        isRunning = true
-    }
-
-    private func tick() {
-        guard isRunning else { return }
-        if remaining > 1 {
-            remaining -= 1
-        } else {
-            isRunning = false
-            remaining = 0
-            #if canImport(UIKit)
-            UINotificationFeedbackGenerator().notificationOccurred(.success)
-            #endif
         }
     }
 }

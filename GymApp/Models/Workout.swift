@@ -95,16 +95,46 @@ struct Workout: Identifiable, Codable, Hashable {
     var date: Date
     var exercises: [LoggedExercise]
     var notes: String
+    // Claude  Date 06/16/2026
+    // Whether the session has been marked complete. A newly started workout is
+    // active (false) — it shows in the live mini-bar and grants NO badges/stats
+    // until finished. Marking it complete (AppStore.finishWorkout) logs its done
+    // sets to the activity ledger and flips this true.
+    var isFinished: Bool
 
-    init(id: UUID = UUID(), date: Date = Date(), exercises: [LoggedExercise] = [], notes: String = "") {
+    init(id: UUID = UUID(), date: Date = Date(), exercises: [LoggedExercise] = [],
+         notes: String = "", isFinished: Bool = false) {
         self.id = id
         self.date = date
         self.exercises = exercises
         self.notes = notes
+        self.isFinished = isFinished
     }
 
     /// Total number of sets across all exercises in this workout.
     var totalSets: Int {
         exercises.reduce(0) { $0 + $1.sets.count }
+    }
+
+    // Claude  Date 06/16/2026
+    // Count of sets the user has checked off (the ones that will be credited on
+    // completion). Used by the mini-bar / in-progress row summary.
+    var completedSets: Int {
+        exercises.reduce(0) { $0 + $1.sets.filter { $0.completedAt != nil }.count }
+    }
+
+    // Claude  Date 06/16/2026
+    // Custom decode so workouts saved before `isFinished` existed load as FINISHED
+    // (true) — they predate the active-session concept, so they shouldn't suddenly
+    // appear as in-progress. New workouts use the init default (false = active).
+    // encode(to:) is synthesized.
+    enum CodingKeys: String, CodingKey { case id, date, exercises, notes, isFinished }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        date = try c.decode(Date.self, forKey: .date)
+        exercises = try c.decodeIfPresent([LoggedExercise].self, forKey: .exercises) ?? []
+        notes = try c.decodeIfPresent(String.self, forKey: .notes) ?? ""
+        isFinished = try c.decodeIfPresent(Bool.self, forKey: .isFinished) ?? true
     }
 }

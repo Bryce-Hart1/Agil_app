@@ -111,12 +111,37 @@ private struct CardStyleRow: View {
     var body: some View {
         HStack(spacing: 12) {
             swatch
-            Text(style.name).foregroundStyle(.primary)
-            Spacer()
+            // Claude  Date 06/16/2026 last changed: 06/16/2026 by: Claude
+            // Name truncates if space is tight so it can never squeeze the badge or
+            // buy button into wrapping (which made the price spill into a circle).
+            Text(style.name)
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            // Claude  Date 06/16/2026 — rarity badge (hidden for the free base).
+            if let label = style.tier.label {
+                tierBadge(label, color: style.tier.color)
+            }
+            Spacer(minLength: 8)
             trailing
         }
         .contentShape(Rectangle())
         .onTapGesture { if isUnlocked { onSelect() } }
+    }
+
+    // Claude  Date 06/16/2026
+    // Small coloured capsule marking the card's rarity tier (Rare/Epic/Legendary).
+    private func tierBadge(_ label: String, color: Color) -> some View {
+        Text(label.uppercased())
+            .font(.caption2.weight(.bold))
+            .tracking(0.5)
+            .foregroundStyle(color)
+            .lineLimit(1)
+            .fixedSize()
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(color.opacity(0.16), in: Capsule())
+            .overlay(Capsule().stroke(color.opacity(0.5), lineWidth: 0.5))
     }
 
     @ViewBuilder private var swatch: some View {
@@ -124,8 +149,15 @@ private struct CardStyleRow: View {
             switch style.background {
             case .color(let hex):
                 Circle().fill(Color(hex: hex))
+            case .gradient(let from, let to):
+                Circle().fill(LinearGradient(colors: [Color(hex: from), Color(hex: to)],
+                                             startPoint: .topLeading, endPoint: .bottomTrailing))
             case .image(let asset):
                 Image(asset).resizable().scaledToFill()
+            // Claude  Date 06/16/2026
+            // Live animated preview right in the swatch so the motion sells itself.
+            case .animated(let kind):
+                AnimatedCardBackground(kind: kind)
             }
         }
         .frame(width: 28, height: 28)
@@ -140,8 +172,10 @@ private struct CardStyleRow: View {
             Text("Owned").font(.subheadline).foregroundStyle(.secondary)
         } else {
             Button(action: onBuy) {
-                Label("\(style.price)", systemImage: "circle.hexagongrid.fill")
+                Label("\(style.price.formatted())", systemImage: "circle.hexagongrid.fill")
                     .font(.subheadline)
+                    .lineLimit(1)
+                    .fixedSize()
             }
             .buttonStyle(.borderedProminent)
             .disabled(!canAfford)

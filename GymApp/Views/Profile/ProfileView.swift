@@ -142,10 +142,16 @@ struct ProfileShowcaseCard: View {
         return AchievementShowcase.unlockedSorted(unlockedIDs).filter { !featuredIDs.contains($0.id) }
     }
 
-    // A representative color for the drop shadow (card color, or black for image cards).
+    // Claude  Date 06/12/2026 last changed: 06/16/2026 by: Claude
+    // A representative color for the drop shadow: the card color, the animated
+    // card's accent, or black for image cards.
     private var shadowColor: Color {
-        if case .color(let hex) = style.background { return Color(hex: hex) }
-        return .black
+        switch style.background {
+        case .color(let hex):       return Color(hex: hex)
+        case .gradient(let from, _): return Color(hex: from)
+        case .animated(let kind):   return kind.accent
+        case .image:                return .black
+        }
     }
 
     var body: some View {

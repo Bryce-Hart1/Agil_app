@@ -17,6 +17,12 @@ struct CardBackgroundView: View {
             LinearGradient(colors: [color, color.opacity(0.78)],
                            startPoint: .topLeading, endPoint: .bottomTrailing)
 
+        // Claude  Date 06/16/2026
+        // Two-color diagonal gradient (Epic cards with no PNG art).
+        case .gradient(let from, let to):
+            LinearGradient(colors: [Color(hex: from), Color(hex: to)],
+                           startPoint: .topLeading, endPoint: .bottomTrailing)
+
         case .image(let asset):
             Image(asset)
                 .resizable()
@@ -25,6 +31,11 @@ struct CardBackgroundView: View {
                     LinearGradient(colors: [.black.opacity(0.15), .black.opacity(0.45)],
                                    startPoint: .top, endPoint: .bottom)
                 )
+
+        // Claude  Date 06/16/2026
+        // Live, code-drawn animation (carries its own scrim).
+        case .animated(let kind):
+            AnimatedCardBackground(kind: kind)
         }
     }
 }

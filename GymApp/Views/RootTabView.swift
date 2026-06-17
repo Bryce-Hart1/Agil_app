@@ -6,6 +6,9 @@ struct RootTabView: View {
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var theme: ThemeManager
     // Claude  Date 06/16/2026
+    // Live in-progress-workout state, for the global mini-bar + jump-back navigation.
+    @EnvironmentObject private var session: WorkoutSession
+    // Claude  Date 06/16/2026
     // The bar leads with a mode switcher (tag 0). Real tabs start at tag 1, so the
     // first content tab is selected on launch and after every mode flip.
     @State private var selection = 1
@@ -80,6 +83,14 @@ struct RootTabView: View {
         .fullScreenCover(isPresented: showOnboarding) {
             OnboardingView()
         }
+        // Claude  Date 06/16/2026
+        // Global "now playing"-style bar for an in-progress workout, floating just
+        // above the tab bar in every tab/mode. Renders nothing when no workout is
+        // active. Applied BEFORE the celebration overlay so badge pop-ups sit on top.
+        .overlay(alignment: .bottom) {
+            WorkoutMiniBar(onOpen: openActiveWorkout)
+                .padding(.bottom, 49)
+        }
         // Claude  Date 06/13/2026
         // Achievement-unlock celebration, shown over the whole app. Keyed by id so
         // each queued unlock gets a fresh pop-in animation as you tap through.
@@ -87,7 +98,19 @@ struct RootTabView: View {
         // Badge celebrations come first; once they drain, any Strategist rank
         // promotion plays — so you watch the badges pop, then get crowned.
         .overlay {
-            if let achievement = store.pendingCelebrations.first {
+            // Claude  Date 06/16/2026
+            // On finishing a workout the performance card shows first; once dismissed,
+            // any queued badge celebrations play, then rank promotions.
+            if let summary = store.pendingWorkoutSummary {
+                PerformanceCardView(
+                    summary: summary,
+                    style: CardStyle.style(for: store.profile.cardStyleID),
+                    onDismiss: { store.dismissWorkoutSummary() }
+                )
+                .id(summary.id)
+                .transition(.opacity)
+                .zIndex(2)
+            } else if let achievement = store.pendingCelebrations.first {
                 CelebrationOverlay(
                     achievement: achievement,
                     remaining: store.pendingCelebrations.count - 1,
@@ -107,8 +130,19 @@ struct RootTabView: View {
                 .zIndex(1)
             }
         }
+        .animation(.easeInOut(duration: 0.25), value: store.pendingWorkoutSummary?.id)
         .animation(.easeInOut(duration: 0.25), value: store.pendingCelebrations.first?.id)
         .animation(.easeInOut(duration: 0.25), value: store.pendingPromotions.first)
+    }
+
+    // Claude  Date 06/16/2026
+    // Jump back into the active workout from the mini-bar: switch to Lifting mode +
+    // the Workouts tab, then hand the id to WorkoutsListView (it pushes the editor).
+    private func openActiveWorkout() {
+        guard let id = store.activeWorkout?.id else { return }
+        if mode != .lifting { modeRaw = AppMode.lifting.rawValue }
+        selection = 1
+        session.requestedWorkoutID = id
     }
 }
 
@@ -116,4 +150,5 @@ struct RootTabView: View {
     RootTabView()
         .environmentObject(AppStore())
         .environmentObject(ThemeManager())
+        .environmentObject(WorkoutSession())
 }

@@ -25,7 +25,11 @@ struct NewExerciseView: View {
     // primaryMover. Optional for custom exercises.
     @State private var primaryMover: String = ""
     @State private var isUnilateral: Bool = false
-    @State private var liftType: LiftType? = nil
+    // Claude  Date 06/16/2026
+    // Drives the "what's a primary mover?" help alert. (The big-3 `liftType` picker
+    // was removed — custom lifts can't be tagged big-3; only the seeded canonical
+    // squat/bench/deadlift carry that tag, so the lift achievements stay exact.)
+    @State private var showingMoverHelp = false
 
     init(initialName: String = "", onCreate: @escaping (Exercise) -> Void = { _ in }) {
         self.initialName = initialName
@@ -34,6 +38,17 @@ struct NewExerciseView: View {
     }
 
     private var trimmedName: String { name.trimmingCharacters(in: .whitespaces) }
+
+    // Claude  Date 06/16/2026
+    // Canonical movers matching what's typed (case-insensitive), excluding an exact
+    // match — shown as tap-to-fill suggestions so spelling stays consistent.
+    private var moverSuggestions: [String] {
+        let q = primaryMover.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !q.isEmpty else { return [] }
+        let matches = Exercise.commonPrimaryMovers.filter { $0.lowercased().contains(q) }
+        if matches.count == 1 && matches[0].lowercased() == q { return [] }
+        return Array(matches.prefix(6))
+    }
 
     var body: some View {
         NavigationStack {
@@ -46,27 +61,42 @@ struct NewExerciseView: View {
                         }
                     }
                     TextField("Muscle group (e.g. Quads, Chest, Biceps)", text: $category)
-                    TextField("Primary mover (e.g. Quadriceps)", text: $primaryMover)
+                }
+
+                // Claude  Date 06/16/2026
+                // Primary mover is optional (leave blank if unsure) — a "?" explains
+                // what it is, and typing offers canonical-spelling suggestions so the
+                // library doesn't fill up with variants/typos.
+                Section {
+                    HStack {
+                        TextField("Primary mover (optional)", text: $primaryMover)
+                        Button {
+                            showingMoverHelp = true
+                        } label: {
+                            Image(systemName: "questionmark.circle")
+                        }
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel("What is a primary mover?")
+                    }
+                    ForEach(moverSuggestions, id: \.self) { suggestion in
+                        Button {
+                            primaryMover = suggestion
+                        } label: {
+                            Label(suggestion, systemImage: "arrow.up.left.circle")
+                                .font(.subheadline)
+                        }
+                    }
+                } header: {
+                    Text("Primary mover")
+                } footer: {
+                    Text("The main muscle this lift drives. Optional — leave blank if you're not sure.")
                 }
 
                 Section {
                     Toggle("Unilateral", isOn: $isUnilateral)
                 } footer: {
                     Text("Turn on for movements done one side at a time (e.g. single-arm row, lunges) so they can be tracked separately on graphs. Leave off for two-sided lifts like bench press.")
-                }
-
-                // Claude  Date 06/13/2026
-                // Tag the movement as one of the powerlifting "big 3" so the lift
-                // achievements count it exactly (no name guessing).
-                Section {
-                    Picker("Big-3 lift", selection: $liftType) {
-                        Text("None").tag(LiftType?.none)
-                        ForEach(LiftType.allCases, id: \.self) { type in
-                            Text(type.title).tag(LiftType?.some(type))
-                        }
-                    }
-                } footer: {
-                    Text("Mark this as the back squat, bench press, or deadlift to count it toward the big-3 lift achievements.")
                 }
             }
             .navigationTitle("New Exercise")
@@ -80,10 +110,18 @@ struct NewExerciseView: View {
                     Button("Save", action: save).disabled(trimmedName.isEmpty)
                 }
             }
+            .alert("Primary mover", isPresented: $showingMoverHelp) {
+                Button("Got it", role: .cancel) {}
+            } message: {
+                Text("The primary mover is the main muscle a lift drives — e.g. Quadriceps for a squat, or Latissimus Dorsi for a lat pulldown. It's used to group and label exercises. It's optional: leave it blank if you're unsure, or start typing to pick a muscle from the suggestions.")
+            }
         }
     }
 
     private func save() {
+        // Claude  Date 06/16/2026
+        // Snap the mover to its canonical spelling (no-op if blank or already canonical).
+        // No liftType is passed — custom lifts are never big-3 (defaults to nil).
         let exercise = store.addExercise(
             name: trimmedName,
             region: region,
@@ -91,8 +129,7 @@ struct NewExerciseView: View {
                 ? "Other"
                 : category.trimmingCharacters(in: .whitespaces),
             isUnilateral: isUnilateral,
-            liftType: liftType,
-            primaryMover: primaryMover.trimmingCharacters(in: .whitespaces)
+            primaryMover: Exercise.normalizedPrimaryMover(primaryMover)
         )
         onCreate(exercise)
         dismiss()
