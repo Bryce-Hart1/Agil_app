@@ -1,8 +1,10 @@
 import SwiftUI
 
-/// Browse the food library — the nutrition analog of the exercise list. Foods are
-/// split into your custom foods and the built-in starter set. Add custom foods with
-/// the + ; swipe to delete. (Online Open Food Facts search arrives in Phase 2.)
+// Claude  Date 06/16/2026 last changed: 06/18/2026 by: Claude
+/// The Foods tab: your "Recents" — the foods you've actually used, newest first.
+/// There's no built-in starter set anymore; entries here are the ones you create
+/// (the +) or pull in from a barcode / Open Food Facts search (cached on use). Add
+/// with the + ; swipe to delete.
 struct FoodLibraryView: View {
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var theme: ThemeManager
@@ -10,30 +12,39 @@ struct FoodLibraryView: View {
     @State private var searchText = ""
     @State private var showingNewFood = false
 
-    private var filtered: [FoodItem] {
+    // Claude  Date 06/18/2026
+    // Recents = the library newest-first (foods are appended on create / first scan, so
+    // reverse-insertion order is "most recently added"), filtered by the search text.
+    private var recents: [FoodItem] {
+        let base = Array(store.foods.reversed())
         let q = searchText.trimmingCharacters(in: .whitespaces).lowercased()
-        guard !q.isEmpty else { return store.foods }
-        return store.foods.filter {
+        guard !q.isEmpty else { return base }
+        return base.filter {
             $0.name.lowercased().contains(q) || $0.brand.lowercased().contains(q)
         }
-    }
-
-    private var customFoods: [FoodItem] {
-        filtered.filter { $0.source == .custom }.sorted { $0.name < $1.name }
-    }
-    private var builtInFoods: [FoodItem] {
-        filtered.filter { $0.source != .custom }.sorted { $0.name < $1.name }
     }
 
     var body: some View {
         NavigationStack {
             List {
-                if store.foods.isEmpty {
-                    Text("No foods yet. Tap + to add one.")
+                if recents.isEmpty {
+                    Text(searchText.isEmpty
+                         ? "No foods yet. Tap + to add one, or log a food from a barcode / Open Food Facts to see it here."
+                         : "No matches.")
                         .foregroundStyle(.secondary)
                 } else {
-                    foodSection("My Foods", customFoods)
-                    foodSection("Built-in", builtInFoods)
+                    Section("Recents") {
+                        ForEach(recents) { food in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(food.displayLabel).font(.subheadline).fontWeight(.medium)
+                                Text("\(Int(food.nutrients.calories.rounded())) kcal · \(food.servingLabel)")
+                                    .font(.caption2).foregroundStyle(.secondary)
+                            }
+                        }
+                        .onDelete { offsets in
+                            offsets.map { recents[$0] }.forEach(store.deleteFood)
+                        }
+                    }
                 }
             }
             .searchable(text: $searchText, prompt: "Search foods")
@@ -46,24 +57,6 @@ struct FoodLibraryView: View {
             }
             .sheet(isPresented: $showingNewFood) {
                 NewFoodView()
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func foodSection(_ title: String, _ foods: [FoodItem]) -> some View {
-        if !foods.isEmpty {
-            Section(title) {
-                ForEach(foods) { food in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(food.displayLabel).font(.subheadline).fontWeight(.medium)
-                        Text("\(Int(food.nutrients.calories.rounded())) kcal · \(food.servingLabel)")
-                            .font(.caption2).foregroundStyle(.secondary)
-                    }
-                }
-                .onDelete { offsets in
-                    offsets.map { foods[$0] }.forEach(store.deleteFood)
-                }
             }
         }
     }

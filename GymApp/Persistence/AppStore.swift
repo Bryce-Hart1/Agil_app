@@ -118,11 +118,14 @@ final class AppStore: ObservableObject {
         self.celebratedRank = persistence.load(Self.rankFile, default: StrategistRank.pawn)
         self.activityLog = persistence.load(Self.activityLogFile, default: [ActivityEvent]())
 
-        // Claude  Date 06/16/2026
-        // Nutrition: seed the food library on first launch (same pattern as
-        // exercises). The diary/water logs start empty; goals fall back to defaults.
+        // Claude  Date 06/16/2026 last changed: 06/18/2026 by: Claude
+        // Nutrition: the food library is no longer seeded with a built-in starter set —
+        // it's now just the user's own foods (custom + barcode/Open Food Facts), shown
+        // as "Recents" in the Foods tab. Drop any seed foods left in the file from a
+        // previous build's starter set (persisted once below if any were removed). The
+        // diary/water logs start empty; goals fall back to defaults.
         let loadedFoods = persistence.load(Self.foodsFile, default: [FoodItem]())
-        self.foods = loadedFoods.isEmpty ? AppStore.seedFoods : loadedFoods
+        self.foods = loadedFoods.filter { $0.source != .seed }
         self.foodLog = persistence.load(Self.foodLogFile, default: [FoodEntry]())
         self.waterLog = persistence.load(Self.waterLogFile, default: [WaterEntry]())
         self.nutritionGoals = persistence.load(Self.nutritionGoalsFile, default: NutritionGoals())
@@ -132,7 +135,8 @@ final class AppStore: ObservableObject {
         if loadedExercises.isEmpty {
             persistence.save(self.exercises, to: Self.exercisesFile)
         }
-        if loadedFoods.isEmpty {
+        // One-time cleanup: if we stripped any leftover seed foods above, persist it.
+        if self.foods.count != loadedFoods.count {
             persistence.save(self.foods, to: Self.foodsFile)
         }
 
@@ -341,6 +345,16 @@ final class AppStore: ObservableObject {
         exercises.remove(atOffsets: offsets)
     }
 
+    // Claude  Date 06/18/2026
+    // Replace an exercise in the library (matched by id) after editing its details —
+    // e.g. from the pencil in the workout editor's exercise header. Persists via the
+    // exercises didSet; workouts reference exercises by id, so their labels update live.
+    func updateExercise(_ exercise: Exercise) {
+        if let index = exercises.firstIndex(where: { $0.id == exercise.id }) {
+            exercises[index] = exercise
+        }
+    }
+
     // Claude  Date 06/14/2026
     // Remove a specific exercise by identity — used by the region-sectioned list,
     // where swipe offsets are relative to a section rather than the whole array.
@@ -434,6 +448,38 @@ final class AppStore: ObservableObject {
                 }
             }
         )
+    }
+
+    // MARK: - Rep ranges
+
+    // Claude  Date 06/18/2026
+    // Preferred target rep range for an exercise, learned from its own history: the
+    // most-used target range across the most recent 3 logged instances (ties broken by
+    // recency). Example: the last three were 4–6, 6–8, 4–6 → 4–6. nil if it's never been
+    // logged with a range yet. Pure read over `workouts`, all on-device.
+    func preferredRepRange(for exerciseId: UUID) -> RepRange? {
+        let recent = workouts
+            .sorted { $0.date > $1.date }
+            .flatMap { $0.exercises.filter { $0.exerciseId == exerciseId } }
+            .compactMap { $0.targetRepRange }
+            .prefix(3)
+        guard !recent.isEmpty else { return nil }
+
+        var counts: [RepRange: Int] = [:]
+        recent.forEach { counts[$0, default: 0] += 1 }
+        // Highest count wins; on a tie keep the most recent (lowest index).
+        return recent.enumerated().max {
+            let c0 = counts[$0.element] ?? 0, c1 = counts[$1.element] ?? 0
+            return c0 != c1 ? c0 < c1 : $0.offset > $1.offset
+        }?.element
+    }
+
+    // Claude  Date 06/18/2026
+    // The range to pre-fill when (re)queuing an exercise so every lift always arrives
+    // with one: an explicit range (e.g. carried from a preset) wins, else the
+    // history-preferred range, else a sensible 8–12 default.
+    func defaultRepRange(for exerciseId: UUID, explicit: RepRange? = nil) -> RepRange {
+        explicit ?? preferredRepRange(for: exerciseId) ?? RepRange(min: 8, max: 12)
     }
 
     // MARK: - Nutrition
@@ -565,9 +611,13 @@ final class AppStore: ObservableObject {
 
     /// Builds a fresh workout from a preset: each preset item becomes a logged
     /// exercise carrying the target rep range, with no sets yet (you fill those in).
+    // Claude  Date 06/18/2026 last changed: 06/18/2026 by: Claude
+    // Backfill the rep range so every queued lift has one: the preset's own range wins,
+    // else the history-preferred range, else the 8–12 default (see defaultRepRange).
     func workout(from preset: WorkoutPreset) -> Workout {
         Workout(exercises: preset.items.map {
-            LoggedExercise(exerciseId: $0.exerciseId, targetRepRange: $0.targetRepRange,
+            LoggedExercise(exerciseId: $0.exerciseId,
+                           targetRepRange: defaultRepRange(for: $0.exerciseId, explicit: $0.targetRepRange),
                            note: $0.note, restSeconds: $0.restSeconds)
         })
     }
@@ -666,42 +716,5 @@ extension AppStore {
         Exercise(name: "Hanging Leg Raise", region: .core, category: "Core", primaryMover: "Rectus Abdominis (Lower)", quality: .optimal),
         Exercise(name: "Pallof Press", region: .core, category: "Core", isUnilateral: true, primaryMover: "Obliques", quality: .optimal),
         Exercise(name: "Plank", region: .core, category: "Core", primaryMover: "Transverse Abdominis", quality: .classic),
-    ]
-}
-
-// MARK: - Seed foods
-
-extension AppStore {
-    // Claude  Date 06/16/2026
-    // A small starter food library pre-loaded on first launch (the nutrition analog
-    // of seedExercises), so the diary is usable before the Open Food Facts search
-    // lands in Phase 2. Values are approximate per the stated reference serving:
-    // calories kcal; protein/carbs/fat/fiber/sugar grams; sodium mg. `source: .seed`
-    // marks them as shipped (vs custom / API-cached).
-    static let seedFoods: [FoodItem] = [
-        FoodItem(name: "Chicken Breast, cooked", servingSize: 100, servingUnit: "g",
-                 nutrients: Nutrients(calories: 165, protein: 31, carbs: 0, fat: 3.6, sodium: 74), source: .seed),
-        FoodItem(name: "Salmon, cooked", servingSize: 100, servingUnit: "g",
-                 nutrients: Nutrients(calories: 206, protein: 22, carbs: 0, fat: 13, sodium: 61), source: .seed),
-        FoodItem(name: "Whole Egg", servingSize: 1, servingUnit: "large egg",
-                 nutrients: Nutrients(calories: 72, protein: 6.3, carbs: 0.4, fat: 4.8, sodium: 71), source: .seed),
-        FoodItem(name: "White Rice, cooked", servingSize: 100, servingUnit: "g",
-                 nutrients: Nutrients(calories: 130, protein: 2.7, carbs: 28, fat: 0.3, fiber: 0.4, sodium: 1), source: .seed),
-        FoodItem(name: "Rolled Oats, dry", servingSize: 40, servingUnit: "g",
-                 nutrients: Nutrients(calories: 156, protein: 6.8, carbs: 26, fat: 2.8, fiber: 4.2, sugar: 0.4), source: .seed),
-        FoodItem(name: "Sweet Potato, cooked", servingSize: 100, servingUnit: "g",
-                 nutrients: Nutrients(calories: 90, protein: 2, carbs: 21, fat: 0.1, fiber: 3.3, sugar: 6.5, sodium: 36), source: .seed),
-        FoodItem(name: "Broccoli, cooked", servingSize: 100, servingUnit: "g",
-                 nutrients: Nutrients(calories: 35, protein: 2.4, carbs: 7, fat: 0.4, fiber: 3.3, sugar: 1.4, sodium: 41), source: .seed),
-        FoodItem(name: "Banana", servingSize: 1, servingUnit: "medium",
-                 nutrients: Nutrients(calories: 105, protein: 1.3, carbs: 27, fat: 0.4, fiber: 3.1, sugar: 14, sodium: 1), source: .seed),
-        FoodItem(name: "Greek Yogurt, plain nonfat", servingSize: 170, servingUnit: "g",
-                 nutrients: Nutrients(calories: 100, protein: 17, carbs: 6, fat: 0.7, sugar: 4, sodium: 61), source: .seed),
-        FoodItem(name: "Whole Milk", servingSize: 240, servingUnit: "ml",
-                 nutrients: Nutrients(calories: 149, protein: 7.7, carbs: 12, fat: 8, sugar: 12, sodium: 105), source: .seed),
-        FoodItem(name: "Almonds", servingSize: 28, servingUnit: "g",
-                 nutrients: Nutrients(calories: 164, protein: 6, carbs: 6, fat: 14, fiber: 3.5, sugar: 1.2, sodium: 0), source: .seed),
-        FoodItem(name: "Peanut Butter", servingSize: 32, servingUnit: "g",
-                 nutrients: Nutrients(calories: 188, protein: 8, carbs: 6, fat: 16, fiber: 2, sugar: 3, sodium: 147), source: .seed),
     ]
 }

@@ -56,7 +56,7 @@ struct OnboardingView: View {
 
             VStack(spacing: 6) {
                 Text("Welcome to Agil").font(.largeTitle.bold())
-                Text("Your Tracking & Marking App")
+                Text("Your Bench & Marking App")
                     .font(.subheadline).foregroundStyle(.secondary)
             }
 

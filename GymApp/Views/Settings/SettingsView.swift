@@ -1,10 +1,16 @@
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// App settings. Pushed from the Profile tab, so it does not host its own
 /// navigation stack.
 struct SettingsView: View {
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var theme: ThemeManager
+    // Claude  Date 06/18/2026
+    // Shared-card sync, for the Friends section (friend code + look up a friend).
+    @EnvironmentObject private var cardSync: CardSyncService
 
     var body: some View {
         List {
@@ -25,9 +31,49 @@ struct SettingsView: View {
                     }
                 }
             }
+            // Claude  Date 06/18/2026
+            // Friends: opt into sharing just your profile card, see your friend code,
+            // and look up a friend's card. The footer states the privacy contract.
+            Section {
+                Toggle("Friends mode", isOn: friendsModeBinding)
+
+                if store.profile.dataMode == .friends, let code = cardSync.myFriendCode {
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Your friend code").font(.subheadline)
+                            Text(code)
+                                .font(.caption.monospaced())
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                                .textSelection(.enabled)
+                        }
+                        Spacer(minLength: 8)
+                        Button {
+                            #if canImport(UIKit)
+                            UIPasteboard.general.string = code
+                            #endif
+                        } label: {
+                            Image(systemName: "doc.on.doc")
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                }
+
+                NavigationLink {
+                    FriendLookupView()
+                } label: {
+                    Label("View a friend's card", systemImage: "person.crop.square")
+                }
+            } header: {
+                Text("Friends")
+            } footer: {
+                Text("Friends mode shares only your profile card — display name, card style, equipped rank, and featured badges. Your workouts, nutrition, water, and everything else never leave this device. Turning it off deletes your shared card.")
+            }
+
             Section("About") {
                 LabeledContent("App", value: "Agil")
-                LabeledContent("Tagline", value: "Your Tracking & Marking App")
+                LabeledContent("Tagline", value: "Your Bench & Marking App")
                 LabeledContent("Version", value: "0.1.0")
             }
             Section("Stored data") {
@@ -96,6 +142,21 @@ struct SettingsView: View {
         .themed(theme.current)
     }
 
+    // Claude  Date 06/18/2026
+    // Drives the Friends-mode toggle: flips UserProfile.dataMode (persisted via the
+    // profile's didSet) and tells the sync service to push (Friends) or tear down the
+    // shared card (Offline). The first flip to Friends also mints the device identity.
+    private var friendsModeBinding: Binding<Bool> {
+        Binding(
+            get: { store.profile.dataMode == .friends },
+            set: { isOn in
+                let mode: DataMode = isOn ? .friends : .offline
+                store.profile.dataMode = mode
+                cardSync.handleModeChange(to: mode, store: store)
+            }
+        )
+    }
+
     #if DEBUG
     // Claude  Date 06/17/2026
     // Drives the "Barcode cache (debug)" section: a cold lookup should hit the
@@ -121,5 +182,6 @@ struct SettingsView: View {
         SettingsView()
             .environmentObject(AppStore())
             .environmentObject(ThemeManager())
+            .environmentObject(CardSyncService())
     }
 }

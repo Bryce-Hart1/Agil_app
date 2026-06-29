@@ -385,12 +385,13 @@ private struct MoltenBackground: View {
 
 // MARK: - Cherry Blossom
 
-// Claude  Date 06/16/2026
-// "Cherry Blossom": a twilight orchard card. A seeded silhouette tree (generated
-// once into branch segments + blossom clusters) stands in the far background and
-// sways gently in the wind, while pink petals drift, sway, and tumble down across
-// the foreground over a dusk gradient. The tree is built in normalised [0,1]
-// coordinates so it scales to any card size.
+// Claude  Date 06/16/2026 last changed: 06/17/2026 by: Claude
+// "Cherry Blossom": a twilight orchard card, reframed as a CLOSE-UP. Rather than a
+// whole little tree centred in frame, a couple of thick boughs push in from off the
+// left/bottom edges and arc up across the card — so it reads like you're standing
+// right beside the branch. Limbs are heavier, blossom tips are full overlapping
+// puffs, and pink petals drift, sway, and tumble down the foreground over a dusk
+// gradient. Everything is built in normalised [0,1] coords so it scales to any card.
 private struct CherryBlossomBackground: View {
     private struct Branch { let a, b: CGPoint; let depth: Int }
     private struct Blossom { let p: CGPoint; let r, shade: Double }
@@ -404,13 +405,21 @@ private struct CherryBlossomBackground: View {
         var rng = SeededGenerator(seed: 31)
         var branches: [Branch] = []
         var blossoms: [Blossom] = []
-        Self.grow(from: CGPoint(x: 0.5, y: 0.97), angle: -.pi / 2, length: 0.20, depth: 6,
+        // Claude  Date 06/17/2026
+        // Close-up framing: grow one thick main bough in from the bottom-left corner
+        // (origin off-frame) arcing up and to the right, plus a shorter offshoot from
+        // the left edge, so only part of the tree is visible — the macro "right next
+        // to the branch" look. Off-frame origins + longer lengths push the trunk past
+        // the edges instead of sitting as a small complete tree in the middle.
+        Self.grow(from: CGPoint(x: -0.08, y: 1.06), angle: -.pi / 3.1, length: 0.46, depth: 5,
+                  branches: &branches, blossoms: &blossoms, rng: &rng)
+        Self.grow(from: CGPoint(x: -0.06, y: 0.60), angle: -.pi / 9, length: 0.30, depth: 4,
                   branches: &branches, blossoms: &blossoms, rng: &rng)
         self.branches = branches
         self.blossoms = blossoms
         self.petals = (0..<46).map { _ in
             Petal(x: .random(in: 0...1, using: &rng),
-                  size: .random(in: 3.0...6.5, using: &rng),
+                  size: .random(in: 3.5...8.0, using: &rng),
                   speed: .random(in: 0.05...0.13, using: &rng),
                   offset: .random(in: 0...1, using: &rng),
                   sway: .random(in: 0.4...1.1, using: &rng),
@@ -430,21 +439,24 @@ private struct CherryBlossomBackground: View {
                           y: from.y + CGFloat(sin(angle)) * CGFloat(length))
         branches.append(Branch(a: from, b: end, depth: depth))
         if depth == 0 {
-            let count = Int.random(in: 2...4, using: &rng)
+            // Claude  Date 06/17/2026
+            // Fuller tip cluster for the close-up: more blossoms, bigger, spread over a
+            // wider patch so each branch end reads as a dense puff rather than a few dots.
+            let count = Int.random(in: 5...9, using: &rng)
             for _ in 0..<count {
                 blossoms.append(Blossom(
-                    p: CGPoint(x: end.x + CGFloat.random(in: -0.025...0.025, using: &rng),
-                               y: end.y + CGFloat.random(in: -0.025...0.025, using: &rng)),
-                    r: .random(in: 0.012...0.026, using: &rng),
+                    p: CGPoint(x: end.x + CGFloat.random(in: -0.05...0.05, using: &rng),
+                               y: end.y + CGFloat.random(in: -0.05...0.05, using: &rng)),
+                    r: .random(in: 0.018...0.040, using: &rng),
                     shade: .random(in: 0...1, using: &rng)))
             }
             return
         }
         let children = depth >= 4 ? 2 : Int.random(in: 2...3, using: &rng)
         for _ in 0..<children {
-            let spread = Double.random(in: 0.30...0.75, using: &rng)
+            let spread = Double.random(in: 0.30...0.70, using: &rng)
             let newAngle = angle + .random(in: -spread...spread, using: &rng)
-            let newLength = length * Double.random(in: 0.68...0.82, using: &rng)
+            let newLength = length * Double.random(in: 0.66...0.80, using: &rng)
             grow(from: end, angle: newAngle, length: newLength, depth: depth - 1,
                  branches: &branches, blossoms: &blossoms, rng: &rng)
         }
@@ -453,6 +465,11 @@ private struct CherryBlossomBackground: View {
     // Pinks for blossoms / petals, interpolated by a 0…1 shade.
     private func pink(_ shade: Double) -> Color {
         Color(red: 0.98 - 0.06 * shade, green: 0.62 - 0.14 * shade, blue: 0.76 - 0.08 * shade)
+    }
+
+    // Circle path centred at (cx, cy) with radius r.
+    private func circle(_ cx: CGFloat, _ cy: CGFloat, _ r: CGFloat) -> Path {
+        Path(ellipseIn: CGRect(x: cx - r, y: cy - r, width: r * 2, height: r * 2))
     }
 
     // A simple pointed-oval petal centred on the origin (2*s tall, s wide).
@@ -494,24 +511,31 @@ private struct CherryBlossomBackground: View {
                     return CGFloat(sin(t * 0.6 + height * 3.0) * height * height * 0.018) * w
                 }
 
-                // The tree: dark silhouette branches, slightly blurred for depth.
+                // Claude  Date 06/17/2026
+                // The boughs: heavier, woody limbs (thicker line weight + warmer brown
+                // than the old near-black silhouette) so the close-up reads as bark, with
+                // only a touch of blur for depth.
                 ctx.drawLayer { layer in
-                    layer.addFilter(.blur(radius: 0.7))
+                    layer.addFilter(.blur(radius: 0.5))
                     for br in branches {
                         var path = Path()
                         path.move(to: CGPoint(x: br.a.x * w + wind(br.a), y: br.a.y * h))
                         path.addLine(to: CGPoint(x: br.b.x * w + wind(br.b), y: br.b.y * h))
-                        let lw = max(0.7, CGFloat(br.depth + 1) * scale * 0.0042)
-                        layer.stroke(path, with: .color(Color(red: 0.16, green: 0.10, blue: 0.12).opacity(0.92)),
-                                     style: StrokeStyle(lineWidth: lw, lineCap: .round))
+                        let lw = max(1.0, CGFloat(br.depth + 1) * scale * 0.0085)
+                        layer.stroke(path, with: .color(Color(red: 0.22, green: 0.13, blue: 0.13).opacity(0.95)),
+                                     style: StrokeStyle(lineWidth: lw, lineCap: .round, lineJoin: .round))
                     }
-                    // Blossom canopy clusters at the branch tips.
+                    // Claude  Date 06/17/2026
+                    // Blossom puffs: a soft halo, a solid body, and a small bright highlight
+                    // so each blossom has a little dimension instead of reading as a flat dot.
                     for bl in blossoms {
                         let cx = bl.p.x * w + wind(bl.p)
                         let cy = bl.p.y * h
                         let r = CGFloat(bl.r) * scale
-                        layer.fill(Path(ellipseIn: CGRect(x: cx - r, y: cy - r, width: r * 2, height: r * 2)),
-                                   with: .color(pink(bl.shade).opacity(0.88)))
+                        layer.fill(circle(cx, cy, r * 1.7), with: .color(pink(bl.shade).opacity(0.28)))
+                        layer.fill(circle(cx, cy, r), with: .color(pink(bl.shade).opacity(0.93)))
+                        layer.fill(circle(cx - r * 0.28, cy - r * 0.28, r * 0.36),
+                                   with: .color(Color(red: 1.0, green: 0.96, blue: 0.98).opacity(0.55)))
                     }
                 }
 

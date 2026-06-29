@@ -31,6 +31,9 @@ private struct WorkoutEditor: View {
     @Binding var workout: Workout
     let isNew: Bool
     @State private var showingExercisePicker = false
+    // Claude  Date 06/18/2026
+    // The library exercise being edited from a section's pencil (nil = none).
+    @State private var editingExercise: Exercise?
     @State private var showingReorder = false
     @State private var showingSaveAsPreset = false
     @State private var presetName = ""
@@ -56,6 +59,22 @@ private struct WorkoutEditor: View {
                 } header: {
                     HStack {
                         Text(store.exercise(for: logged.exerciseId)?.name ?? "Exercise")
+                        // Claude  Date 06/18/2026
+                        // Pencil → edit the underlying library exercise's details in place.
+                        if let exercise = store.exercise(for: logged.exerciseId) {
+                            Button {
+                                editingExercise = exercise
+                            } label: {
+                                // Claude  Date 06/18/2026 — heavier stroke so the edit
+                                // affordance reads clearly in the section header.
+                                Image(systemName: "pencil")
+                                    .fontWeight(.bold)
+                                    .imageScale(.large)
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(theme.current.accent)
+                            .accessibilityLabel("Edit \(exercise.name)")
+                        }
                         if let range = logged.targetRepRange {
                             Spacer()
                             Text("\(range.display) reps")
@@ -136,8 +155,20 @@ private struct WorkoutEditor: View {
         }
         .sheet(isPresented: $showingExercisePicker) {
             ExercisePickerView { exercise in
-                workout.exercises.append(LoggedExercise(exerciseId: exercise.id))
+                // Claude  Date 06/18/2026
+                // Requeue with a rep range already set — the exercise's history-preferred
+                // range (most-used of its last 3), or the 8–12 default. So a lift never
+                // lands in the workout without a target.
+                workout.exercises.append(
+                    LoggedExercise(exerciseId: exercise.id,
+                                   targetRepRange: store.defaultRepRange(for: exercise.id)))
             }
+        }
+        // Claude  Date 06/18/2026
+        // Edit the tapped exercise's library details (name, region, mover, …). Saving
+        // updates the shared library, so this and any other workout using it relabel.
+        .sheet(item: $editingExercise) { exercise in
+            NewExerciseView(editing: exercise)
         }
         .sheet(isPresented: $showingReorder) {
             ReorderExercisesSheet(title: "Reorder", items: $workout.exercises) {
@@ -315,10 +346,11 @@ private struct SetRow: View {
 
     var body: some View {
         HStack {
-            // Claude  Date 06/14/2026 last changed: 06/16/2026 by: Claude
+            // Claude  Date 06/14/2026 last changed: 06/18/2026 by: Claude
             // Explicit "complete set" tap — the only thing that earns achievement
-            // credit. Filled checkmark once done; tapping again un-completes it so the
-            // reps/weight can be corrected, then re-completed.
+            // credit. Filled checkmark once done; tapping again un-completes it. (The
+            // reps/weight fields stay editable either way, so a typo no longer needs an
+            // un-check to fix.)
             Button(action: toggleComplete) {
                 Image(systemName: isCompleted ? "checkmark.circle.fill" : "circle")
                     .foregroundStyle(isCompleted ? accent : .secondary)
@@ -343,12 +375,17 @@ private struct SetRow: View {
             }
             .frame(width: 54, alignment: .leading)
 
+            // Claude  Date 06/18/2026
+            // Reps/weight stay editable even after the set is checked off, so a mistyped
+            // value can be corrected in place (you no longer have to un-check first).
+            // Credit is read from the current values when the workout is completed, so a
+            // pre-finish correction is reflected; edits to an already-finished workout
+            // don't change earned credit (the ledger is append-only).
             TextField("Reps", value: $set.reps, format: .number)
                 .keyboardType(.numberPad)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(lagsBehind ? .red : (markColor ?? .primary))
                 .frame(width: 48)
-                .disabled(isCompleted)
             Text("reps")
                 .foregroundStyle(.secondary)
 
@@ -359,18 +396,17 @@ private struct SetRow: View {
                 .multilineTextAlignment(.trailing)
                 .foregroundStyle(lagsBehind ? .red : .primary)
                 .frame(width: 64)
-                .disabled(isCompleted)
             Text("lb")
                 .foregroundStyle(.secondary)
         }
         .opacity(isCompleted ? 0.6 : 1)
     }
 
-    // Claude  Date 06/14/2026 last changed: 06/16/2026 by: Claude
+    // Claude  Date 06/14/2026 last changed: 06/18/2026 by: Claude
     // Toggle completion. This only stamps/clears the set's real check-off time — no
     // ledger write happens here. Credit is granted in one batch when the workout is
     // marked complete (AppStore.finishWorkout), so an unfinished workout never counts.
-    // Completing locks the fields; tapping again un-completes to fix a mistyped value.
+    // The reps/weight fields are always editable, so a completed set can still be fixed.
     private func toggleComplete() {
         set.completedAt = isCompleted ? nil : Date()
     }

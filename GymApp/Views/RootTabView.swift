@@ -8,6 +8,12 @@ struct RootTabView: View {
     // Claude  Date 06/16/2026
     // Live in-progress-workout state, for the global mini-bar + jump-back navigation.
     @EnvironmentObject private var session: WorkoutSession
+    // Claude  Date 06/18/2026
+    // Shared-card sync. The single hook point: we nudge it on launch, on foreground,
+    // and whenever the profile or earned badges change. It only acts in Friends mode
+    // and dedupes/debounces, so calling it freely here is cheap and safe.
+    @EnvironmentObject private var cardSync: CardSyncService
+    @Environment(\.scenePhase) private var scenePhase
     // Claude  Date 06/16/2026
     // The bar leads with a mode switcher (tag 0). Real tabs start at tag 1, so the
     // first content tab is selected on launch and after every mode flip.
@@ -133,6 +139,21 @@ struct RootTabView: View {
         .animation(.easeInOut(duration: 0.25), value: store.pendingWorkoutSummary?.id)
         .animation(.easeInOut(duration: 0.25), value: store.pendingCelebrations.first?.id)
         .animation(.easeInOut(duration: 0.25), value: store.pendingPromotions.first)
+        // Claude  Date 06/18/2026
+        // Keep the shared card in sync (Friends mode only). Push on launch + whenever
+        // the app returns to the foreground, and react to card-relevant edits: profile
+        // (name / style / rank toggle / pinned badges) and the earned-badge set (which
+        // drives the equipped rank). Each call no-ops unless in Friends mode + changed.
+        .task { cardSync.sync(from: store) }
+        .onChange(of: scenePhase) { phase in
+            if phase == .active {
+                cardSync.sync(from: store)
+                // Catch the rest timer up to real elapsed time after backgrounding/locking.
+                session.refreshRest()
+            }
+        }
+        .onChange(of: store.profile) { _ in cardSync.sync(from: store) }
+        .onChange(of: store.unlockedAchievementIDs) { _ in cardSync.sync(from: store) }
     }
 
     // Claude  Date 06/16/2026
@@ -151,4 +172,5 @@ struct RootTabView: View {
         .environmentObject(AppStore())
         .environmentObject(ThemeManager())
         .environmentObject(WorkoutSession())
+        .environmentObject(CardSyncService())
 }

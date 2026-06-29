@@ -40,7 +40,10 @@ struct PerformanceCardView: View {
     }
 
     private var card: some View {
-        VStack(spacing: 18) {
+        // Claude  Date 06/18/2026
+        // Roomier vertically (more inter-section spacing + taller top/bottom padding,
+        // plus taller stat tiles below) so the card reads a little longer on the y-axis.
+        VStack(spacing: 24) {
             header
 
             VStack(spacing: 4) {
@@ -65,7 +68,8 @@ struct PerformanceCardView: View {
                 .foregroundStyle(.white.opacity(0.7))
                 .padding(.top, 2)
         }
-        .padding(24)
+        .padding(.horizontal, 24)
+        .padding(.vertical, 34)
         .frame(maxWidth: .infinity)
         .background(CardBackgroundView(background: style.background))
         .clipShape(RoundedRectangle(cornerRadius: 28))
@@ -110,7 +114,7 @@ struct PerformanceCardView: View {
                 .foregroundStyle(.white.opacity(0.75))
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 12)
+        .padding(.vertical, 18)
         .background(.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
     }
 
@@ -128,7 +132,7 @@ struct PerformanceCardView: View {
                 .foregroundStyle(.white.opacity(0.85))
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 12)
+        .padding(.vertical, 18)
         .background(.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
     }
 

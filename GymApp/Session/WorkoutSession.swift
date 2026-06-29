@@ -33,20 +33,28 @@ final class WorkoutSession: ObservableObject {
 
     private var timer: Timer?
     private var hideCompleteWork: DispatchWorkItem?
+    // Claude  Date 06/18/2026
+    // The wall-clock instant the current rest ends. The countdown is derived from this
+    // (now → end) rather than decremented tick-by-tick, so it stays correct across
+    // backgrounding / locking the phone: while suspended the Timer doesn't fire, but the
+    // end time is fixed, so on return refreshRest() shows the real remaining (or finishes).
+    private var restEndDate: Date?
 
     /// 0…1 fraction of the rest elapsed — drives the bar's sweeping progress fill.
     var restProgress: Double {
         restTotal > 0 ? Double(restTotal - restRemaining) / Double(restTotal) : 0
     }
 
-    // Claude  Date 06/16/2026
-    // Start (or restart) the rest countdown. Runs on the common run-loop mode so it
-    // keeps ticking while lists scroll.
+    // Claude  Date 06/16/2026 last changed: 06/18/2026 by: Claude
+    // Start (or restart) the rest countdown. Anchors a wall-clock end time so the
+    // remaining time is computed from the clock (survives backgrounding); the Timer
+    // just refreshes the display each second while we're on screen.
     func startRest(seconds: Int) {
         guard seconds > 0 else { return }
         cancelHide()
         restTotal = seconds
         restRemaining = seconds
+        restEndDate = Date().addingTimeInterval(TimeInterval(seconds))
         isResting = true
         showRestComplete = false
         startTimer()
@@ -54,9 +62,25 @@ final class WorkoutSession: ObservableObject {
 
     func skipRest() {
         stopTimer()
+        restEndDate = nil
         isResting = false
         restRemaining = 0
         showRestComplete = false
+    }
+
+    // Claude  Date 06/18/2026
+    // Recompute the remaining time from the wall-clock end date, completing if it has
+    // already elapsed. Called every tick AND whenever the app returns to the foreground
+    // (see RootTabView), so a rest that ran out while the phone was backgrounded/locked
+    // finishes correctly instead of resuming frozen.
+    func refreshRest() {
+        guard isResting, let end = restEndDate else { return }
+        let remaining = Int(ceil(end.timeIntervalSinceNow))
+        if remaining > 0 {
+            restRemaining = remaining
+        } else {
+            completeRest()
+        }
     }
 
     func dismissRestComplete() {
@@ -79,19 +103,20 @@ final class WorkoutSession: ObservableObject {
     }
 
     private func tick() {
-        guard isResting else { return }
-        if restRemaining > 1 {
-            restRemaining -= 1
-        } else {
-            restRemaining = 0
-            isResting = false
-            stopTimer()
-            showRestComplete = true
-            #if canImport(UIKit)
-            UINotificationFeedbackGenerator().notificationOccurred(.success)
-            #endif
-            scheduleHide()
-        }
+        refreshRest()
+    }
+
+    // Finish the rest: clear state, buzz, and show the brief "Rest complete" message.
+    private func completeRest() {
+        restRemaining = 0
+        restEndDate = nil
+        isResting = false
+        stopTimer()
+        showRestComplete = true
+        #if canImport(UIKit)
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        #endif
+        scheduleHide()
     }
 
     // Auto-hide the "Rest complete" message after a few seconds.
