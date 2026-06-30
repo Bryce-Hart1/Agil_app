@@ -11,6 +11,11 @@ struct NewFoodView: View {
     @Environment(\.dismiss) private var dismiss
 
     let initialName: String
+    // Claude  Date 06/18/2026
+    // When the user creates a food after a barcode scan found nothing, the scanned code
+    // is carried here so it's stored on the food (and remembered in the cache, so a
+    // future scan of the same product resolves to it).
+    let initialBarcode: String?
     let onCreate: (FoodItem) -> Void
 
     @State private var name: String
@@ -25,8 +30,10 @@ struct NewFoodView: View {
     @State private var sugar: Double = 0
     @State private var sodium: Double = 0
 
-    init(initialName: String = "", onCreate: @escaping (FoodItem) -> Void = { _ in }) {
+    init(initialName: String = "", initialBarcode: String? = nil,
+         onCreate: @escaping (FoodItem) -> Void = { _ in }) {
         self.initialName = initialName
+        self.initialBarcode = initialBarcode
         self.onCreate = onCreate
         _name = State(initialValue: initialName)
     }
@@ -39,6 +46,10 @@ struct NewFoodView: View {
                 Section("Food") {
                     TextField("Name", text: $name)
                     TextField("Brand (optional)", text: $brand)
+                    if let barcode = initialBarcode, !barcode.isEmpty {
+                        LabeledContent("Barcode", value: barcode)
+                            .font(.footnote)
+                    }
                 }
 
                 Section("Serving") {
@@ -89,14 +100,21 @@ struct NewFoodView: View {
 
     private func save() {
         let unit = servingUnit.trimmingCharacters(in: .whitespaces)
+        let barcode = initialBarcode?.trimmingCharacters(in: .whitespacesAndNewlines)
         let food = store.addFood(FoodItem(
             name: trimmedName,
             brand: brand.trimmingCharacters(in: .whitespaces),
+            barcode: (barcode?.isEmpty == false) ? barcode : nil,
             servingSize: servingSize > 0 ? servingSize : 1,
             servingUnit: unit.isEmpty ? "serving" : unit,
             nutrients: Nutrients(calories: calories, protein: protein, carbs: carbs,
                                  fat: fat, fiber: fiber, sugar: sugar, sodium: sodium),
             source: .custom))
+        // Claude  Date 06/18/2026 — remember the scanned barcode so a future scan of the
+        // same product resolves straight to this food (no "not found" again).
+        if let barcode, !barcode.isEmpty {
+            store.rememberScannedFood(food, forBarcode: barcode)
+        }
         onCreate(food)
         dismiss()
     }

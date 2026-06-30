@@ -19,6 +19,7 @@ struct PresetEditorView: View {
 private struct PresetEditor: View {
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var theme: ThemeManager
+    @Environment(\.dismiss) private var dismiss
     @Binding var preset: WorkoutPreset
     @State private var showingExercisePicker = false
     @State private var showingReorder = false
@@ -67,6 +68,23 @@ private struct PresetEditor: View {
                     Label("Add Exercise", systemImage: "plus")
                 }
             }
+
+            // Claude  Date 06/18/2026
+            // Done button at the bottom. The preset saves live through its binding, so
+            // this is purely navigation — it pops back to the presets list (mirrors the
+            // workout editor's "Finish Edit").
+            Section {
+                Button {
+                    hideKeyboard()
+                    dismiss()
+                } label: {
+                    Text("Finish Preset")
+                        .fontWeight(.semibold)
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .listRowBackground(Color.clear)
+            }
         }
         .navigationTitle(preset.name.isEmpty ? "Preset" : preset.name)
         .navigationBarTitleDisplayMode(.inline)
@@ -113,8 +131,7 @@ private struct IconGrid: View {
     var body: some View {
         LazyVGrid(columns: columns, spacing: 12) {
             ForEach(PresetIcons.all, id: \.self) { name in
-                Image(systemName: name)
-                    .font(.title2)
+                PresetIconView(name: name, size: 26)
                     .frame(width: 48, height: 48)
                     .foregroundStyle(selected == name ? accent : .primary)
                     .background(

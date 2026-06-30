@@ -11,6 +11,9 @@ struct FoodLibraryView: View {
 
     @State private var searchText = ""
     @State private var showingNewFood = false
+    // Claude  Date 06/18/2026 — barcode scan state (scanner sheet + carried-over code).
+    @State private var showingScanner = false
+    @State private var scannedBarcode: String?
 
     // Claude  Date 06/18/2026
     // Recents = the library newest-first (foods are appended on create / first scan, so
@@ -51,12 +54,37 @@ struct FoodLibraryView: View {
             .navigationTitle("Foods")
             .themed(theme.current)
             .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    Button { showingNewFood = true } label: { Image(systemName: "plus") }
+                ToolbarItemGroup(placement: .primaryAction) {
+                    Button {
+                        scannedBarcode = nil
+                        showingScanner = true
+                    } label: {
+                        Image(systemName: "barcode.viewfinder")
+                    }
+                    Button {
+                        scannedBarcode = nil
+                        showingNewFood = true
+                    } label: {
+                        Image(systemName: "plus")
+                    }
                 }
             }
-            .sheet(isPresented: $showingNewFood) {
-                NewFoodView()
+            .sheet(isPresented: $showingNewFood, onDismiss: { scannedBarcode = nil }) {
+                NewFoodView(initialBarcode: scannedBarcode)
+            }
+            // Claude  Date 06/18/2026
+            // Scan-to-Recents: a found product is cached into the library (no logging,
+            // since there's no meal context here); a miss opens "New Food" with the code.
+            .sheet(isPresented: $showingScanner) {
+                BarcodeScanSheet(
+                    onResolved: { food in store.cacheFood(food) },
+                    onManualEntry: { code in
+                        scannedBarcode = code
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                            showingNewFood = true
+                        }
+                    }
+                )
             }
         }
     }

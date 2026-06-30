@@ -79,7 +79,7 @@ final class AppStore: ObservableObject {
     private var celebratedAchievementIDs: Set<String> = []
     // Claude  Date 06/15/2026
     // Highest Strategist rank already celebrated, so a promotion fires only once.
-    private var celebratedRank: StrategistRank = .pawn
+    private var celebratedRank: StrategistRank = .initiate
     // Claude  Date 06/15/2026
     // Dev-only: ids currently queued as a *preview* (from the badge gallery), so
     // dismissing them doesn't mark the real badge as celebrated. Transient.
@@ -115,7 +115,7 @@ final class AppStore: ObservableObject {
         self.profile = persistence.load(Self.profileFile, default: UserProfile())
         self.unlockedAchievementIDs = persistence.load(Self.achievementsFile, default: Set<String>())
         self.celebratedAchievementIDs = persistence.load(Self.celebratedFile, default: Set<String>())
-        self.celebratedRank = persistence.load(Self.rankFile, default: StrategistRank.pawn)
+        self.celebratedRank = persistence.load(Self.rankFile, default: StrategistRank.initiate)
         self.activityLog = persistence.load(Self.activityLogFile, default: [ActivityEvent]())
 
         // Claude  Date 06/16/2026 last changed: 06/18/2026 by: Claude

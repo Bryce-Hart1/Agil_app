@@ -11,6 +11,10 @@ struct SettingsView: View {
     // Claude  Date 06/18/2026
     // Shared-card sync, for the Friends section (friend code + look up a friend).
     @EnvironmentObject private var cardSync: CardSyncService
+    // Claude  Date 06/18/2026
+    // Offline food mode (same key the food search + barcode scanner read): keeps food
+    // lookups local unless the user explicitly chooses to go online for a given search.
+    @AppStorage("offlineFoodMode") private var offlineFoodMode = false
 
     var body: some View {
         List {
@@ -69,6 +73,17 @@ struct SettingsView: View {
                 Text("Friends")
             } footer: {
                 Text("Friends mode shares only your profile card — display name, card style, equipped rank, and featured badges. Your workouts, nutrition, water, and everything else never leave this device. Turning it off deletes your shared card.")
+            }
+
+            // Claude  Date 06/18/2026
+            // Offline food mode: gate Open Food Facts lookups (search + barcode) behind
+            // an explicit opt-in, so the app stays local-first.
+            Section {
+                Toggle("Offline mode", isOn: $offlineFoodMode)
+            } header: {
+                Text("Food lookups")
+            } footer: {
+                Text("When on, food search and barcode scans only use foods saved on this device. If something isn't found, you'll be asked to enter it yourself or search Open Food Facts online just for that lookup.")
             }
 
             Section("About") {
@@ -162,7 +177,7 @@ struct SettingsView: View {
     // Drives the "Barcode cache (debug)" section: a cold lookup should hit the
     // network and grow the cache by one; the second should resolve from cache.
     private func runBarcodeCacheTest() {
-        let service = CachedFoodService(base: OpenFoodFactsClient(), store: store)
+        let service = CachedFoodService(base: BackendFoodClient(), store: store)
         let barcode = "3017620422003" // Nutella — well-populated on Open Food Facts.
         print("🔖 [barcode cache] \(BarcodeCache.debugRunLRUCheck())")
         Task { @MainActor in

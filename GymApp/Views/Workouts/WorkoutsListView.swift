@@ -19,12 +19,24 @@ struct WorkoutsListView: View {
     // toolbar can resume the active one.
     @EnvironmentObject private var session: WorkoutSession
     @State private var path: [WorkoutRoute] = []
+    // Claude  Date 06/18/2026
+    // History is collapsed to the last few by default; this expands it to the full log.
+    @State private var showAllHistory = false
+
+    // How many recent workouts History shows before "Show all".
+    private static let historyPreviewCount = 3
 
     // Claude  Date 06/16/2026
     // History = finished workouts only (newest first). The active one is pinned
     // separately at the top via store.activeWorkout.
     private var finishedWorkouts: [Workout] {
         store.workouts.filter { $0.isFinished }.sorted { $0.date > $1.date }
+    }
+
+    // Claude  Date 06/18/2026
+    // The slice actually rendered: the last 3 by default, or everything when expanded.
+    private var visibleHistory: [Workout] {
+        showAllHistory ? finishedWorkouts : Array(finishedWorkouts.prefix(Self.historyPreviewCount))
     }
 
     var body: some View {
@@ -47,13 +59,26 @@ struct WorkoutsListView: View {
                              : "Finish your active workout to see it here.")
                             .foregroundStyle(.secondary)
                     } else {
-                        ForEach(finishedWorkouts) { workout in
+                        ForEach(visibleHistory) { workout in
                             NavigationLink(value: WorkoutRoute(id: workout.id, isNew: false)) {
                                 WorkoutRow(workout: workout)
                             }
                         }
                         .onDelete { offsets in
-                            offsets.map { finishedWorkouts[$0].id }.forEach(store.deleteWorkout)
+                            offsets.map { visibleHistory[$0].id }.forEach(store.deleteWorkout)
+                        }
+
+                        // Claude  Date 06/18/2026
+                        // Keep History compact — the last 3 by default, expandable to the
+                        // whole log (and collapsible again).
+                        if finishedWorkouts.count > Self.historyPreviewCount {
+                            Button {
+                                withAnimation { showAllHistory.toggle() }
+                            } label: {
+                                Label(showAllHistory ? "Show less" : "Show all \(finishedWorkouts.count)",
+                                      systemImage: showAllHistory ? "chevron.up" : "chevron.down")
+                                    .font(.subheadline)
+                            }
                         }
                     }
                 } header: {
@@ -87,8 +112,14 @@ struct WorkoutsListView: View {
                                         Button {
                                             start(store.workout(from: preset))
                                         } label: {
-                                            Label(preset.name.isEmpty ? "Untitled Preset" : preset.name,
-                                                  systemImage: preset.symbolName)
+                                            // Claude  Date 06/30/2026
+                                            // Custom PNG icons use image:, SF Symbols use systemImage:.
+                                            let title = preset.name.isEmpty ? "Untitled Preset" : preset.name
+                                            if PresetIcons.isCustomAsset(preset.symbolName) {
+                                                Label(title, image: preset.symbolName)
+                                            } else {
+                                                Label(title, systemImage: preset.symbolName)
+                                            }
                                         }
                                     }
                                 } label: {

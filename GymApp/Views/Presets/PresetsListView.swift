@@ -63,8 +63,7 @@ private struct PresetRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: preset.symbolName)
-                .font(.title3)
+            PresetIconView(name: preset.symbolName, size: 24)
                 .foregroundStyle(accent)
                 .frame(width: 32)
             VStack(alignment: .leading, spacing: 2) {

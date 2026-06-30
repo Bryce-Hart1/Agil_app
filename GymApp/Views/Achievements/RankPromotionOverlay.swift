@@ -92,5 +92,5 @@ struct RankPromotionOverlay: View {
 }
 
 #Preview {
-    RankPromotionOverlay(rank: .legendKing, remaining: 0, onDismiss: {})
+    RankPromotionOverlay(rank: .legend, remaining: 0, onDismiss: {})
 }

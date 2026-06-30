@@ -39,9 +39,13 @@ struct WorkoutPreset: Identifiable, Codable, Hashable {
     }
 }
 
-/// Curated SF Symbols offered as preset icons (all available on iOS 16+).
+/// Icons offered for a preset. Two kinds, stored the same way (the chosen name lives
+/// in `WorkoutPreset.symbolName`): curated SF Symbols, and custom PNG assets from the
+/// asset catalog. `isCustomAsset` lets the render sites pick `Image(_:)` vs
+/// `Image(systemName:)` — see PresetIconView.
 enum PresetIcons {
-    static let all: [String] = [
+    // SF Symbols (all available on iOS 16+). System-rendered, so they tint to the accent.
+    static let symbols: [String] = [
         "dumbbell.fill",
         "figure.strengthtraining.traditional",
         "figure.strengthtraining.functional",
@@ -59,4 +63,20 @@ enum PresetIcons {
         "calendar",
         "leaf.fill",
     ]
+
+    // Claude  Date 06/30/2026
+    // Custom PNG imagesets in Assets.xcassets, selectable alongside the symbols. Marked
+    // template-rendering in their Contents.json, so they tint to the accent just like the
+    // SF Symbols (the PNG's alpha is the shape).
+    static let customAssets: [String] = [
+        "SquatSide",
+        "ArmSide",
+        "tricepSide",
+    ]
+
+    /// Everything selectable in the icon picker (symbols first, then custom art).
+    static let all: [String] = symbols + customAssets
+
+    /// True when `name` is one of our custom PNG assets (vs an SF Symbol).
+    static func isCustomAsset(_ name: String) -> Bool { customAssets.contains(name) }
 }

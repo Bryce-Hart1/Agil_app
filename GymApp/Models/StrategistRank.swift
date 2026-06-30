@@ -1,66 +1,68 @@
 import SwiftUI
 
-// Claude  Date 06/15/2026
-// The "Strategist" rank — a single overall standing that climbs the chess
+// Claude  Date 06/15/2026 last changed: 06/18/2026 by: Claude
+// The "Strategist" rank — a single overall standing that climbs a warrior
 // hierarchy as the user accumulates achievements. It's a separate axis from the
 // per-badge tiers: rank = your overall ranking, tier = an individual badge's
 // level. The seven ranks map 1:1 onto the seven BadgeTier colors, so a rank-up
-// visibly changes the emblem's color; the King piece is reused for the top two
-// ranks (Emerald King, then Legend King — which inherits the gold glimmer).
+// visibly changes the emblem's color. (The emblem ART is still the original chess
+// glyphs for now — to be replaced with warrior art later; the top two ranks share
+// the king glyph until then.) Int-backed, so renaming cases keeps saved rawValues.
 enum StrategistRank: Int, CaseIterable, Comparable, Codable {
-    case pawn, bishop, knight, rook, queen, king, legendKing
+    case initiate, squire, warrior, gladiator, centurion, spartan, legend
 
-    // Tier whose color (and, for legend, glimmer) themes this rank's emblem.
+    // Tier whose color (and, for the top rank, glimmer) themes this rank's emblem.
     var tier: BadgeTier {
         switch self {
-        case .pawn:       return .bronze
-        case .bishop:     return .silver
-        case .knight:     return .gold
-        case .rook:       return .platinum
-        case .queen:      return .diamond
-        case .king:       return .emerald
-        case .legendKing: return .legend
+        case .initiate:  return .bronze
+        case .squire:    return .silver
+        case .warrior:   return .gold
+        case .gladiator: return .platinum
+        case .centurion: return .diamond
+        case .spartan:   return .emerald
+        case .legend:    return .legend
         }
     }
 
     var title: String {
         switch self {
-        case .pawn:       return "Pawn"
-        case .bishop:     return "Bishop"
-        case .knight:     return "Knight"
-        case .rook:       return "Rook"
-        case .queen:      return "Queen"
-        case .king:       return "King"
-        case .legendKing: return "Legend King"
+        case .initiate:  return "Initiate"
+        case .squire:    return "Squire"
+        case .warrior:   return "Warrior"
+        case .gladiator: return "Gladiator"
+        case .centurion: return "Centurion"
+        case .spartan:   return "Spartan"
+        case .legend:    return "Legend"
         }
     }
 
-    // Chess-piece glyph. A custom SF Symbol asset name; the emblem falls back to
-    // `fallbackSymbol` until the art is imported. King is reused for the top two.
+    // Emblem glyph (custom asset name); falls back to `fallbackSymbol` until the art
+    // is imported. Still the original chess art for now — Spartan + Legend share the
+    // king glyph — pending warrior-themed replacements.
     var iconName: String {
         switch self {
-        case .pawn:              return "chess_pawn_0"
-        case .bishop:            return "chess_bishop_1"
-        case .knight:            return "chess_knight_2"
-        case .rook:              return "chess_rook_3"
-        case .queen:             return "chess_queen_4"
-        case .king, .legendKing: return "chess_king_5"
+        case .initiate:           return "chess_pawn_0"
+        case .squire:             return "chess_bishop_1"
+        case .warrior:            return "chess_knight_2"
+        case .gladiator:          return "chess_rook_3"
+        case .centurion:          return "chess_queen_4"
+        case .spartan, .legend:   return "chess_king_5"
         }
     }
 
-    // A valid SF Symbol shown until the custom chess art is in the asset catalog.
+    // A valid SF Symbol shown until the custom art is in the asset catalog.
     var fallbackSymbol: String { "crown.fill" }
 
     // Minimum achievement score (see StrategistScoring) to hold this rank.
     var scoreThreshold: Int {
         switch self {
-        case .pawn:       return 0
-        case .bishop:     return 8
-        case .knight:     return 24
-        case .rook:       return 45
-        case .queen:      return 75
-        case .king:       return 110
-        case .legendKing: return 150
+        case .initiate:  return 0
+        case .squire:    return 8
+        case .warrior:   return 24
+        case .gladiator: return 45
+        case .centurion: return 75
+        case .spartan:   return 110
+        case .legend:    return 150
         }
     }
 
@@ -83,7 +85,7 @@ enum StrategistScoring {
     }
 
     static func rank(forScore score: Int) -> StrategistRank {
-        StrategistRank.allCases.last { score >= $0.scoreThreshold } ?? .pawn
+        StrategistRank.allCases.last { score >= $0.scoreThreshold } ?? .initiate
     }
 
     static func nextRank(after rank: StrategistRank) -> StrategistRank? {

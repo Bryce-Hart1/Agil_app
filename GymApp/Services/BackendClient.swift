@@ -28,10 +28,25 @@ enum BackendError: Error {
 }
 
 struct BackendClient: CardBackend {
-    // Claude  Date 06/18/2026
-    // One place to point the app at a backend. Dev default is the local server;
-    // for real-device testing swap in the Mac's LAN IP, and a real host later.
-    static let baseURL = URL(string: "http://127.0.0.1:8080")!
+    // Claude  Date 06/18/2026 last changed: 06/30/2026 by: Claude
+    // One place to point the app at a backend (used by both BackendClient and
+    // BackendFoodClient). The host is config-driven: it comes from the
+    // AGIL_BACKEND_BASE_URL build setting (project.yml, per build configuration) via the
+    // AgilBackendBaseURL Info.plist key, so LAN <-> prod is a config change, not a code
+    // edit. Falls back to the LAN dev host if the value is missing, empty, or wasn't
+    // substituted, so a bad config can never crash the app at launch.
+    static let baseURL: URL = {
+        let fallback = URL(string: "http://192.168.12.159:8080")!
+        guard let raw = Bundle.main.object(forInfoDictionaryKey: "AgilBackendBaseURL") as? String else {
+            return fallback
+        }
+        let trimmed = raw.trimmingCharacters(in: .whitespaces)
+        // Reject empty or an unsubstituted "$(…)" placeholder before trusting it.
+        guard !trimmed.isEmpty, !trimmed.contains("$("), let url = URL(string: trimmed) else {
+            return fallback
+        }
+        return url
+    }()
 
     private let session: URLSession
     private let encoder: JSONEncoder
