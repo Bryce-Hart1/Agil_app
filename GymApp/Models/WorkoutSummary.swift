@@ -63,7 +63,16 @@ struct WorkoutSummary: Identifiable, Hashable {
         totalVolume = volume
         exerciseCount = exercisesWithSets.count
         bestSet = best
-        if let first = times.min(), let last = times.max() {
+
+        // Claude  Date 06/16/2026 last changed: 07/01/2026 by: Claude
+        // Elapsed = the real session span (startedAt → finishedAt), so warm-up, rest
+        // between sets, the stretch after your last set, and any time the app spent
+        // backgrounded all count. The old measure — first checked set to last checked
+        // set — undercounted all of that (and read 0 for a single-set session). Falls
+        // back to that set-span for workouts finished before these stamps existed.
+        if let finished = workout.finishedAt {
+            duration = max(0, finished.timeIntervalSince(workout.startedAt))
+        } else if let first = times.min(), let last = times.max() {
             duration = last.timeIntervalSince(first)
         } else {
             duration = 0

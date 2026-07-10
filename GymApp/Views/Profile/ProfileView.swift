@@ -29,7 +29,8 @@ struct ProfileView: View {
                             pinnedIDs: store.profile.showcasedAchievementIDs,
                             memberSince: stats.memberSince,
                             rank: store.profile.showsRankOnCard ? store.strategistRank : nil,
-                            rankProgress: store.strategistProgress
+                            rankProgress: store.strategistProgress,
+                            avatarID: store.profile.avatarID
                         )
                         .frame(height: max(380, geo.size.height - 32))
 
@@ -130,6 +131,10 @@ struct ProfileShowcaseCard: View {
     // fills its ring toward the next rank.
     var rank: StrategistRank? = nil
     var rankProgress: Double = 1
+    // Claude  Date 06/30/2026
+    // The chosen avatar shown at the top of the card. Defaults to the free avatar so
+    // existing call sites / the friend-card view (no avatar in the payload yet) still work.
+    var avatarID: String = Avatar.defaultAvatar.id
 
     // The 4 featured slots (nil = locked placeholder).
     private var featured: [Achievement?] {
@@ -168,11 +173,7 @@ struct ProfileShowcaseCard: View {
         VStack(spacing: 16) {
             header
 
-            Image(systemName: "person.crop.circle.fill")
-                .resizable().scaledToFit()
-                .frame(width: 92, height: 92)
-                .foregroundStyle(.white)
-                .shadow(radius: 6, y: 3)
+            AvatarView(avatar: Avatar.avatar(for: avatarID), size: 92)
 
             Text(name)
                 .font(.system(.largeTitle, design: .rounded).weight(.bold))

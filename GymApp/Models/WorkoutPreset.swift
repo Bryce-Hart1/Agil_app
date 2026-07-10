@@ -11,14 +11,20 @@ struct PresetItem: Identifiable, Codable, Hashable {
     // Optional rest duration (seconds) between sets, carried into started workouts
     // where it drives a live countdown timer. nil = no rest timer for this exercise.
     var restSeconds: Int?
+    // Claude  Date 07/01/2026
+    // Per-exercise override of the adaptive weight increment (lb). Only meaningful when
+    // the parent preset is adaptive. nil = use AppStore.smartIncrement's default (5 lb,
+    // or 10 lb for lower-body / deadlift). Synthesized Codable defaults it to nil.
+    var weightIncrement: Double?
 
     init(id: UUID = UUID(), exerciseId: UUID, targetRepRange: RepRange? = nil,
-         note: String? = nil, restSeconds: Int? = nil) {
+         note: String? = nil, restSeconds: Int? = nil, weightIncrement: Double? = nil) {
         self.id = id
         self.exerciseId = exerciseId
         self.targetRepRange = targetRepRange
         self.note = note
         self.restSeconds = restSeconds
+        self.weightIncrement = weightIncrement
     }
 }
 
@@ -29,13 +35,20 @@ struct WorkoutPreset: Identifiable, Codable, Hashable {
     var name: String
     var symbolName: String      // an SF Symbol name, see PresetIcons
     var items: [PresetItem]
+    // Claude  Date 07/01/2026
+    // Adaptive (double-progression) mode toggle. When true, starting a workout from
+    // this preset pre-fills each exercise's working weight from history: up when the top
+    // of the rep range was hit last time, down after repeated misses, else hold. One
+    // switch applies to every item. Synthesized Codable defaults it to false for old data.
+    var isAdaptive: Bool
 
     init(id: UUID = UUID(), name: String = "", symbolName: String = "dumbbell.fill",
-         items: [PresetItem] = []) {
+         items: [PresetItem] = [], isAdaptive: Bool = false) {
         self.id = id
         self.name = name
         self.symbolName = symbolName
         self.items = items
+        self.isAdaptive = isAdaptive
     }
 }
 

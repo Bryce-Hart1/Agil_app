@@ -143,6 +143,11 @@ struct WorkoutsListView: View {
     /// Adds a new workout to the store and navigates into its editor (as new).
     private func start(_ workout: Workout) {
         store.addWorkout(workout)
+        // Claude  Date 07/01/2026
+        // Ask for notification permission here — the first time a workout starts — so the
+        // prompt has obvious context (it powers the "workout still running" nudge). No-op
+        // once the user has answered.
+        WorkoutNotifications.requestAuthorizationIfNeeded()
         path.append(WorkoutRoute(id: workout.id, isNew: true))
     }
 

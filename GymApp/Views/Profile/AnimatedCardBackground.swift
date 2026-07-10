@@ -385,174 +385,374 @@ private struct MoltenBackground: View {
 
 // MARK: - Cherry Blossom
 
-// Claude  Date 06/16/2026 last changed: 06/17/2026 by: Claude
-// "Cherry Blossom": a twilight orchard card, reframed as a CLOSE-UP. Rather than a
-// whole little tree centred in frame, a couple of thick boughs push in from off the
-// left/bottom edges and arc up across the card — so it reads like you're standing
-// right beside the branch. Limbs are heavier, blossom tips are full overlapping
-// puffs, and pink petals drift, sway, and tumble down the foreground over a dusk
-// gradient. Everything is built in normalised [0,1] coords so it scales to any card.
-private struct CherryBlossomBackground: View {
-    private struct Branch { let a, b: CGPoint; let depth: Int }
-    private struct Blossom { let p: CGPoint; let r, shade: Double }
-    private struct Petal { let x, size, speed, offset, sway, swayPhase, spin, spinPhase, shade: Double }
+// Claude  Date 07/01/2026
+// DROP-IN REPLACEMENT for the `// MARK: - Cherry Blossom` section of
+// AnimatedCardBackground.swift. Delete the old CherryBlossomBackground struct
+// (and its nested Branch/Blossom/Petal types) and paste this section in its
+// place. It relies on SeededGenerator at the bottom of that file, so it must
+// live in the same file.
 
-    private let branches: [Branch]
-    private let blossoms: [Blossom]
-    private let petals: [Petal]
+// MARK: - Cherry Blossom
+
+// Claude  Date 07/01/2026 last changed: 07/01/2026 by: Claude
+// "Cherry Blossom", take three: a true MACRO shot, modelled on photo references.
+// A dark plum limb pushes in from the right edge and carries a handful of BIG
+// five-petal blossoms drawn petal-by-petal — notched tips, a radial white-to-pink
+// gradient, a magenta heart, and radiating stamens tipped with gold anthers.
+// Behind them, heavily blurred bokeh blobs and soft out-of-focus blossoms sell
+// the shallow depth of field; burgundy leaves and tight pink buds dress the
+// branch. The whole limb flexes on a slow two-frequency sway (pivoting where it
+// enters the frame), each blossom bobs on its own phase, and loose petals — plus
+// the occasional burgundy leaf — detach and tumble down the foreground.
+// Layout is art-directed in normalised [0,1] coords so it scales to any card.
+private struct CherryBlossomBackground: View {
+
+    // MARK: Scene description (constants — stable across redraws)
+
+    private struct BokehBlob   { let x, y, r, shade: Double }
+    private struct SceneFlower { let x, y, r, rot, shade, bobPhase: Double }
+    private struct Bud         { let x, y, r: Double; let stemFrom: CGPoint }
+    private struct LeafSpec    { let x, y, len, angle, shade, flutterPhase: Double }
+    private struct Limb        { let a, b: CGPoint; let w0, w1: Double }   // widths as fractions of scale
+    private struct FallingBit {
+        let x0, y0, size, speed, offset, sway, swayPhase, spin, spinPhase, flip, shade: Double
+        let isLeaf: Bool
+    }
+
+    // Soft out-of-focus colour pools far behind everything.
+    private let bokeh: [BokehBlob] = [
+        BokehBlob(x: 0.15, y: 0.15, r: 0.30, shade: 0.15),
+        BokehBlob(x: 0.85, y: 0.75, r: 0.34, shade: 0.55),
+        BokehBlob(x: 0.55, y: 0.45, r: 0.26, shade: 0.00),
+        BokehBlob(x: 0.30, y: 0.85, r: 0.28, shade: 0.70),
+        BokehBlob(x: 0.95, y: 0.10, r: 0.22, shade: 0.30),
+    ]
+
+    // Mid-depth blossoms, drawn simplified and heavily blurred.
+    private let backFlowers: [SceneFlower] = [
+        SceneFlower(x: 0.80, y: 0.14, r: 0.11, rot: 0.8, shade: 0.55, bobPhase: 0.9),
+        SceneFlower(x: 0.96, y: 0.58, r: 0.10, rot: 2.1, shade: 0.75, bobPhase: 2.4),
+        SceneFlower(x: 0.55, y: 0.05, r: 0.09, rot: 1.4, shade: 0.40, bobPhase: 4.1),
+        SceneFlower(x: 0.12, y: 0.90, r: 0.10, rot: 0.3, shade: 0.85, bobPhase: 5.3),
+    ]
+
+    // The hero blossoms — big, detailed, nearly in focus. The third sits half
+    // off the left edge so the framing reads as a crop of something larger.
+    private let frontFlowers: [SceneFlower] = [
+        SceneFlower(x: 0.23,  y: 0.30, r: 0.230, rot: 0.35,  shade: 0.20, bobPhase: 0.0),
+        SceneFlower(x: 0.47,  y: 0.69, r: 0.180, rot: -0.55, shade: 0.45, bobPhase: 2.1),
+        SceneFlower(x: -0.02, y: 0.56, r: 0.140, rot: 1.15,  shade: 0.65, bobPhase: 3.8),
+    ]
+
+    // The limb: tapering segments entering from off the right edge, plus a
+    // thin drooping stalk that carries the lower blossom.
+    private let limbs: [Limb] = [
+        Limb(a: CGPoint(x: 1.08, y: 0.28),  b: CGPoint(x: 0.72, y: 0.37), w0: 0.050, w1: 0.036),
+        Limb(a: CGPoint(x: 0.72, y: 0.37),  b: CGPoint(x: 0.40, y: 0.33), w0: 0.036, w1: 0.026),
+        Limb(a: CGPoint(x: 0.40, y: 0.33),  b: CGPoint(x: 0.23, y: 0.31), w0: 0.026, w1: 0.016),
+        Limb(a: CGPoint(x: 0.58, y: 0.365), b: CGPoint(x: 0.50, y: 0.55), w0: 0.014, w1: 0.009),
+        Limb(a: CGPoint(x: 0.50, y: 0.55),  b: CGPoint(x: 0.47, y: 0.68), w0: 0.009, w1: 0.006),
+    ]
+
+    // Unopened buds on thin stems, like the reference's magenta droplets.
+    private let buds: [Bud] = [
+        Bud(x: 0.90, y: 0.47, r: 0.030, stemFrom: CGPoint(x: 0.85, y: 0.345)),
+        Bud(x: 0.99, y: 0.16, r: 0.026, stemFrom: CGPoint(x: 0.93, y: 0.295)),
+        Bud(x: 0.63, y: 0.50, r: 0.022, stemFrom: CGPoint(x: 0.56, y: 0.40)),
+    ]
+
+    // Burgundy leaves clustered where the limb is thickest.
+    private let leaves: [LeafSpec] = [
+        LeafSpec(x: 0.62, y: 0.34, len: 0.13, angle: -0.9, shade: 0.2, flutterPhase: 0.4),
+        LeafSpec(x: 0.68, y: 0.38, len: 0.11, angle: 2.4,  shade: 0.6, flutterPhase: 1.9),
+        LeafSpec(x: 0.55, y: 0.30, len: 0.10, angle: -2.2, shade: 0.4, flutterPhase: 3.3),
+        LeafSpec(x: 0.74, y: 0.33, len: 0.12, angle: -0.3, shade: 0.8, flutterPhase: 4.6),
+    ]
+
+    // Falling petals (and the occasional leaf), seeded once.
+    private let fallingBits: [FallingBit]
 
     init() {
         var rng = SeededGenerator(seed: 31)
-        var branches: [Branch] = []
-        var blossoms: [Blossom] = []
-        // Claude  Date 06/17/2026
-        // Close-up framing: grow one thick main bough in from the bottom-left corner
-        // (origin off-frame) arcing up and to the right, plus a shorter offshoot from
-        // the left edge, so only part of the tree is visible — the macro "right next
-        // to the branch" look. Off-frame origins + longer lengths push the trunk past
-        // the edges instead of sitting as a small complete tree in the middle.
-        Self.grow(from: CGPoint(x: -0.08, y: 1.06), angle: -.pi / 3.1, length: 0.46, depth: 5,
-                  branches: &branches, blossoms: &blossoms, rng: &rng)
-        Self.grow(from: CGPoint(x: -0.06, y: 0.60), angle: -.pi / 9, length: 0.30, depth: 4,
-                  branches: &branches, blossoms: &blossoms, rng: &rng)
-        self.branches = branches
-        self.blossoms = blossoms
-        self.petals = (0..<46).map { _ in
-            Petal(x: .random(in: 0...1, using: &rng),
-                  size: .random(in: 3.5...8.0, using: &rng),
-                  speed: .random(in: 0.05...0.13, using: &rng),
-                  offset: .random(in: 0...1, using: &rng),
-                  sway: .random(in: 0.4...1.1, using: &rng),
-                  swayPhase: .random(in: 0...(2 * .pi), using: &rng),
-                  spin: .random(in: -1.6...1.6, using: &rng),
-                  spinPhase: .random(in: 0...(2 * .pi), using: &rng),
-                  shade: .random(in: 0...1, using: &rng))
+        fallingBits = (0..<26).map { i in
+            FallingBit(x0: .random(in: 0.02...0.98, using: &rng),
+                       y0: .random(in: 0.10...0.55, using: &rng),   // spawn near the canopy band
+                       size: .random(in: 0.020...0.042, using: &rng),
+                       speed: .random(in: 0.05...0.12, using: &rng),
+                       offset: .random(in: 0...1, using: &rng),
+                       sway: .random(in: 0.5...1.2, using: &rng),
+                       swayPhase: .random(in: 0...(2 * .pi), using: &rng),
+                       spin: .random(in: -1.8...1.8, using: &rng),
+                       spinPhase: .random(in: 0...(2 * .pi), using: &rng),
+                       flip: .random(in: 0.6...1.6, using: &rng),
+                       shade: .random(in: 0...1, using: &rng),
+                       isLeaf: i % 7 == 3)                          // ~1 in 7 is a leaf
         }
     }
 
-    // Recursively build the tree: each branch spawns 2–3 shorter, angled children
-    // until depth 0, where a small cluster of blossoms is dropped at the tip.
-    private static func grow(from: CGPoint, angle: Double, length: Double, depth: Int,
-                             branches: inout [Branch], blossoms: inout [Blossom],
-                             rng: inout SeededGenerator) {
-        let end = CGPoint(x: from.x + CGFloat(cos(angle)) * CGFloat(length),
-                          y: from.y + CGFloat(sin(angle)) * CGFloat(length))
-        branches.append(Branch(a: from, b: end, depth: depth))
-        if depth == 0 {
-            // Claude  Date 06/17/2026
-            // Fuller tip cluster for the close-up: more blossoms, bigger, spread over a
-            // wider patch so each branch end reads as a dense puff rather than a few dots.
-            let count = Int.random(in: 5...9, using: &rng)
-            for _ in 0..<count {
-                blossoms.append(Blossom(
-                    p: CGPoint(x: end.x + CGFloat.random(in: -0.05...0.05, using: &rng),
-                               y: end.y + CGFloat.random(in: -0.05...0.05, using: &rng)),
-                    r: .random(in: 0.018...0.040, using: &rng),
-                    shade: .random(in: 0...1, using: &rng)))
-            }
-            return
-        }
-        let children = depth >= 4 ? 2 : Int.random(in: 2...3, using: &rng)
-        for _ in 0..<children {
-            let spread = Double.random(in: 0.30...0.70, using: &rng)
-            let newAngle = angle + .random(in: -spread...spread, using: &rng)
-            let newLength = length * Double.random(in: 0.66...0.80, using: &rng)
-            grow(from: end, angle: newAngle, length: newLength, depth: depth - 1,
-                 branches: &branches, blossoms: &blossoms, rng: &rng)
-        }
+    // MARK: Palette
+
+    // Petal pinks, interpolated by a 0…1 shade so no two blossoms match exactly.
+    private func palePink(_ s: Double) -> Color {
+        Color(red: 0.99, green: 0.90 - 0.06 * s, blue: 0.93 - 0.03 * s)
+    }
+    private func midPink(_ s: Double) -> Color {
+        Color(red: 0.97, green: 0.66 - 0.10 * s, blue: 0.78 - 0.06 * s)
+    }
+    private func heartPink(_ s: Double) -> Color {
+        Color(red: 0.86 - 0.06 * s, green: 0.30 - 0.08 * s, blue: 0.52 - 0.04 * s)
     }
 
-    // Pinks for blossoms / petals, interpolated by a 0…1 shade.
-    private func pink(_ shade: Double) -> Color {
-        Color(red: 0.98 - 0.06 * shade, green: 0.62 - 0.14 * shade, blue: 0.76 - 0.08 * shade)
+    // MARK: Shape helpers
+
+    private func disc(_ x: CGFloat, _ y: CGFloat, _ r: CGFloat) -> Path {
+        Path(ellipseIn: CGRect(x: x - r, y: y - r, width: r * 2, height: r * 2))
     }
 
-    // Circle path centred at (cx, cy) with radius r.
-    private func circle(_ cx: CGFloat, _ cy: CGFloat, _ r: CGFloat) -> Path {
-        Path(ellipseIn: CGRect(x: cx - r, y: cy - r, width: r * 2, height: r * 2))
-    }
-
-    // A simple pointed-oval petal centred on the origin (2*s tall, s wide).
-    private func petalPath(_ s: CGFloat) -> Path {
+    // One blossom petal: base at the origin, tip at (0, -len), with the shallow
+    // notch at the tip that makes it read as cherry rather than a generic oval.
+    private func petalShape(len: CGFloat, width: CGFloat) -> Path {
         var p = Path()
-        p.move(to: CGPoint(x: 0, y: -s))
-        p.addQuadCurve(to: CGPoint(x: 0, y: s), control: CGPoint(x: s * 0.8, y: 0))
-        p.addQuadCurve(to: CGPoint(x: 0, y: -s), control: CGPoint(x: -s * 0.8, y: 0))
+        p.move(to: .zero)
+        p.addCurve(to: CGPoint(x: -width * 0.28, y: -len),
+                   control1: CGPoint(x: -width, y: -len * 0.18),
+                   control2: CGPoint(x: -width * 0.90, y: -len * 0.78))
+        p.addQuadCurve(to: CGPoint(x: width * 0.28, y: -len),
+                       control: CGPoint(x: 0, y: -len * 0.86))       // the notch
+        p.addCurve(to: .zero,
+                   control1: CGPoint(x: width * 0.90, y: -len * 0.78),
+                   control2: CGPoint(x: width, y: -len * 0.18))
+        p.closeSubpath()
         return p
     }
+
+    // Pointed leaf: base at origin, tip at (0, -len).
+    private func leafShape(len: CGFloat, width: CGFloat) -> Path {
+        var p = Path()
+        p.move(to: .zero)
+        p.addQuadCurve(to: CGPoint(x: 0, y: -len), control: CGPoint(x: -width, y: -len * 0.5))
+        p.addQuadCurve(to: .zero, control: CGPoint(x: width, y: -len * 0.5))
+        return p
+    }
+
+    // Tapered quad so limbs thin out toward their tips instead of being
+    // constant-width strokes.
+    private func taperedLimb(from a: CGPoint, to b: CGPoint, w0: CGFloat, w1: CGFloat) -> Path {
+        let dx = b.x - a.x, dy = b.y - a.y
+        let len = max(sqrt(dx * dx + dy * dy), 0.0001)
+        let nx = -dy / len, ny = dx / len
+        var p = Path()
+        p.move(to: CGPoint(x: a.x + nx * w0 / 2, y: a.y + ny * w0 / 2))
+        p.addLine(to: CGPoint(x: b.x + nx * w1 / 2, y: b.y + ny * w1 / 2))
+        p.addLine(to: CGPoint(x: b.x - nx * w1 / 2, y: b.y - ny * w1 / 2))
+        p.addLine(to: CGPoint(x: a.x - nx * w0 / 2, y: a.y - ny * w0 / 2))
+        p.closeSubpath()
+        return p
+    }
+
+    // Cheap deterministic 0…1 hash for per-stamen variation (no RNG state needed).
+    private func hash(_ x: Double) -> Double {
+        let s = sin(x) * 43758.5453
+        return s - s.rounded(.down)
+    }
+
+    // MARK: Blossom renderer
+
+    // Draws one five-petal blossom. `detail: true` adds the stamen filaments and
+    // gold anthers; background blossoms skip them since the blur eats the detail.
+    private func drawBlossom(_ ctx: GraphicsContext, center: CGPoint, r: CGFloat,
+                             rot: Double, shade: Double, t: Double, bobPhase: Double,
+                             detail: Bool) {
+        var f = ctx
+        let bob = 0.03 * sin(t * 0.7 + bobPhase)     // gentle individual nod
+        f.translateBy(x: center.x, y: center.y)
+        f.rotate(by: .radians(rot + bob))
+
+        // Five overlapping petals, each shading from deep pink at the heart out
+        // to near-white at the notched tip (radial gradient centred on the heart).
+        let petal = petalShape(len: r, width: r * 0.64)
+        let petalFill = Gradient(stops: [
+            .init(color: heartPink(shade), location: 0.00),
+            .init(color: midPink(shade),   location: 0.40),
+            .init(color: palePink(shade),  location: 1.00),
+        ])
+        for i in 0..<5 {
+            var p = f
+            p.rotate(by: .radians(Double(i) * 2 * .pi / 5))
+            p.fill(petal, with: .radialGradient(petalFill, center: .zero,
+                                                startRadius: r * 0.04, endRadius: r * 1.02))
+            // Whisper of an edge so overlapping petals separate.
+            p.stroke(petal, with: .color(heartPink(shade).opacity(0.16)),
+                     lineWidth: max(0.5, r * 0.012))
+        }
+
+        // Magenta heart.
+        f.fill(disc(0, 0, r * 0.16), with: .radialGradient(
+            Gradient(colors: [Color(red: 0.55, green: 0.07, blue: 0.28),
+                              Color(red: 0.78, green: 0.22, blue: 0.44).opacity(0)]),
+            center: .zero, startRadius: 0, endRadius: r * 0.22))
+
+        guard detail else { return }
+
+        // Stamens: gently curved filaments radiating from the heart, each capped
+        // with a gold anther dot — the detail that makes the close-up land.
+        let filament = Color(red: 0.72, green: 0.16, blue: 0.40)
+        let anther = Color(red: 0.96, green: 0.73, blue: 0.24)
+        for i in 0..<18 {
+            let u = hash(Double(i) * 12.9898)
+            let v = hash(Double(i) * 78.2330)
+            let a = Double(i) / 18 * 2 * .pi + (u - 0.5) * 0.5
+            let len = r * CGFloat(0.30 + 0.20 * v)
+            let bend = CGFloat((u - 0.5) * 0.3)
+            let tip = CGPoint(x: CGFloat(cos(a)) * len, y: CGFloat(sin(a)) * len)
+            var s = Path()
+            s.move(to: CGPoint(x: CGFloat(cos(a)) * r * 0.05,
+                               y: CGFloat(sin(a)) * r * 0.05))
+            s.addQuadCurve(to: tip, control: CGPoint(x: tip.x * 0.5 - tip.y * bend,
+                                                     y: tip.y * 0.5 + tip.x * bend))
+            f.stroke(s, with: .color(filament.opacity(0.9)),
+                     style: StrokeStyle(lineWidth: max(0.5, r * 0.016), lineCap: .round))
+            f.fill(disc(tip.x, tip.y, max(0.8, r * 0.032)), with: .color(anther.opacity(0.95)))
+        }
+    }
+
+    // MARK: Body
 
     var body: some View {
         TimelineView(.animation) { tl in
             let t = tl.date.timeIntervalSinceReferenceDate
             Canvas { ctx, size in
                 let w = size.width, h = size.height
-                let rect = CGRect(origin: .zero, size: size)
                 let scale = min(w, h)
+                let rect = CGRect(origin: .zero, size: size)
 
-                // Dusk sky.
+                // 1) Dusky mauve backdrop — the out-of-focus "everything else".
                 ctx.fill(Path(rect), with: .linearGradient(
-                    Gradient(colors: [Color(red: 0.20, green: 0.13, blue: 0.30),
-                                      Color(red: 0.47, green: 0.26, blue: 0.42),
-                                      Color(red: 0.80, green: 0.48, blue: 0.58)]),
-                    startPoint: .zero, endPoint: CGPoint(x: 0, y: h)))
+                    Gradient(colors: [Color(red: 0.42, green: 0.34, blue: 0.44),
+                                      Color(red: 0.55, green: 0.42, blue: 0.50),
+                                      Color(red: 0.38, green: 0.30, blue: 0.38)]),
+                    startPoint: .zero, endPoint: CGPoint(x: w * 0.3, y: h)))
 
-                // Soft moon/horizon glow behind the tree.
-                let glowC = CGPoint(x: w * 0.70, y: h * 0.26)
-                let glowR = scale * 0.5
-                ctx.fill(Path(ellipseIn: CGRect(x: glowC.x - glowR, y: glowC.y - glowR,
-                                                width: glowR * 2, height: glowR * 2)),
-                         with: .radialGradient(
-                            Gradient(colors: [Color(red: 1.0, green: 0.92, blue: 0.85).opacity(0.45), .clear]),
-                            center: glowC, startRadius: 0, endRadius: glowR))
-
-                // Wind offset for a point, stronger higher up the tree (smaller y).
-                func wind(_ p: CGPoint) -> CGFloat {
-                    let height = 1.0 - Double(p.y)                       // 0 at base → ~1 at canopy
-                    return CGFloat(sin(t * 0.6 + height * 3.0) * height * height * 0.018) * w
-                }
-
-                // Claude  Date 06/17/2026
-                // The boughs: heavier, woody limbs (thicker line weight + warmer brown
-                // than the old near-black silhouette) so the close-up reads as bark, with
-                // only a touch of blur for depth.
+                // 2) Bokeh pools, blurred to mush.
                 ctx.drawLayer { layer in
-                    layer.addFilter(.blur(radius: 0.5))
-                    for br in branches {
-                        var path = Path()
-                        path.move(to: CGPoint(x: br.a.x * w + wind(br.a), y: br.a.y * h))
-                        path.addLine(to: CGPoint(x: br.b.x * w + wind(br.b), y: br.b.y * h))
-                        let lw = max(1.0, CGFloat(br.depth + 1) * scale * 0.0085)
-                        layer.stroke(path, with: .color(Color(red: 0.22, green: 0.13, blue: 0.13).opacity(0.95)),
-                                     style: StrokeStyle(lineWidth: lw, lineCap: .round, lineJoin: .round))
-                    }
-                    // Claude  Date 06/17/2026
-                    // Blossom puffs: a soft halo, a solid body, and a small bright highlight
-                    // so each blossom has a little dimension instead of reading as a flat dot.
-                    for bl in blossoms {
-                        let cx = bl.p.x * w + wind(bl.p)
-                        let cy = bl.p.y * h
-                        let r = CGFloat(bl.r) * scale
-                        layer.fill(circle(cx, cy, r * 1.7), with: .color(pink(bl.shade).opacity(0.28)))
-                        layer.fill(circle(cx, cy, r), with: .color(pink(bl.shade).opacity(0.93)))
-                        layer.fill(circle(cx - r * 0.28, cy - r * 0.28, r * 0.36),
-                                   with: .color(Color(red: 1.0, green: 0.96, blue: 0.98).opacity(0.55)))
+                    layer.addFilter(.blur(radius: scale * 0.10))
+                    for b in bokeh {
+                        layer.fill(disc(CGFloat(b.x) * w, CGFloat(b.y) * h, CGFloat(b.r) * scale),
+                                   with: .color(palePink(b.shade).opacity(0.35)))
                     }
                 }
 
-                // Foreground: falling, swaying, tumbling petals.
-                let margin: CGFloat = scale * 0.1
-                for pe in petals {
-                    let prog = CGFloat((t * pe.speed + pe.offset).truncatingRemainder(dividingBy: 1))
-                    let y = prog * (h + margin * 2) - margin
-                    let swayX = CGFloat(sin(t * pe.sway + pe.swayPhase)) * w * 0.06
-                    let x = CGFloat(pe.x) * w + swayX
-                    let rot = t * pe.spin + pe.spinPhase
-                    let fade = min(1, Double(prog) * 6)                  // quick fade-in at the top
-                    ctx.drawLayer { layer in
-                        layer.translateBy(x: x, y: y)
-                        layer.rotate(by: .radians(rot))
-                        layer.fill(petalPath(CGFloat(pe.size)),
-                                   with: .color(pink(pe.shade).opacity(0.9 * fade)))
+                // 3) Out-of-focus mid-depth blossoms.
+                ctx.drawLayer { layer in
+                    layer.addFilter(.blur(radius: scale * 0.035))
+                    for fl in backFlowers {
+                        drawBlossom(layer,
+                                    center: CGPoint(x: CGFloat(fl.x) * w, y: CGFloat(fl.y) * h),
+                                    r: CGFloat(fl.r) * scale, rot: fl.rot, shade: fl.shade,
+                                    t: t, bobPhase: fl.bobPhase, detail: false)
+                    }
+                }
+
+                // 4) The limb and everything attached, all inside one swaying
+                // transform pivoted where the branch enters the frame — so the
+                // whole bough flexes as a unit instead of pieces drifting apart.
+                let sway = 0.011 * sin(t * 0.5) + 0.006 * sin(t * 0.23 + 1.7)
+                var scene = ctx
+                let pivot = CGPoint(x: w * 1.05, y: h * 0.30)
+                scene.translateBy(x: pivot.x, y: pivot.y)
+                scene.rotate(by: .radians(sway))
+                scene.translateBy(x: -pivot.x, y: -pivot.y)
+
+                // Dark plum bark, faintly softened, tapering toward the tips.
+                let bark = Color(red: 0.23, green: 0.11, blue: 0.14)
+                scene.drawLayer { layer in
+                    layer.addFilter(.blur(radius: 0.6))
+                    for limb in limbs {
+                        let a = CGPoint(x: limb.a.x * w, y: limb.a.y * h)
+                        let b = CGPoint(x: limb.b.x * w, y: limb.b.y * h)
+                        layer.fill(taperedLimb(from: a, to: b,
+                                               w0: CGFloat(limb.w0) * scale,
+                                               w1: CGFloat(limb.w1) * scale),
+                                   with: .color(bark))
+                        // Round off the joints.
+                        layer.fill(disc(b.x, b.y, CGFloat(limb.w1) * scale * 0.5),
+                                   with: .color(bark))
+                    }
+                }
+
+                // Buds: thin stem + glossy deep-pink droplet.
+                for bud in buds {
+                    let from = CGPoint(x: bud.stemFrom.x * w, y: bud.stemFrom.y * h)
+                    let at = CGPoint(x: CGFloat(bud.x) * w, y: CGFloat(bud.y) * h)
+                    var stem = Path()
+                    stem.move(to: from)
+                    stem.addLine(to: at)
+                    scene.stroke(stem, with: .color(Color(red: 0.30, green: 0.14, blue: 0.17)),
+                                 style: StrokeStyle(lineWidth: max(1, scale * 0.006), lineCap: .round))
+                    let r = CGFloat(bud.r) * scale
+                    scene.fill(disc(at.x, at.y, r), with: .radialGradient(
+                        Gradient(colors: [Color(red: 0.98, green: 0.55, blue: 0.70),
+                                          Color(red: 0.80, green: 0.20, blue: 0.42)]),
+                        center: CGPoint(x: at.x - r * 0.3, y: at.y - r * 0.3),
+                        startRadius: 0, endRadius: r * 1.4))
+                }
+
+                // Burgundy leaves, each fluttering on its own phase.
+                for leaf in leaves {
+                    var l = scene
+                    let flutter = 0.08 * sin(t * 0.9 + leaf.flutterPhase)
+                    l.translateBy(x: CGFloat(leaf.x) * w, y: CGFloat(leaf.y) * h)
+                    l.rotate(by: .radians(leaf.angle + flutter))
+                    let len = CGFloat(leaf.len) * scale
+                    let shape = leafShape(len: len, width: len * 0.34)
+                    l.fill(shape, with: .linearGradient(
+                        Gradient(colors: [Color(red: 0.46 - 0.06 * leaf.shade,
+                                                green: 0.16, blue: 0.14),
+                                          Color(red: 0.62 - 0.08 * leaf.shade,
+                                                green: 0.28, blue: 0.20)]),
+                        startPoint: .zero, endPoint: CGPoint(x: 0, y: -len)))
+                    var vein = Path()
+                    vein.move(to: .zero)
+                    vein.addLine(to: CGPoint(x: 0, y: -len * 0.9))
+                    l.stroke(vein, with: .color(Color(red: 0.28, green: 0.09, blue: 0.09).opacity(0.7)),
+                             lineWidth: max(0.5, len * 0.02))
+                }
+
+                // 5) The hero blossoms — full detail, with just enough blur that
+                // they still sit back as a card background rather than clip art.
+                scene.drawLayer { layer in
+                    layer.addFilter(.blur(radius: max(0.5, scale * 0.004)))
+                    for fl in frontFlowers {
+                        drawBlossom(layer,
+                                    center: CGPoint(x: CGFloat(fl.x) * w, y: CGFloat(fl.y) * h),
+                                    r: CGFloat(fl.r) * scale, rot: fl.rot, shade: fl.shade,
+                                    t: t, bobPhase: fl.bobPhase, detail: true)
+                    }
+                }
+
+                // 6) Foreground fall: petals (and the odd leaf) detach near the
+                // canopy band, then sway, spin, and "flip" (x-squash fakes the
+                // 3D tumble) on their way down. Drawn outside the sway transform
+                // so loose petals move independently of the limb.
+                let margin = scale * 0.12
+                for bit in fallingBits {
+                    let prog = (t * bit.speed + bit.offset).truncatingRemainder(dividingBy: 1)
+                    let y0 = CGFloat(bit.y0) * h
+                    let y = y0 + CGFloat(prog) * (h + margin - y0)
+                    let x = CGFloat(bit.x0) * w
+                          + CGFloat(sin(t * bit.sway + bit.swayPhase)) * w * 0.05
+                    let fade = min(1, prog * 7) * min(1, (1 - prog) * 5)
+                    var p = ctx
+                    p.translateBy(x: x, y: y)
+                    p.rotate(by: .radians(t * bit.spin + bit.spinPhase))
+                    p.scaleBy(x: CGFloat(0.35 + 0.65 * abs(sin(t * bit.flip + bit.spinPhase))), y: 1)
+                    let s = CGFloat(bit.size) * scale
+                    if bit.isLeaf {
+                        p.fill(leafShape(len: s * 1.6, width: s * 0.55),
+                               with: .color(Color(red: 0.52, green: 0.20, blue: 0.16).opacity(0.9 * fade)))
+                    } else {
+                        p.fill(petalShape(len: s, width: s * 0.70),
+                               with: .color(midPink(bit.shade).opacity(0.92 * fade)))
                     }
                 }
             }

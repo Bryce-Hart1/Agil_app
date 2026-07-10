@@ -23,6 +23,9 @@ private struct PresetEditor: View {
     @Binding var preset: WorkoutPreset
     @State private var showingExercisePicker = false
     @State private var showingReorder = false
+    // Claude  Date 07/01/2026
+    // Drives the "?" explainer alert for the adaptive-progression toggle.
+    @State private var showingAdaptiveHelp = false
 
     var body: some View {
         Form {
@@ -32,6 +35,31 @@ private struct PresetEditor: View {
 
             Section("Icon") {
                 IconGrid(selected: $preset.symbolName, accent: theme.current.accent)
+            }
+
+            // Claude  Date 07/01/2026
+            // Adaptive-progression toggle for the whole preset, with a "?" explainer
+            // (mirrors the info-button pattern in NewExerciseView). When on, each
+            // exercise below gains a weight-step picker, and workouts started from this
+            // preset arrive with history-based weight suggestions (see AppStore).
+            Section {
+                Toggle(isOn: $preset.isAdaptive) {
+                    HStack(spacing: 6) {
+                        Text("Adaptive progression")
+                        Button {
+                            showingAdaptiveHelp = true
+                        } label: {
+                            Image(systemName: "questionmark.circle")
+                        }
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel("What is adaptive progression?")
+                    }
+                }
+            } footer: {
+                if preset.isAdaptive {
+                    Text("Hit the top of the rep range and the weight goes up next time; miss the bottom twice and it eases off.")
+                }
             }
 
             ForEach($preset.items) { $item in
@@ -50,6 +78,21 @@ private struct PresetEditor: View {
                         }
                     } label: {
                         Label("Rest timer", systemImage: "timer")
+                    }
+                    // Claude  Date 07/01/2026
+                    // Adaptive only: per-exercise weight-step override. "Default" uses the
+                    // smart increment (10 lb for legs/deadlift, else 5 lb) and clears the
+                    // override; the numbered options pin an explicit jump.
+                    if preset.isAdaptive {
+                        Picker(selection: $item.weightIncrement) {
+                            Text("Default (\(incrementLabel(store.smartIncrement(for: item.exerciseId))))")
+                                .tag(Double?.none)
+                            ForEach([2.5, 5, 10, 15], id: \.self) { step in
+                                Text(incrementLabel(step)).tag(Double?.some(step))
+                            }
+                        } label: {
+                            Label("Weight step", systemImage: "plus.forwardslash.minus")
+                        }
                     }
                     Button(role: .destructive) {
                         preset.items.removeAll { $0.id == item.id }
@@ -118,6 +161,27 @@ private struct PresetEditor: View {
                 store.exercise(for: $0.exerciseId)?.name ?? "Exercise"
             }
         }
+        // Claude  Date 07/01/2026
+        // Plain-language explainer for adaptive progression (double progression).
+        .alert("Adaptive progression", isPresented: $showingAdaptiveHelp) {
+            Button("Got it", role: .cancel) {}
+        } message: {
+            Text("""
+            When this is on, each workout you start from this preset suggests a weight based on last time.
+
+            Hit the top of the rep range on every working set, and the weight goes up next time. Fall below the bottom two sessions in a row, and it eases back down. The jump defaults to 5 lb (10 lb for legs and deadlifts) and can be set per exercise. Suggestions are always editable.
+            """)
+        }
+    }
+
+    // Claude  Date 07/01/2026
+    // Format a weight step for the picker, dropping a trailing ".0" (5.0 → "5 lb",
+    // 2.5 → "2.5 lb").
+    private func incrementLabel(_ value: Double) -> String {
+        let number = value.truncatingRemainder(dividingBy: 1) == 0
+            ? String(Int(value))
+            : String(value)
+        return "\(number) lb"
     }
 }
 

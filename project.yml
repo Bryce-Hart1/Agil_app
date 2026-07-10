@@ -17,6 +17,39 @@ targets:
       - path: GymApp
         excludes:
           - "**/.DS_Store"
+    # Claude  Date 06/18/2026
+    # Explicit Info.plist (kept at the repo root, outside the GymApp sources glob) so
+    # we can add an App Transport Security exception for the local dev backend. We
+    # still keep GENERATE_INFOPLIST_FILE: YES below, so Xcode injects all the
+    # INFOPLIST_KEY_* values into this file at build time — this only adds ATS.
+    info:
+      path: Info.plist
+      properties:
+        # Shown when the app first asks for the camera (barcode scanner in Nutrition).
+        NSCameraUsageDescription: Agil uses the camera to scan food barcodes so it can look up nutrition info.
+        # Claude  Date 06/30/2026
+        # Backend base URL, injected from the AGIL_BACKEND_BASE_URL build setting (set
+        # per build configuration below) and read at runtime by BackendClient.baseURL.
+        # Switching LAN <-> prod is now a config change, not a code edit: pick the build
+        # configuration (Debug = LAN, Release = prod host).
+        AgilBackendBaseURL: $(AGIL_BACKEND_BASE_URL)
+        # ⚠️ TEST-ONLY cleartext-HTTP exceptions — MUST be removed/replaced before the
+        # production (App Store) release. Production serves the backend over HTTPS, which
+        # needs NONE of this (and the Release AGIL_BACKEND_BASE_URL below must point at
+        # that HTTPS host). See [[agil-release-ats-https-checklist]].
+        #   - 127.0.0.1 / localhost      : simulator dev against the local backend
+        #   - NSAllowsLocalNetworking    : lets phones reach the Mac on the LAN over plain
+        #                                  HTTP (private IP ranges) for the device test
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+          NSExceptionDomains:
+            127.0.0.1:
+              NSExceptionAllowsInsecureHTTPLoads: true
+            localhost:
+              NSExceptionAllowsInsecureHTTPLoads: true
+        # iOS 14+ prompts for local-network access on first connect to the Mac; this
+        # description is required or that request silently fails. (LAN test only.)
+        NSLocalNetworkUsageDescription: Agil connects to your Agil server on the local network to sync your profile card and look up foods.
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.brycehart.gymapp
@@ -39,3 +72,14 @@ targets:
         # builds with "Signing requires a development team"). Value = the OU of the
         # "Apple Development: bryce.hart23@gmail.com" certificate.
         DEVELOPMENT_TEAM: 6XTP9P5C7M
+      # Claude  Date 06/30/2026
+      # Backend host per build configuration (feeds AgilBackendBaseURL above).
+      configs:
+        # Debug (simulator + the on-device LAN test): the Mac's LAN IP over cleartext
+        # HTTP. Update this if the Mac's IP changes (a DHCP reservation keeps it fixed).
+        Debug:
+          AGIL_BACKEND_BASE_URL: "http://192.168.12.159:8080"
+        # Release (real server): set your HTTPS host here when you deploy. With HTTPS you
+        # can also drop the ATS exception above.
+        Release:
+          AGIL_BACKEND_BASE_URL: "https://CHANGE-ME.example.com"

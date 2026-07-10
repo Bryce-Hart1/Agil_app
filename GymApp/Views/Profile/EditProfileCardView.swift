@@ -10,6 +10,8 @@ struct EditProfileCardView: View {
 
     // The style awaiting a buy-confirmation, if any.
     @State private var pendingPurchase: CardStyle?
+    // Claude  Date 06/30/2026 — the avatar awaiting a buy-confirmation, if any.
+    @State private var pendingAvatarPurchase: Avatar?
 
     private var stats: ProfileStats {
         ProfileStats(workouts: store.workouts, exercises: store.exercises)
@@ -23,6 +25,31 @@ struct EditProfileCardView: View {
             Section("Name") {
                 TextField("First name", text: $store.profile.displayName)
                     .textInputAutocapitalization(.words)
+            }
+
+            // Claude  Date 06/30/2026
+            // Avatar picker — same equip/buy flow as card styles. A horizontal strip so
+            // the small set reads at a glance.
+            Section {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 14) {
+                        ForEach(Avatar.all) { avatar in
+                            AvatarPickCell(
+                                avatar: avatar,
+                                accent: theme.current.accent,
+                                isSelected: store.profile.avatarID == avatar.id,
+                                isUnlocked: theme.isAvatarUnlocked(avatar),
+                                canAfford: balance >= avatar.price,
+                                onSelect: { store.profile.avatarID = avatar.id },
+                                onBuy: { pendingAvatarPurchase = avatar }
+                            )
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+            } header: {
+                Text("Avatar")
             }
 
             Section {
@@ -58,7 +85,8 @@ struct EditProfileCardView: View {
                     pinnedIDs: store.profile.showcasedAchievementIDs,
                     memberSince: stats.memberSince,
                     rank: store.profile.showsRankOnCard ? store.strategistRank : nil,
-                    rankProgress: store.strategistProgress
+                    rankProgress: store.strategistProgress,
+                    avatarID: store.profile.avatarID
                 )
                 .frame(height: 420)
                 .listRowInsets(EdgeInsets())
@@ -80,11 +108,21 @@ struct EditProfileCardView: View {
         } message: { style in
             Text("Unlock the \(style.name) card for \(style.price) coins?")
         }
+        .alert("Buy Avatar", isPresented: avatarPurchaseAlertBinding, presenting: pendingAvatarPurchase) { avatar in
+            Button("Buy for \(avatar.price)") { confirmAvatarPurchase(avatar) }
+            Button("Cancel", role: .cancel) {}
+        } message: { avatar in
+            Text("Unlock the \(avatar.name) avatar for \(avatar.price) coins?")
+        }
     }
 
     // Drives the confirmation alert; clearing it dismisses.
     private var purchaseAlertBinding: Binding<Bool> {
         Binding(get: { pendingPurchase != nil }, set: { if !$0 { pendingPurchase = nil } })
+    }
+
+    private var avatarPurchaseAlertBinding: Binding<Bool> {
+        Binding(get: { pendingAvatarPurchase != nil }, set: { if !$0 { pendingAvatarPurchase = nil } })
     }
 
     // Buy, then apply the newly unlocked style to the card.
@@ -93,6 +131,14 @@ struct EditProfileCardView: View {
             store.profile.cardStyleID = style.id
         }
         pendingPurchase = nil
+    }
+
+    // Buy, then equip the newly unlocked avatar.
+    private func confirmAvatarPurchase(_ avatar: Avatar) {
+        if theme.purchaseAvatar(avatar, balance: balance) {
+            store.profile.avatarID = avatar.id
+        }
+        pendingAvatarPurchase = nil
     }
 }
 
@@ -180,6 +226,56 @@ private struct CardStyleRow: View {
             .buttonStyle(.borderedProminent)
             .disabled(!canAfford)
             .opacity(canAfford ? 1 : 0.5)
+        }
+    }
+}
+
+// Claude  Date 06/30/2026
+// One avatar in the horizontal picker: the avatar art in a ring (accent when selected),
+// its name, and a state line below — selected, "Owned", or a coin price to buy. Tapping
+// an owned/free avatar equips it; a locked one triggers the buy alert.
+private struct AvatarPickCell: View {
+    let avatar: Avatar
+    let accent: Color
+    let isSelected: Bool
+    let isUnlocked: Bool
+    let canAfford: Bool
+    let onSelect: () -> Void
+    let onBuy: () -> Void
+
+    var body: some View {
+        VStack(spacing: 6) {
+            AvatarView(avatar: avatar, size: 60, tint: accent,
+                       discColor: Color.gray.opacity(0.15),
+                       ringColor: isSelected ? accent : Color.gray.opacity(0.3))
+                .overlay(alignment: .bottomTrailing) {
+                    if isSelected {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(accent)
+                            .background(Circle().fill(.background))
+                    }
+                }
+
+            Text(avatar.name).font(.caption).lineLimit(1)
+
+            trailing
+                .font(.caption2)
+                .frame(height: 16)
+        }
+        .frame(width: 72)
+        .contentShape(Rectangle())
+        .onTapGesture { if isUnlocked { onSelect() } else { onBuy() } }
+    }
+
+    @ViewBuilder private var trailing: some View {
+        if isSelected {
+            Text("Equipped").foregroundStyle(.secondary)
+        } else if isUnlocked {
+            Text("Owned").foregroundStyle(.secondary)
+        } else {
+            Label("\(avatar.price)", systemImage: "circle.hexagongrid.fill")
+                .foregroundStyle(canAfford ? accent : .secondary)
+                .opacity(canAfford ? 1 : 0.6)
         }
     }
 }

@@ -19,6 +19,9 @@ struct UserProfile: Codable, Hashable {
     var hasOnboarded: Bool
     // The chosen profile-card style (CardStyle.id). Customizable via "Edit Profile Card".
     var cardStyleID: String
+    // Claude  Date 06/30/2026
+    // The chosen profile avatar (Avatar.id). Customizable via "Edit Profile Card".
+    var avatarID: String
     // The data-storage mode chosen during onboarding.
     var dataMode: DataMode
     // Claude  Date 06/13/2026
@@ -30,11 +33,13 @@ struct UserProfile: Codable, Hashable {
     var showsRankOnCard: Bool
 
     init(displayName: String = "", hasOnboarded: Bool = false,
-         cardStyleID: String = CardStyle.defaultStyle.id, dataMode: DataMode = .offline,
+         cardStyleID: String = CardStyle.defaultStyle.id, avatarID: String = Avatar.defaultAvatar.id,
+         dataMode: DataMode = .offline,
          showcasedAchievementIDs: [String] = [], showsRankOnCard: Bool = false) {
         self.displayName = displayName
         self.hasOnboarded = hasOnboarded
         self.cardStyleID = cardStyleID
+        self.avatarID = avatarID
         self.dataMode = dataMode
         self.showcasedAchievementIDs = showcasedAchievementIDs
         self.showsRankOnCard = showsRankOnCard
@@ -47,13 +52,15 @@ struct UserProfile: Codable, Hashable {
     // new: if absent, migrate from the legacy cardColorHex (#000000 → "black",
     // anything else → the default style).
     enum CodingKeys: String, CodingKey {
-        case displayName, hasOnboarded, cardStyleID, dataMode, showcasedAchievementIDs, showsRankOnCard
+        case displayName, hasOnboarded, cardStyleID, avatarID, dataMode, showcasedAchievementIDs, showsRankOnCard
     }
     private enum LegacyKeys: String, CodingKey { case cardColorHex }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         displayName = try c.decodeIfPresent(String.self, forKey: .displayName) ?? ""
         hasOnboarded = try c.decodeIfPresent(Bool.self, forKey: .hasOnboarded) ?? !displayName.isEmpty
+        // Claude  Date 06/30/2026 — new field; older profiles default to the free avatar.
+        avatarID = try c.decodeIfPresent(String.self, forKey: .avatarID) ?? Avatar.defaultAvatar.id
         dataMode = try c.decodeIfPresent(DataMode.self, forKey: .dataMode) ?? .offline
         showcasedAchievementIDs = try c.decodeIfPresent([String].self, forKey: .showcasedAchievementIDs) ?? []
         showsRankOnCard = try c.decodeIfPresent(Bool.self, forKey: .showsRankOnCard) ?? false

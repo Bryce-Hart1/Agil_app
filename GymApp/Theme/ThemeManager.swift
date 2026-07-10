@@ -17,6 +17,10 @@ final class ThemeManager: ObservableObject {
     // IDs of paid profile-card styles the user has bought (see CardStyle). Tracked
     // here alongside theme purchases so all coin spending flows through coinsSpent.
     @Published var unlockedCardStyleIDs: Set<String> { didSet { save() } }
+    // Claude  Date 06/30/2026
+    // IDs of paid profile avatars the user has bought (see Avatar). Same pattern as
+    // card styles — the free ones aren't listed; ownership feeds coinsSpent.
+    @Published var unlockedAvatarIDs: Set<String> { didSet { save() } }
 
     private let persistence: PersistenceService
     private static let file = "theme.json"
@@ -30,17 +34,20 @@ final class ThemeManager: ObservableObject {
         var customThemes: [AppTheme]
         var unlockedThemeIDs: Set<UUID>
         var unlockedCardStyleIDs: Set<String>
+        var unlockedAvatarIDs: Set<String>
 
         init(selectedID: UUID, customThemes: [AppTheme],
-             unlockedThemeIDs: Set<UUID> = [], unlockedCardStyleIDs: Set<String> = []) {
+             unlockedThemeIDs: Set<UUID> = [], unlockedCardStyleIDs: Set<String> = [],
+             unlockedAvatarIDs: Set<String> = []) {
             self.selectedID = selectedID
             self.customThemes = customThemes
             self.unlockedThemeIDs = unlockedThemeIDs
             self.unlockedCardStyleIDs = unlockedCardStyleIDs
+            self.unlockedAvatarIDs = unlockedAvatarIDs
         }
 
         enum CodingKeys: String, CodingKey {
-            case selectedID, customThemes, unlockedThemeIDs, unlockedCardStyleIDs
+            case selectedID, customThemes, unlockedThemeIDs, unlockedCardStyleIDs, unlockedAvatarIDs
         }
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -48,6 +55,7 @@ final class ThemeManager: ObservableObject {
             customThemes = try c.decodeIfPresent([AppTheme].self, forKey: .customThemes) ?? []
             unlockedThemeIDs = try c.decodeIfPresent(Set<UUID>.self, forKey: .unlockedThemeIDs) ?? []
             unlockedCardStyleIDs = try c.decodeIfPresent(Set<String>.self, forKey: .unlockedCardStyleIDs) ?? []
+            unlockedAvatarIDs = try c.decodeIfPresent(Set<String>.self, forKey: .unlockedAvatarIDs) ?? []
         }
     }
 
@@ -61,6 +69,7 @@ final class ThemeManager: ObservableObject {
         self.customThemes = stored.customThemes
         self.unlockedThemeIDs = stored.unlockedThemeIDs
         self.unlockedCardStyleIDs = stored.unlockedCardStyleIDs
+        self.unlockedAvatarIDs = stored.unlockedAvatarIDs
     }
 
     /// Presets first, then the user's custom themes.
@@ -92,7 +101,8 @@ final class ThemeManager: ObservableObject {
     var coinsSpent: Int {
         let themeSpent = allThemes.filter { unlockedThemeIDs.contains($0.id) }.reduce(0) { $0 + $1.price }
         let cardSpent = CardStyle.all.filter { unlockedCardStyleIDs.contains($0.id) }.reduce(0) { $0 + $1.price }
-        return themeSpent + cardSpent
+        let avatarSpent = Avatar.all.filter { unlockedAvatarIDs.contains($0.id) }.reduce(0) { $0 + $1.price }
+        return themeSpent + cardSpent + avatarSpent
     }
 
     // Claude  Date 06/13/2026
@@ -130,6 +140,21 @@ final class ThemeManager: ObservableObject {
         return true
     }
 
+    // Claude  Date 06/30/2026
+    // Avatar equivalents of isUnlocked / purchase. Free avatars are always unlocked;
+    // paid ones are recorded in unlockedAvatarIDs once bought.
+    func isAvatarUnlocked(_ avatar: Avatar) -> Bool {
+        avatar.price == 0 || unlockedAvatarIDs.contains(avatar.id)
+    }
+
+    @discardableResult
+    func purchaseAvatar(_ avatar: Avatar, balance: Int) -> Bool {
+        if isAvatarUnlocked(avatar) { return true }
+        guard balance >= avatar.price else { return false }
+        unlockedAvatarIDs.insert(avatar.id)
+        return true
+    }
+
     /// Insert a new custom theme or update an existing one with the same id.
     func addOrUpdate(_ theme: AppTheme) {
         if let index = customThemes.firstIndex(where: { $0.id == theme.id }) {
@@ -149,7 +174,8 @@ final class ThemeManager: ObservableObject {
     private func save() {
         persistence.save(
             Stored(selectedID: selectedID, customThemes: customThemes,
-                   unlockedThemeIDs: unlockedThemeIDs, unlockedCardStyleIDs: unlockedCardStyleIDs),
+                   unlockedThemeIDs: unlockedThemeIDs, unlockedCardStyleIDs: unlockedCardStyleIDs,
+                   unlockedAvatarIDs: unlockedAvatarIDs),
             to: Self.file
         )
     }

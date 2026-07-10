@@ -28,4 +28,6 @@ polish.md
 .cargo
 .vscode
 Cargo.lock
+#local running (mac)
+Info.plist
 

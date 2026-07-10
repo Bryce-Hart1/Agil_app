@@ -146,10 +146,24 @@ struct RootTabView: View {
         // drives the equipped rank). Each call no-ops unless in Friends mode + changed.
         .task { cardSync.sync(from: store) }
         .onChange(of: scenePhase) { phase in
-            if phase == .active {
+            switch phase {
+            case .active:
                 cardSync.sync(from: store)
                 // Catch the rest timer up to real elapsed time after backgrounding/locking.
                 session.refreshRest()
+                // Claude  Date 07/01/2026
+                // They came back — drop any pending "still running" nudge (and clear it
+                // from Notification Center if it already fired).
+                WorkoutNotifications.cancelStillRunningReminder()
+            case .background:
+                // Claude  Date 07/01/2026
+                // Left the app mid-session: nudge in 15 minutes if they never return.
+                // Rescheduled on every background, so the countdown restarts each time.
+                if store.activeWorkout != nil {
+                    WorkoutNotifications.scheduleStillRunningReminder()
+                }
+            default:
+                break
             }
         }
         .onChange(of: store.profile) { _ in cardSync.sync(from: store) }

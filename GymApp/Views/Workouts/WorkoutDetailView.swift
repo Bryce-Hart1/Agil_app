@@ -38,6 +38,10 @@ private struct WorkoutEditor: View {
     @State private var showingSaveAsPreset = false
     @State private var presetName = ""
     @State private var savedPresetConfirmation = false
+    // Claude  Date 07/01/2026
+    // True when the save-as-preset alert was opened from the bottom "Save as Preset &
+    // Exit" button, so saving pops the editor instead of showing the confirmation.
+    @State private var exitAfterSavingPreset = false
 
     var body: some View {
         Form {
@@ -114,6 +118,26 @@ private struct WorkoutEditor: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .listRowBackground(Color.clear)
+
+                // Claude  Date 07/01/2026
+                // The same "Save as Preset" the ⋯ menu offers, surfaced down here where
+                // it's discoverable while building an in-progress workout. Saves the
+                // exercises/rep ranges as a template and leaves the editor — the workout
+                // itself stays in progress (it isn't completed).
+                if !workout.isFinished && !workout.exercises.isEmpty {
+                    Button {
+                        hideKeyboard()
+                        presetName = ""
+                        exitAfterSavingPreset = true
+                        showingSaveAsPreset = true
+                    } label: {
+                        Text("Save as Preset & Exit")
+                            .fontWeight(.semibold)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .listRowBackground(Color.clear)
+                }
             }
         }
         .navigationTitle(workout.date.formatted(.dateTime.month().day()))
@@ -138,6 +162,7 @@ private struct WorkoutEditor: View {
                     if !workout.exercises.isEmpty {
                         Button {
                             presetName = ""
+                            exitAfterSavingPreset = false
                             showingSaveAsPreset = true
                         } label: {
                             Label("Save as Preset", systemImage: "square.stack.badge.plus")
@@ -180,9 +205,17 @@ private struct WorkoutEditor: View {
             Button("Save") {
                 let name = presetName.trimmingCharacters(in: .whitespaces)
                 store.addPreset(store.makePreset(from: workout, name: name.isEmpty ? "New Preset" : name))
-                savedPresetConfirmation = true
+                // Claude  Date 07/01/2026
+                // From the bottom button: leave the editor straight after saving. From the
+                // ⋯ menu: stay put and confirm, as before.
+                if exitAfterSavingPreset {
+                    exitAfterSavingPreset = false
+                    dismiss()
+                } else {
+                    savedPresetConfirmation = true
+                }
             }
-            Button("Cancel", role: .cancel) {}
+            Button("Cancel", role: .cancel) { exitAfterSavingPreset = false }
         } message: {
             Text("Save these exercises and rep ranges as a reusable preset.")
         }
@@ -228,6 +261,13 @@ private struct ExerciseLogSection: View {
             RestTimerView(duration: rest, accent: accent)
         }
 
+        // Claude  Date 07/01/2026
+        // Adaptive-preset weight suggestion for this session (from AppStore.workout(from:)).
+        // Purely informational + seeds the first added set; the value stays fully editable.
+        if let adaptive = logged.adaptive {
+            AdaptiveHintRow(suggestion: adaptive, accent: accent)
+        }
+
         ForEach(logged.sets.indices, id: \.self) { index in
             SetRow(number: setNumber(at: index),
                    sideLabel: logged.sets[index].side?.title,
@@ -265,7 +305,10 @@ private struct ExerciseLogSection: View {
         let defaultReps = last?.reps
             ?? logged.targetRepRange.map { Swift.min($0.min, $0.max) }
             ?? 8
-        let defaultWeight = last?.weight ?? 0
+        // Claude  Date 07/01/2026
+        // Seed the first set's weight from the adaptive suggestion (when present);
+        // subsequent sets carry the previous set's weight forward as before.
+        let defaultWeight = last?.weight ?? logged.adaptive?.weight ?? 0
         if isUnilateral {
             logged.sets.append(ExerciseSet(reps: defaultReps, weight: defaultWeight, side: .left))
             logged.sets.append(ExerciseSet(reps: defaultReps, weight: defaultWeight, side: .right))
@@ -323,6 +366,65 @@ private struct ExerciseLogSection: View {
         return mine.weight < theirs.weight || mine.reps < theirs.reps
     }
 
+}
+
+// Claude  Date 07/01/2026
+// Compact, informational lead-in for an adaptive-preset exercise: the suggested
+// working weight plus WHY it changed (up after hitting the top of the range, down
+// after repeated misses, or held). Purely a hint — the seeded set below stays editable.
+private struct AdaptiveHintRow: View {
+    let suggestion: AdaptiveSuggestion
+    let accent: Color
+
+    var body: some View {
+        Label {
+            Text(text)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        } icon: {
+            Image(systemName: icon)
+                .foregroundStyle(color)
+        }
+    }
+
+    private var text: String {
+        let weight = "\(SetFormat.weight(suggestion.weight)) lb"
+        switch suggestion.outcome {
+        case .increased:
+            return "Suggested \(weight) · +\(SetFormat.weight(suggestion.deltaFromLast)) from last time"
+        case .deloaded:
+            return "Suggested \(weight) · −\(SetFormat.weight(abs(suggestion.deltaFromLast))) deload"
+        case .held:
+            return "Suggested \(weight) · same as last time"
+        }
+    }
+
+    private var icon: String {
+        switch suggestion.outcome {
+        case .increased: return "arrow.up.circle.fill"
+        case .deloaded:  return "arrow.down.circle.fill"
+        case .held:      return "equal.circle.fill"
+        }
+    }
+
+    private var color: Color {
+        switch suggestion.outcome {
+        case .increased: return .green
+        case .deloaded:  return .orange
+        case .held:      return accent
+        }
+    }
+}
+
+// Claude  Date 07/01/2026
+// Formatting shared by adaptive weight hints: drop a trailing ".0" (135.0 → "135",
+// 2.5 → "2.5") so weights read cleanly.
+private enum SetFormat {
+    static func weight(_ value: Double) -> String {
+        value.truncatingRemainder(dividingBy: 1) == 0
+            ? String(Int(value))
+            : String(value)
+    }
 }
 
 /// A single editable set: "Set N — [reps] reps × [weight] lb".

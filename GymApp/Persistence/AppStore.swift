@@ -421,6 +421,11 @@ final class AppStore: ObservableObject {
             }
         }
         if !newEvents.isEmpty { activityLog.append(contentsOf: newEvents) }
+        // Claude  Date 07/01/2026
+        // Stamp the real finish time so the performance card's elapsed span
+        // (startedAt → finishedAt) is the true wall-clock duration — including any time
+        // the app spent backgrounded or the phone was locked.
+        workouts[index].finishedAt = Date()
         workouts[index].isFinished = true
 
         // Claude  Date 06/16/2026
@@ -609,16 +614,90 @@ final class AppStore: ObservableObject {
         )
     }
 
+    // MARK: - Adaptive presets
+
+    // Claude  Date 07/01/2026
+    // The weight jump for an adaptive exercise when it progresses. A per-exercise
+    // override (set in the preset editor) always wins; otherwise a smart default: 10 lb
+    // for lower-body work and the deadlift (big compounds add weight in bigger jumps),
+    // 5 lb for everything else. Equipment isn't modeled, so region/liftType stand in.
+    func smartIncrement(for exerciseId: UUID, override: Double? = nil) -> Double {
+        if let override { return override }
+        let exercise = exercise(for: exerciseId)
+        if exercise?.region == .legs || exercise?.liftType == .deadlift { return 10 }
+        return 5
+    }
+
+    // Claude  Date 07/01/2026
+    // Compute the adaptive (double-progression) weight suggestion for an exercise from
+    // its own history, all on-device over `workouts`:
+    //   • Gather finished sessions that logged a COMPLETED set for this exercise, newest first.
+    //   • A session's "working weight" = the heaviest completed set's weight; its "working
+    //     sets" = the completed sets at that weight (warmups aren't modeled, so top-weight
+    //     sets stand in for working sets; unilateral sides are pooled together in v1).
+    //   • Increase: every working set in the latest session hit the top of the range → +increment.
+    //   • Deload: the latest TWO sessions each had all working sets BELOW the bottom → −increment (≥ 0).
+    //   • Otherwise hold at the last working weight.
+    // Returns nil when there's no completed history yet (nothing to base a suggestion on).
+    func adaptiveSuggestion(for exerciseId: UUID, range: RepRange,
+                            increment: Double) -> AdaptiveSuggestion? {
+        let low = Swift.min(range.min, range.max)
+        let high = Swift.max(range.min, range.max)
+
+        // Per finished session (newest first): the working weight and the reps of its
+        // working sets (completed sets performed at that top weight).
+        let sessions: [(weight: Double, reps: [Int])] = workouts
+            .filter { $0.isFinished }
+            .sorted { $0.date > $1.date }
+            .compactMap { workout in
+                let completed = workout.exercises
+                    .filter { $0.exerciseId == exerciseId }
+                    .flatMap { $0.sets }
+                    .filter { $0.completedAt != nil }
+                guard let topWeight = completed.map(\.weight).max() else { return nil }
+                let reps = completed.filter { $0.weight == topWeight }.map(\.reps)
+                return (topWeight, reps)
+            }
+
+        guard let latest = sessions.first else { return nil }
+
+        // Increase: all of the latest session's working sets reached the top of the range.
+        if !latest.reps.isEmpty && latest.reps.allSatisfy({ $0 >= high }) {
+            return AdaptiveSuggestion(weight: latest.weight + increment,
+                                      deltaFromLast: increment, outcome: .increased)
+        }
+
+        // Deload: the two most recent sessions each fell entirely below the bottom.
+        let missedBottom: ((weight: Double, reps: [Int])) -> Bool = { session in
+            !session.reps.isEmpty && session.reps.allSatisfy { $0 < low }
+        }
+        if sessions.count >= 2, sessions.prefix(2).allSatisfy(missedBottom) {
+            return AdaptiveSuggestion(weight: Swift.max(0, latest.weight - increment),
+                                      deltaFromLast: -increment, outcome: .deloaded)
+        }
+
+        // Hold at last session's working weight.
+        return AdaptiveSuggestion(weight: latest.weight, deltaFromLast: 0, outcome: .held)
+    }
+
     /// Builds a fresh workout from a preset: each preset item becomes a logged
     /// exercise carrying the target rep range, with no sets yet (you fill those in).
-    // Claude  Date 06/18/2026 last changed: 06/18/2026 by: Claude
+    // Claude  Date 06/18/2026 last changed: 07/01/2026 by: Claude
     // Backfill the rep range so every queued lift has one: the preset's own range wins,
-    // else the history-preferred range, else the 8–12 default (see defaultRepRange).
+    // else the history-preferred range, else the 8–12 default (see defaultRepRange). For
+    // an ADAPTIVE preset, also attach a per-exercise weight suggestion (adaptiveSuggestion),
+    // computed against that resolved rep range and the exercise's smart increment.
     func workout(from preset: WorkoutPreset) -> Workout {
-        Workout(exercises: preset.items.map {
-            LoggedExercise(exerciseId: $0.exerciseId,
-                           targetRepRange: defaultRepRange(for: $0.exerciseId, explicit: $0.targetRepRange),
-                           note: $0.note, restSeconds: $0.restSeconds)
+        Workout(exercises: preset.items.map { item in
+            let range = defaultRepRange(for: item.exerciseId, explicit: item.targetRepRange)
+            let adaptive = preset.isAdaptive
+                ? adaptiveSuggestion(for: item.exerciseId, range: range,
+                                     increment: smartIncrement(for: item.exerciseId,
+                                                               override: item.weightIncrement))
+                : nil
+            return LoggedExercise(exerciseId: item.exerciseId, targetRepRange: range,
+                                  note: item.note, restSeconds: item.restSeconds,
+                                  adaptive: adaptive)
         })
     }
 
@@ -635,7 +714,6 @@ final class AppStore: ObservableObject {
 // MARK: - Seed data
 
 extension AppStore {
-    // Claude  Date 06/14/2026
     // Curated, science-based lift library (from lift-list-condensed.md) pre-loaded
     // on first launch. `category` is the training sub-group (drives the muscle-group
     // chart / top-muscle stat); `primaryMover` names the muscle the lift drives;

@@ -69,6 +69,20 @@ struct RepRange: Codable, Hashable {
     }
 }
 
+// Claude  Date 07/01/2026
+// The weight the app suggests for an exercise this session, computed from history
+// when a workout is started from an ADAPTIVE preset (double progression). `outcome`
+// says why (hit top → up, missed bottom twice → down, otherwise hold) and
+// `deltaFromLast` is the signed change from last session's working weight, both used
+// to render the editable hint in the workout editor. Nothing here forces a value —
+// it just seeds the first set and shows the reasoning; the user can overwrite freely.
+struct AdaptiveSuggestion: Codable, Hashable {
+    enum Outcome: String, Codable, Hashable { case increased, held, deloaded }
+    var weight: Double
+    var deltaFromLast: Double   // +inc when increased, -inc when deloaded, 0 when held
+    var outcome: Outcome
+}
+
 /// All the sets performed for one exercise during a single workout.
 struct LoggedExercise: Identifiable, Codable, Hashable {
     let id: UUID
@@ -77,15 +91,21 @@ struct LoggedExercise: Identifiable, Codable, Hashable {
     var note: String?               // optional form cue (e.g. "pause at chest")
     var restSeconds: Int?           // rest timer duration (s), carried from a preset
     var sets: [ExerciseSet]
+    // Claude  Date 07/01/2026
+    // Adaptive-preset weight suggestion for this session (nil for non-adaptive presets
+    // and ad-hoc exercises). Synthesized Codable defaults it to nil for old data.
+    var adaptive: AdaptiveSuggestion?
 
     init(id: UUID = UUID(), exerciseId: UUID, targetRepRange: RepRange? = nil,
-         note: String? = nil, restSeconds: Int? = nil, sets: [ExerciseSet] = []) {
+         note: String? = nil, restSeconds: Int? = nil, sets: [ExerciseSet] = [],
+         adaptive: AdaptiveSuggestion? = nil) {
         self.id = id
         self.exerciseId = exerciseId
         self.targetRepRange = targetRepRange
         self.note = note
         self.restSeconds = restSeconds
         self.sets = sets
+        self.adaptive = adaptive
     }
 }
 
@@ -101,14 +121,26 @@ struct Workout: Identifiable, Codable, Hashable {
     // until finished. Marking it complete (AppStore.finishWorkout) logs its done
     // sets to the activity ledger and flips this true.
     var isFinished: Bool
+    // Claude  Date 07/01/2026
+    // Wall-clock stamps of the REAL session span, used for the performance card's
+    // elapsed time. `date` is the user-facing workout date (editable in the DatePicker);
+    // these two are set by the app and never edited, so elapsed stays correct even when
+    // the app is backgrounded / the phone is locked, and it can't be skewed by changing
+    // the date. `startedAt` is stamped on creation; `finishedAt` once, when the workout
+    // is completed (see AppStore.finishWorkout) — nil while still in progress.
+    var startedAt: Date
+    var finishedAt: Date?
 
     init(id: UUID = UUID(), date: Date = Date(), exercises: [LoggedExercise] = [],
-         notes: String = "", isFinished: Bool = false) {
+         notes: String = "", isFinished: Bool = false,
+         startedAt: Date = Date(), finishedAt: Date? = nil) {
         self.id = id
         self.date = date
         self.exercises = exercises
         self.notes = notes
         self.isFinished = isFinished
+        self.startedAt = startedAt
+        self.finishedAt = finishedAt
     }
 
     /// Total number of sets across all exercises in this workout.
@@ -128,7 +160,9 @@ struct Workout: Identifiable, Codable, Hashable {
     // (true) — they predate the active-session concept, so they shouldn't suddenly
     // appear as in-progress. New workouts use the init default (false = active).
     // encode(to:) is synthesized.
-    enum CodingKeys: String, CodingKey { case id, date, exercises, notes, isFinished }
+    enum CodingKeys: String, CodingKey {
+        case id, date, exercises, notes, isFinished, startedAt, finishedAt
+    }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id)
@@ -136,5 +170,10 @@ struct Workout: Identifiable, Codable, Hashable {
         exercises = try c.decodeIfPresent([LoggedExercise].self, forKey: .exercises) ?? []
         notes = try c.decodeIfPresent(String.self, forKey: .notes) ?? ""
         isFinished = try c.decodeIfPresent(Bool.self, forKey: .isFinished) ?? true
+        // Claude  Date 07/01/2026
+        // New stamps: workouts saved before these existed fall back to `date` for the
+        // start and carry no finish time (WorkoutSummary then uses its old set-span calc).
+        startedAt = try c.decodeIfPresent(Date.self, forKey: .startedAt) ?? date
+        finishedAt = try c.decodeIfPresent(Date.self, forKey: .finishedAt)
     }
 }
