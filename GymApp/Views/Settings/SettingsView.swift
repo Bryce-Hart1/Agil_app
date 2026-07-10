@@ -139,6 +139,18 @@ struct SettingsView: View {
             }
 
             #if DEBUG
+            // Claude  Date 07/09/2026
+            // Live playground for the rank ring + promotion animations (see RankRingLabView).
+            Section {
+                NavigationLink { RankRingLabView() } label: {
+                    Label("Rank ring lab", systemImage: "circle.hexagongrid.fill")
+                }
+            } header: {
+                Text("Rank ring (debug)")
+            } footer: {
+                Text("Scrub every rank, size, and the segment-reveal sweep live, and fire the real promotion overlay for any rank.")
+            }
+
             // Claude  Date 06/17/2026
             // Temporary verification for the barcode cache (no scanner UI yet).
             // Resolves a known barcode twice through CachedFoodService and prints the

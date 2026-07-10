@@ -2,12 +2,32 @@ import SwiftUI
 
 // Claude  Date 07/09/2026
 // Segment-ring geometry. Lives outside RankRing because Swift forbids static stored
-// properties in a generic type, and RankRing is generic over its core view.
-private enum RingGeometry {
+// properties in a generic type, and RankRing is generic over its core view. Not private:
+// callers use `coreDiameter(for:)` to size a core view to the ring's central slot, and
+// referencing it here (rather than as a static on the generic RankRing) avoids a
+// generic-inference cycle when the call sits inside RankRing's own core closure.
+// Claude  Date 07/09/2026
+// What the segment ring encodes:
+//   .rankSegments — N of 7 segments lit = your rank (a map of the whole ladder). The
+//                   default; progress-to-next shows as a faint partial fill on the next
+//                   segment. Rank is legible at a glance, matching StrategistEmblem.
+//   .rankProgress — the ring fills continuously (0…1) with your progress toward the next
+//                   rank, in the current rank's color. Headlines "how close to level-up",
+//                   at the cost of showing absolute rank only by color.
+enum RankRingFill {
+    case rankSegments
+    case rankProgress
+}
+
+enum RingGeometry {
     static let segmentCount = 7
     /// 360 / 7 ≈ 51.43°, of which 4° is the gap between neighbours.
     static let segmentSweep = 360.0 / Double(segmentCount)
     static let segmentGap = 4.0
+    /// Fraction of the ring's size occupied by the centered core.
+    static let coreRadiusFraction: CGFloat = 0.54
+    /// Diameter of the centered core for a ring of the given size.
+    static func coreDiameter(for size: CGFloat) -> CGFloat { size * coreRadiusFraction }
 }
 
 // Claude  Date 07/09/2026
@@ -29,17 +49,27 @@ struct RankRing<Core: View>: View {
     /// Partially fills the next unearned segment with the color of the rank being climbed
     /// toward — the ring's equivalent of StrategistEmblem's progress arc.
     var showsProgress: Bool = true
+    /// Sweep-in fraction (0…1) for the *newest* lit segment — the one this rank just
+    /// earned. 1 (the default) draws it fully, so every static call site is unchanged;
+    /// animating it 0→1 is how RankPromotionOverlay lights the new segment on a rank-up.
+    var revealProgress: Double = 1
+    /// Whether the segments map your rank (default) or fill with progress to the next rank.
+    var fillMode: RankRingFill = .rankSegments
     let core: Core
 
     init(rank: StrategistRank,
          progress: Double = 1,
          size: CGFloat = 92,
          showsProgress: Bool = true,
+         revealProgress: Double = 1,
+         fillMode: RankRingFill = .rankSegments,
          @ViewBuilder core: () -> Core) {
         self.rank = rank
         self.progress = progress
         self.size = size
         self.showsProgress = showsProgress
+        self.revealProgress = revealProgress
+        self.fillMode = fillMode
         self.core = core()
     }
 
@@ -51,7 +81,7 @@ struct RankRing<Core: View>: View {
     private let detailRadius: CGFloat    = 0.93
     private let segmentRadius: CGFloat   = 0.79
     private let innerRingRadius: CGFloat = 0.60
-    private let coreRadius: CGFloat      = 0.54
+    private var coreRadius: CGFloat { RingGeometry.coreRadiusFraction }
 
     private var segmentWidth: CGFloat { size * 0.072 }
     private var detailWidth: CGFloat { max(0.75, size * 0.012) }
@@ -82,12 +112,14 @@ struct RankRing<Core: View>: View {
     var body: some View {
         ZStack {
             aura
-            unlitSegments
+            trackLayer
             progressSegment
-            litSegmentsLayer
+            fillLayer
+            flareLayer
             outerDetail
             innerRing
             innerFill
+            centurionGlyph
             coreContent
         }
         .frame(width: size, height: size)
@@ -127,15 +159,14 @@ struct RankRing<Core: View>: View {
 
     // MARK: - Segment ring
     //
-    // Drawn as three passes so each gets its own fill: unlit segments in the flat track
-    // color, the in-progress segment in the next rank's color, and the earned segments
-    // masked out of the tier's material gradient. The mask trick is what lets a Canvas
-    // carry `tier.fillGradient` (a SwiftUI style Canvas can't stroke with directly)
-    // without widening BadgeTier's API to expose its private gradient hexes.
+    // A dim track ring of all 7 segments sits behind a fill layer masked out of the tier's
+    // material gradient. (The mask trick is what lets a Canvas carry `tier.fillGradient` —
+    // a SwiftUI style Canvas can't stroke with directly — without exposing BadgeTier's
+    // private gradient hexes.) What the fill covers depends on `fillMode`.
 
-    private var unlitSegments: some View {
+    private var trackLayer: some View {
         Canvas { ctx, canvas in
-            for i in litSegments..<RingGeometry.segmentCount {
+            for i in 0..<RingGeometry.segmentCount {
                 ctx.stroke(segmentPath(in: canvas, index: i),
                            with: .color(trackColor),
                            style: segmentStroke)
@@ -143,22 +174,60 @@ struct RankRing<Core: View>: View {
         }
     }
 
-    private var litSegmentsLayer: some View {
+    /// Index of the newest lit segment (the one this rank just earned); it's the one
+    /// `revealProgress` sweeps in. Always ≥ 0 since a rank lights at least one segment.
+    private var newestSegment: Int { litSegments - 1 }
+
+    private var fillLayer: some View {
         rank.tier.fillGradient.mask {
             Canvas { ctx, canvas in
-                for i in 0..<litSegments {
-                    ctx.stroke(segmentPath(in: canvas, index: i),
-                               with: .color(.white),
-                               style: segmentStroke)
+                switch fillMode {
+                case .rankSegments:
+                    // N lit segments = rank; the newest fills by revealProgress (1 = full).
+                    for i in 0..<litSegments {
+                        let fraction = (i == newestSegment) ? revealProgress : 1
+                        ctx.stroke(segmentPath(in: canvas, index: i, fraction: fraction),
+                                   with: .color(.white), style: segmentStroke)
+                    }
+                case .rankProgress:
+                    // Progress-to-next spread across all 7 segments as one meter.
+                    let filled = max(0, min(1, progress)) * Double(RingGeometry.segmentCount)
+                    let full = Int(filled)
+                    for i in 0..<full {
+                        ctx.stroke(segmentPath(in: canvas, index: i),
+                                   with: .color(.white), style: segmentStroke)
+                    }
+                    let partial = filled - Double(full)
+                    if full < RingGeometry.segmentCount, partial > 0 {
+                        ctx.stroke(segmentPath(in: canvas, index: full, fraction: partial),
+                                   with: .color(.white), style: segmentStroke)
+                    }
                 }
             }
+        }
+    }
+
+    // A bright shimmer over the newest segment as it sweeps in — drawn only mid-reveal in
+    // segment mode, peaking at the midpoint (sin) and gone by the time revealProgress
+    // reaches 1, so it never shows in the static state. Reuses the segment geometry.
+    @ViewBuilder private var flareLayer: some View {
+        if fillMode == .rankSegments, revealProgress < 1 {
+            let intensity = sin(min(1, max(0, revealProgress)) * .pi)
+            Canvas { ctx, canvas in
+                ctx.stroke(segmentPath(in: canvas, index: newestSegment, fraction: revealProgress),
+                           with: .color(rank.tier.glimmerColor.opacity(intensity)),
+                           style: StrokeStyle(lineWidth: segmentWidth * 1.2, lineCap: .round))
+            }
+            .blur(radius: size * 0.02)
+            .allowsHitTesting(false)
         }
     }
 
     /// Fills the first unearned segment by `progress`, in the color of the rank being
     /// climbed toward. Absent at Legend (nothing left to climb) and when showsProgress off.
     @ViewBuilder private var progressSegment: some View {
-        if showsProgress, litSegments < RingGeometry.segmentCount, progress > 0 {
+        if fillMode == .rankSegments, showsProgress,
+           litSegments < RingGeometry.segmentCount, progress > 0 {
             Canvas { ctx, canvas in
                 ctx.stroke(segmentPath(in: canvas, index: litSegments, fraction: progress),
                            with: .color(nextColor.opacity(0.75)),
@@ -274,6 +343,19 @@ struct RankRing<Core: View>: View {
         }
     }
 
+    // MARK: - Centurion glyph (rank 5+)
+    //
+    // The design doc's "small geometric symbol behind the initials" — a compass diamond +
+    // cross — appearing at Centurion. Drawn behind the core, so it reads through the
+    // translucent initials disc; an opaque avatar core covers it (intended: it's a backdrop
+    // for the initials/friend case). Deepens through the top ranks.
+    @ViewBuilder private var centurionGlyph: some View {
+        if rank >= .centurion {
+            CenturionMark(color: rank.tier.color.opacity(isLegend ? 0.5 : 0.35))
+                .frame(width: size * coreRadius * 0.9, height: size * coreRadius * 0.9)
+        }
+    }
+
     // MARK: - Core
 
     private var coreContent: some View {
@@ -287,6 +369,35 @@ struct RankRing<Core: View>: View {
                 SparkleField(extent: size * 0.72, color: rank.tier.glimmerColor)
             }
         }
+    }
+}
+
+// Claude  Date 07/09/2026
+// The Centurion mark: a compass diamond with an inscribed cross, non-figurative per the
+// design doc. Pure Path in a Canvas, scaled to whatever frame it's given.
+struct CenturionMark: View {
+    var color: Color = .white
+
+    var body: some View {
+        Canvas { ctx, size in
+            let w = size.width, h = size.height
+            let c = CGPoint(x: w / 2, y: h / 2)
+            let lw = max(1, w * 0.03)
+
+            var diamond = Path()
+            diamond.move(to: CGPoint(x: c.x, y: 0))
+            diamond.addLine(to: CGPoint(x: w, y: c.y))
+            diamond.addLine(to: CGPoint(x: c.x, y: h))
+            diamond.addLine(to: CGPoint(x: 0, y: c.y))
+            diamond.closeSubpath()
+            ctx.stroke(diamond, with: .color(color), lineWidth: lw)
+
+            var cross = Path()
+            cross.move(to: CGPoint(x: c.x, y: h * 0.16)); cross.addLine(to: CGPoint(x: c.x, y: h * 0.84))
+            cross.move(to: CGPoint(x: w * 0.16, y: c.y)); cross.addLine(to: CGPoint(x: w * 0.84, y: c.y))
+            ctx.stroke(cross, with: .color(color), lineWidth: lw)
+        }
+        .allowsHitTesting(false)
     }
 }
 

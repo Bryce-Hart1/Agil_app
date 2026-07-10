@@ -16,8 +16,14 @@ struct RankPromotionOverlay: View {
 
     @State private var appear = false
     @State private var ring = false
+    // Claude  Date 07/09/2026
+    // Drives the newest segment of the RankRing sweeping in (0 → 1) just after the crest
+    // springs on — the "you just earned this rank" beat.
+    @State private var reveal: Double = 0
 
     private var color: Color { rank.tier.color }
+
+    private let heroSize: CGFloat = 150
 
     var body: some View {
         ZStack {
@@ -57,6 +63,10 @@ struct RankPromotionOverlay: View {
         .onAppear(perform: start)
     }
 
+    // Claude  Date 06/15/2026 last changed: 07/09/2026 by: Claude
+    // The hero crest. Now the RankRing (segmented rank ring) instead of the bare chess
+    // emblem, with the rank's glyph in the core — so the promotion shows the same crest
+    // the profile card wears, and the newly-earned segment lights up as you watch.
     private var emblem: some View {
         ZStack {
             ConfettiView(colors: [color, .white, .yellow, color.opacity(0.7)])
@@ -75,9 +85,13 @@ struct RankPromotionOverlay: View {
                     )
             }
 
-            StrategistEmblem(rank: rank, size: 150, showProgress: false)
-                .scaleEffect(appear ? 1 : 0.2)
-                .rotationEffect(.degrees(appear ? 0 : -30))
+            RankRing(rank: rank, size: heroSize, showsProgress: false, revealProgress: reveal) {
+                StrategistEmblem(rank: rank,
+                                 size: RingGeometry.coreDiameter(for: heroSize),
+                                 showProgress: false)
+            }
+            .scaleEffect(appear ? 1 : 0.2)
+            .rotationEffect(.degrees(appear ? 0 : -30))
         }
         .frame(height: 180)
     }
@@ -85,6 +99,8 @@ struct RankPromotionOverlay: View {
     private func start() {
         withAnimation(.spring(response: 0.55, dampingFraction: 0.55)) { appear = true }
         ring = true
+        // Let the crest spring in first, then sweep the newly-earned segment closed.
+        withAnimation(.easeInOut(duration: 0.8).delay(0.45)) { reveal = 1 }
         #if canImport(UIKit)
         UINotificationFeedbackGenerator().notificationOccurred(.success)
         #endif

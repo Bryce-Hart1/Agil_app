@@ -84,6 +84,33 @@ One component, two cores:
 
 ## Phases
 
+**Status:** Phase 1 ✅ · Phase 2 ✅ (initials core, Centurion glyph) · Phase 3 ✅ · Phase 4 ⬜ (manual QA) · Phase 5 ✅
+
+**Design decision — fill semantics (RESOLVED).** `RankRing.fillMode` has two readings:
+- `.rankSegments` — N of 7 lit = rank; a map of the whole ladder.
+- `.rankProgress` — the 7 segments fill continuously with `strategistProgress` toward the
+  next rank; rank shown by color + the title text under the name.
+
+Final wiring:
+- **Your own card** (`ProfileView`, `EditProfileCardView` preview) → `.rankProgress`. The
+  ring is your personal "how close am I to the next rank" meter.
+- **Friends viewing your card** (`FriendCardView`) → `.rankSegments` (the default). They see
+  your rank crest, **not** your progress — progress-to-next stays private.
+- **Promotion overlay** (`RankPromotionOverlay`) → `.rankSegments` with the reveal sweep,
+  unchanged.
+
+`ringFillMode` is a param on `ProfileShowcaseCard`, defaulting to `.rankSegments`, so the
+friend path needed no change.
+
+Phase 5 added `RankRing.revealProgress` (0…1 sweep of the newest lit segment, default 1 =
+static) + a mid-sweep glimmer flare. `RankPromotionOverlay` now shows the RankRing (rank
+glyph in the core) and animates `reveal` 0→1 after the crest springs in.
+
+**Dev tooling:** `GymApp/Views/Profile/RankRingLabView.swift` (`#if DEBUG`), linked from
+Settings → "Rank ring lab". Live sliders for rank / size / reveal / progress, an
+all-ranks row, and one-tap buttons that fire the real promotion overlay per rank via
+`store.previewPromotion`. Ships only in Debug builds.
+
 ### Phase 1 — `RankRing.swift` (isolated, no integration)
 New file `GymApp/Views/Profile/RankRing.swift`. A `RankRing<Core: View>` taking
 `rank`, `progress`, `size`, and a `@ViewBuilder` core. Draws every layer from the design
@@ -103,8 +130,12 @@ Nothing else in the app changes, so this is fully reviewable in isolation.
 - The separate 44pt `StrategistEmblem` under the name (`ProfileView.swift:187`) becomes
   redundant — the ring already encodes rank. Drop the emblem there, keep the rank *title*
   text. The emblem stays in `StrategistRankView` and its ladder rows.
-- **Open wrinkle:** `showsRankOnCard` currently gates that emblem. With the ring in place,
-  toggling rank off must degrade to a plain `AvatarView` with no ring.
+- **Resolved:** `ProfileShowcaseCard.rank` is already `nil` when `showsRankOnCard` is off
+  (both call sites pass `showsRankOnCard ? rank : nil`), so that nil *is* the ring gate —
+  rank present → ring frames the avatar; rank nil → bare avatar, no ring. No new flag.
+- `ProfileShowcaseCard.avatarID` became `String?` (nil = friend, who has no synced avatar
+  → initials core). The core is sized to the ring's central slot via
+  `RingGeometry.coreDiameter(for:)`.
 
 ### Phase 4 — Previews / QA
 All 7 ranks at 40 / 80 / 120pt, light and dark.

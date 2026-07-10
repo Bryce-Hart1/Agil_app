@@ -30,7 +30,8 @@ struct ProfileView: View {
                             memberSince: stats.memberSince,
                             rank: store.profile.showsRankOnCard ? store.strategistRank : nil,
                             rankProgress: store.strategistProgress,
-                            avatarID: store.profile.avatarID
+                            avatarID: store.profile.avatarID,
+                            ringFillMode: .rankProgress
                         )
                         .frame(height: max(380, geo.size.height - 32))
 
@@ -131,10 +132,16 @@ struct ProfileShowcaseCard: View {
     // fills its ring toward the next rank.
     var rank: StrategistRank? = nil
     var rankProgress: Double = 1
-    // Claude  Date 06/30/2026
-    // The chosen avatar shown at the top of the card. Defaults to the free avatar so
-    // existing call sites / the friend-card view (no avatar in the payload yet) still work.
-    var avatarID: String = Avatar.defaultAvatar.id
+    // Claude  Date 06/30/2026 last changed: 07/09/2026 by: Claude
+    // The chosen avatar shown at the top of the card. nil means "no avatar to show" —
+    // which is the friend-card case, since SharedCard syncs `rank` but not `avatarID`.
+    // A nil avatar renders an initials core inside the rank ring instead of art.
+    var avatarID: String? = nil
+    // Claude  Date 07/09/2026
+    // How the rank ring reads. Your OWN card uses .rankProgress (the ring fills toward your
+    // next rank — a personal "how close am I" meter). Friends viewing your card keep the
+    // default .rankSegments (your rank crest), so your progress-to-next stays private.
+    var ringFillMode: RankRingFill = .rankSegments
 
     // The 4 featured slots (nil = locked placeholder).
     private var featured: [Achievement?] {
@@ -169,11 +176,41 @@ struct ProfileShowcaseCard: View {
             .shadow(color: shadowColor.opacity(0.4), radius: 12, y: 6)
     }
 
+    // Claude  Date 07/09/2026
+    // The avatar at the top of the card. When a rank is equipped it's framed by the
+    // RankRing (rank earns the frame, coins buy what's inside); with no rank it's the
+    // plain avatar as before. The ring's core is the chosen avatar art on your own card,
+    // or initials on a friend's card (their avatarID doesn't sync — see avatarID above).
+    private let ringSize: CGFloat = 120
+
+    @ViewBuilder private var cardAvatar: some View {
+        if let rank {
+            RankRing(rank: rank, progress: rankProgress, size: ringSize,
+                     fillMode: ringFillMode) {
+                avatarCore(diameter: RingGeometry.coreDiameter(for: ringSize))
+            }
+        } else {
+            avatarCore(diameter: 92)
+        }
+    }
+
+    @ViewBuilder private func avatarCore(diameter: CGFloat) -> some View {
+        if let avatarID {
+            AvatarView(avatar: Avatar.avatar(for: avatarID), size: diameter)
+        } else {
+            ZStack {
+                Circle().fill(Color.white.opacity(0.15))
+                RankRingInitials(name: name, size: diameter)
+            }
+            .frame(width: diameter, height: diameter)
+        }
+    }
+
     private var content: some View {
         VStack(spacing: 16) {
             header
 
-            AvatarView(avatar: Avatar.avatar(for: avatarID), size: 92)
+            cardAvatar
 
             Text(name)
                 .font(.system(.largeTitle, design: .rounded).weight(.bold))
@@ -181,16 +218,15 @@ struct ProfileShowcaseCard: View {
                 .minimumScaleFactor(0.6)
                 .lineLimit(1)
 
-            // Claude  Date 06/15/2026
-            // The equipped rank emblem (when the user has turned it on in Edit
-            // Profile Card), sitting just under the name.
+            // Claude  Date 06/15/2026 last changed: 07/09/2026 by: Claude
+            // The equipped rank's title (when turned on in Edit Profile Card). The
+            // emblem that used to sit here is gone — the rank ring around the avatar now
+            // carries the rank visually, so this is just the label. (StrategistEmblem
+            // still lives on the rank banner and the ladder.)
             if let rank {
-                HStack(spacing: 8) {
-                    StrategistEmblem(rank: rank, progress: rankProgress, size: 44)
-                    Text(rank.title)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.white)
-                }
+                Text(rank.title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
             }
 
             featuredRow

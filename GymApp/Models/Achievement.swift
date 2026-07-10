@@ -145,10 +145,12 @@ struct Achievement: Identifiable {
         let tiers: [BadgeTier] = [.bronze, .silver, .gold, .platinum, .diamond, .emerald, .legend]
         var result: [Achievement] = []
 
-        // Days Logged — distinct days trained.
-        let loggedThresholds = [1, 10, 50, 100, 250, 500, 1000]
-        let loggedTitles = ["First Day", "Regular", "Dedicated", "Centurion",
-                            "Devotee", "Veteran", "Lifer"]
+        // Days Logged — distinct days trained. Claude 07/09/2026: scaled back to
+        // 1/5/10/25/50/100/365 (365 = a full year of training days). "Centurion" now
+        // correctly lands on the 100-day tier.
+        let loggedThresholds = [1, 5, 10, 25, 50, 100, 365]
+        let loggedTitles = ["First Day", "Regular", "Dedicated", "Devotee",
+                            "Veteran", "Centurion", "Year One"]
         for (i, tier) in tiers.enumerated() {
             let n = loggedThresholds[i]
             result.append(Achievement(
@@ -199,10 +201,13 @@ struct Achievement: Identifiable {
                 icon: Category.totalLifted.iconName, isUnlocked: { $0.totalVolume >= Double(v) }))
         }
 
-        // Week Streak — consecutive weeks trained (sticky once earned).
-        let streakThresholds = [4, 12, 26, 52, 104, 156, 260]
-        let streakTitles = ["On a Roll", "Committed", "Half Year", "Year-Rounder",
-                            "Two-Year", "Iron Will", "Unbroken"]
+        // Week Streak — consecutive weeks trained (sticky once earned). Claude
+        // 07/09/2026: reworked to 2/5/10/26/43/52/104 weeks. The upper tiers hit
+        // round day-milestones: 26 wk ≈ half year, 43 wk ≈ 300 days, 52 wk = a year,
+        // 104 wk = two years (the ceiling).
+        let streakThresholds = [2, 5, 10, 26, 43, 52, 104]
+        let streakTitles = ["On a Roll", "Committed", "Locked In", "Half Year",
+                            "300 Days", "Year-Rounder", "Two-Year"]
         for (i, tier) in tiers.enumerated() {
             let w = streakThresholds[i]
             result.append(Achievement(
