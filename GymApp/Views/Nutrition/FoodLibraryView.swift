@@ -53,6 +53,9 @@ struct FoodLibraryView: View {
             .searchable(text: $searchText, prompt: "Search foods")
             .navigationTitle("Foods")
             .themed(theme.current)
+            // Claude  Date 07/13/2026
+            // Centered mode-switcher pill in the nav bar (shared by all root tabs).
+            .modeNotchToolbar()
             .toolbar {
                 ToolbarItemGroup(placement: .primaryAction) {
                     Button {

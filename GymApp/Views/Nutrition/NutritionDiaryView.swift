@@ -38,6 +38,9 @@ struct NutritionJournalView: View {
             }
             .navigationTitle("Log")
             .themed(theme.current)
+            // Claude  Date 07/13/2026
+            // Centered mode-switcher pill in the nav bar (shared by all root tabs).
+            .modeNotchToolbar()
             .toolbar {
                 // Claude  Date 07/12/2026
                 // Top-left: nutrient focus goals ("I want to eat more fiber").

@@ -14,15 +14,19 @@ struct RootTabView: View {
     // and dedupes/debounces, so calling it freely here is cheap and safe.
     @EnvironmentObject private var cardSync: CardSyncService
     @Environment(\.scenePhase) private var scenePhase
-    // Claude  Date 06/16/2026
-    // The bar leads with a mode switcher (tag 0). Real tabs start at tag 1, so the
-    // first content tab is selected on launch and after every mode flip.
+    // Claude  Date 06/16/2026 last changed: 07/13/2026 by: Claude
+    // Selected tab. Tabs are tagged from 1 (the old tag-0 switcher placeholder is
+    // gone — the ModeNotch pill at the top switches worlds now).
     @State private var selection = 1
-    // Claude  Date 06/16/2026
+    // Claude  Date 06/16/2026 last changed: 07/13/2026 by: Claude
     // Which world the bar shows — lifting vs nutrition. Persisted so the app reopens
-    // where you left off. Tapping the tag-0 switcher tab flips it (see onChange).
+    // where you left off. Flipped by switchMode(to:), driven by the ModeNotch pill.
     @AppStorage("appMode") private var modeRaw = AppMode.lifting.rawValue
     private var mode: AppMode { AppMode(rawValue: modeRaw) ?? .lifting }
+    // Claude  Date 07/13/2026
+    // Each world remembers its last-selected tab across switches (and relaunches).
+    @AppStorage("liftingTab") private var liftingTab = 1
+    @AppStorage("nutritionTab") private var nutritionTab = 1
 
     // Claude  Date 06/12/2026
     // First-run onboarding shows until the user completes it (enters a name).
@@ -32,14 +36,6 @@ struct RootTabView: View {
 
     var body: some View {
         TabView(selection: $selection) {
-            // Claude  Date 06/16/2026
-            // Mode switcher — the leftmost icon. It advertises the OTHER world (fork
-            // in Lifting, dumbbell in Nutrition); selecting it flips modes and bounces
-            // selection back to tag 1, so its placeholder content never actually shows.
-            Color.clear
-                .tabItem { Label(mode.switchLabel, systemImage: mode.switchIcon) }
-                .tag(0)
-
             if mode == .lifting {
                 WorkoutsListView()
                     .tabItem { Label("Workouts", systemImage: "dumbbell") }
@@ -76,13 +72,20 @@ struct RootTabView: View {
                     .tag(3)
             }
         }
-        // Claude  Date 06/16/2026
-        // Intercept a tap on the switcher tab: flip the world and land on its first
-        // real tab instead of staying on the empty placeholder.
-        .onChange(of: selection) { newValue in
-            guard newValue == 0 else { return }
-            modeRaw = mode.toggled.rawValue
-            selection = 1
+        // Claude  Date 07/13/2026
+        // World flips come from the ModeNotch pill (mounted in each root screen's
+        // nav bar), which writes the shared "appMode" key. React here: bank the
+        // outgoing world's tab and restore the incoming world's last-selected one.
+        // With only two modes, the outgoing mode is always the new one's toggle.
+        .onChange(of: modeRaw) { newRaw in
+            let next = AppMode(rawValue: newRaw) ?? .lifting
+            if next == .lifting {
+                nutritionTab = selection
+                selection = liftingTab
+            } else {
+                liftingTab = selection
+                selection = nutritionTab
+            }
         }
         .tint(theme.current.accent)
         .preferredColorScheme(theme.current.preferredColorScheme)
@@ -188,12 +191,17 @@ struct RootTabView: View {
         .onChange(of: store.unlockedAchievementIDs) { _ in cardSync.sync(from: store) }
     }
 
-    // Claude  Date 06/16/2026
+    // Claude  Date 06/16/2026 last changed: 07/13/2026 by: Claude
     // Jump back into the active workout from the mini-bar: switch to Lifting mode +
     // the Workouts tab, then hand the id to WorkoutsListView (it pushes the editor).
+    // When flipping from Food, pre-set liftingTab so the onChange(of: modeRaw)
+    // restore lands on Workouts regardless of ordering with `selection = 1` here.
     private func openActiveWorkout() {
         guard let id = store.activeWorkout?.id else { return }
-        if mode != .lifting { modeRaw = AppMode.lifting.rawValue }
+        if mode != .lifting {
+            liftingTab = 1
+            modeRaw = AppMode.lifting.rawValue
+        }
         selection = 1
         session.requestedWorkoutID = id
     }

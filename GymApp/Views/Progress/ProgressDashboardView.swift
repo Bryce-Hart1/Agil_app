@@ -26,6 +26,9 @@ struct ProgressDashboardView: View {
             }
             .navigationTitle("Progress")
             .themed(theme.current)
+            // Claude  Date 07/13/2026
+            // Centered mode-switcher pill in the nav bar (shared by all root tabs).
+            .modeNotchToolbar()
             .onAppear {
                 if selectedExerciseID == nil {
                     selectedExerciseID = loggedExercises.first?.id

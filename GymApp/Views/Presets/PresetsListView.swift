@@ -24,6 +24,9 @@ struct PresetsListView: View {
             }
             .navigationTitle("Presets")
             .themed(theme.current)
+            // Claude  Date 07/13/2026
+            // Centered mode-switcher pill in the nav bar (shared by all root tabs).
+            .modeNotchToolbar()
             .navigationDestination(for: UUID.self) { id in
                 PresetEditorView(presetID: id)
             }
