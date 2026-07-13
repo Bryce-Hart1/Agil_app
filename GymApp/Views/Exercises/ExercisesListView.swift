@@ -40,8 +40,9 @@ struct ExercisesListView: View {
     }
 }
 
-// Claude  Date 06/09/2026
-// One exercise row: name, category, and a small "Unilateral" badge when set.
+// Claude  Date 06/09/2026 last changed: 07/09/2026 by: Claude
+// One exercise row: name, muscle subtitle (sub-group · primary mover), and a small
+// "Unilateral" badge when set.
 private struct ExerciseRow: View {
     let exercise: Exercise
     let accent: Color
@@ -50,7 +51,7 @@ private struct ExerciseRow: View {
         VStack(alignment: .leading, spacing: 2) {
             Text(exercise.name)
             HStack(spacing: 6) {
-                Text(exercise.category)
+                Text(exercise.muscleSubtitle)
                 if exercise.isUnilateral {
                     Text("Unilateral")
                         .font(.caption2.weight(.semibold))

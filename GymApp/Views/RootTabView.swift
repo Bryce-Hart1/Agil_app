@@ -89,6 +89,12 @@ struct RootTabView: View {
         .fullScreenCover(isPresented: showOnboarding) {
             OnboardingView()
         }
+        // Claude  Date 07/11/2026
+        // Full-screen rest countdown, opened by tapping the mini-bar or the inline
+        // rest row while resting (see WorkoutSession.showFullScreenTimer).
+        .fullScreenCover(isPresented: $session.showFullScreenTimer) {
+            RestTimerFullScreenView()
+        }
         // Claude  Date 06/16/2026
         // Global "now playing"-style bar for an in-progress workout, floating just
         // above the tab bar in every tab/mode. Renders nothing when no workout is
@@ -134,11 +140,23 @@ struct RootTabView: View {
                 .id(rank)
                 .transition(.opacity)
                 .zIndex(1)
+            } else if !store.pendingFoundersUnlock.isEmpty {
+                // Claude  Date 07/12/2026
+                // Founders Edition unlock celebration (dev-triggered today; IAP
+                // purchase-success later). Sits last in the chain — nothing else is
+                // ever queued at the same time as it.
+                FoundersUnlockOverlay(
+                    cards: store.pendingFoundersUnlock,
+                    onDismiss: { store.dismissFoundersUnlock() }
+                )
+                .transition(.opacity)
+                .zIndex(1)
             }
         }
         .animation(.easeInOut(duration: 0.25), value: store.pendingWorkoutSummary?.id)
         .animation(.easeInOut(duration: 0.25), value: store.pendingCelebrations.first?.id)
         .animation(.easeInOut(duration: 0.25), value: store.pendingPromotions.first)
+        .animation(.easeInOut(duration: 0.25), value: store.pendingFoundersUnlock.isEmpty)
         // Claude  Date 06/18/2026
         // Keep the shared card in sync (Friends mode only). Push on launch + whenever
         // the app returns to the foreground, and react to card-relevant edits: profile

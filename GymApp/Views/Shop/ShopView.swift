@@ -30,8 +30,12 @@ struct ShopView: View {
     private var balance: Int { theme.balance(earned: store.totalCoinsEarned) }
 
     // Every item, for the "Browse all" drawer (free base items included).
+    // Claude  Date 07/12/2026
+    // Founders cards are never sold, so they're excluded here too — this drawer
+    // is meant to be a complete view of what's *purchasable*, not a leak of
+    // exclusive cards other players can't actually buy.
     private var fullCatalog: [ShopItem] {
-        AppTheme.builtIns.map(ShopItem.theme) + CardStyle.all.map(ShopItem.card)
+        AppTheme.builtIns.map(ShopItem.theme) + CardStyle.all.filter { !$0.isFounders }.map(ShopItem.card)
     }
 
     var body: some View {

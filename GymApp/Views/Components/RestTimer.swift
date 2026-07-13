@@ -38,6 +38,12 @@ struct RestTimerView: View {
             Spacer()
 
             if session.isResting {
+                // Claude  Date 07/11/2026
+                // Visual hint that tapping the row expands to the full-screen timer
+                // (see .onTapGesture below — this icon has no gesture of its own).
+                Image(systemName: "arrow.up.left.and.arrow.down.right")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 Button("Skip") { session.skipRest() }
                     .buttonStyle(.bordered)
             } else {
@@ -47,6 +53,13 @@ struct RestTimerView: View {
                 .buttonStyle(.bordered)
                 .tint(accent)
             }
+        }
+        // Claude  Date 07/11/2026
+        // Tap the row (not Skip) while resting to expand the full-screen timer.
+        .contentShape(Rectangle())
+        .onTapGesture {
+            guard session.isResting else { return }
+            session.showFullScreenTimer = true
         }
     }
 }

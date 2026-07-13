@@ -23,13 +23,21 @@ enum AnimatedCard: Hashable {
     case galaxy
     case molten
     case cherryBlossom
+    // Claude  Date 07/12/2026 last changed: 07/12/2026 by: Claude
+    // The Founders Edition upgrades — not sold anywhere (see CardStyle.isFounders
+    // / ThemeManager.grantFoundersCards). Added foundersGalaxy alongside
+    // foundersShootingStars.
+    case foundersShootingStars
+    case foundersGalaxy
 
     var accent: Color {
         switch self {
-        case .shootingStars: return Color(red: 0.55, green: 0.20, blue: 0.85)
-        case .galaxy:        return Color(red: 0.40, green: 0.55, blue: 0.95)
-        case .molten:        return Color(red: 1.0,  green: 0.42, blue: 0.10)
-        case .cherryBlossom: return Color(red: 0.96, green: 0.55, blue: 0.72)
+        case .shootingStars:         return Color(red: 0.55, green: 0.20, blue: 0.85)
+        case .galaxy:                return Color(red: 0.40, green: 0.55, blue: 0.95)
+        case .molten:                return Color(red: 1.0,  green: 0.42, blue: 0.10)
+        case .cherryBlossom:         return Color(red: 0.96, green: 0.55, blue: 0.72)
+        case .foundersShootingStars: return Color(red: 1.0,  green: 0.82, blue: 0.25)
+        case .foundersGalaxy:        return Color(red: 0.98, green: 0.68, blue: 0.45)
         }
     }
 }
@@ -44,6 +52,10 @@ enum CardTier: Hashable {
     case rare
     case epic
     case legendary
+    // Claude  Date 07/12/2026
+    // Above Legendary, but never for sale — granted directly (see
+    // CardStyle.isFounders). Price stays 0 since it's never bought with coins.
+    case founders
 
     var price: Int {
         switch self {
@@ -51,6 +63,7 @@ enum CardTier: Hashable {
         case .rare:      return 1000
         case .epic:      return 2000
         case .legendary: return 3000
+        case .founders:  return 0
         }
     }
 
@@ -61,6 +74,7 @@ enum CardTier: Hashable {
         case .rare:      return "Rare"
         case .epic:      return "Epic"
         case .legendary: return "Legendary"
+        case .founders:  return "Founders"
         }
     }
 
@@ -71,6 +85,7 @@ enum CardTier: Hashable {
         case .rare:      return Color(red: 0.30, green: 0.55, blue: 0.95)   // blue
         case .epic:      return Color(red: 0.64, green: 0.35, blue: 0.92)   // purple
         case .legendary: return Color(red: 0.98, green: 0.72, blue: 0.20)   // gold
+        case .founders:  return Color(red: 1.0,  green: 0.82, blue: 0.25)   // brighter gold
         }
     }
 }
@@ -88,6 +103,20 @@ struct CardStyle: Identifiable, Hashable {
     let name: String
     let background: CardBackground
     let tier: CardTier
+    // Claude  Date 07/12/2026
+    // True only for cards granted directly instead of sold through the Shop/coin
+    // system (e.g. Founders Edition). Defaults to false so every existing
+    // CardStyle(...) call site is unaffected. See ThemeManager.isCardStyleUnlocked
+    // and grantFoundersCards, plus the exclusion in ShopView.fullCatalog.
+    let isFounders: Bool
+
+    init(id: String, name: String, background: CardBackground, tier: CardTier, isFounders: Bool = false) {
+        self.id = id
+        self.name = name
+        self.background = background
+        self.tier = tier
+        self.isFounders = isFounders
+    }
 
     // Cost to unlock = the tier's price (Common = free).
     var price: Int { tier.price }
@@ -108,6 +137,15 @@ struct CardStyle: Identifiable, Hashable {
         CardStyle(id: "galaxy",  name: "Galaxy",         background: .animated(.galaxy),        tier: .legendary),
         CardStyle(id: "molten",  name: "Molten Core",    background: .animated(.molten),        tier: .legendary),
         CardStyle(id: "cherry_blossom", name: "Cherry Blossom", background: .animated(.cherryBlossom), tier: .legendary),
+        // Claude  Date 07/12/2026
+        // Founders Edition — the upgraded Shooting Stars variant. Not sold in the
+        // Shop (see isFounders); granted directly by ThemeManager instead.
+        CardStyle(id: "founders_shooting_stars", name: "Shooting Stars — Founders Edition",
+                  background: .animated(.foundersShootingStars), tier: .founders, isFounders: true),
+        // Claude  Date 07/12/2026
+        // Founders Edition — the upgraded Galaxy variant. Same gating as above.
+        CardStyle(id: "founders_galaxy", name: "Galaxy — Founders Edition",
+                  background: .animated(.foundersGalaxy), tier: .founders, isFounders: true),
     ]
 
     /// The free default style — its color matches UserProfile's default.

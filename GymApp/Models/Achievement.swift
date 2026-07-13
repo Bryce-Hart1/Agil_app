@@ -102,6 +102,11 @@ struct Achievement: Identifiable {
     // deadlift), each with its own tiered badges.
     enum Category: String, CaseIterable {
         case daysLogged, squat, bench, deadlift, totalLifted, streak
+        // Claude  Date 07/11/2026
+        // Two new categories: curl (Bicep Curl, an isolation lift tracked like the
+        // big-3 but not flagged isBig3Lift) and daysTracked (nutrition — distinct
+        // days the food diary landed within 75%-100% of the calorie goal).
+        case curl, daysTracked
 
         var title: String {
             switch self {
@@ -111,6 +116,8 @@ struct Achievement: Identifiable {
             case .deadlift:    return "Deadlift"
             case .totalLifted: return "Total Lifted"
             case .streak:      return "Week Streak"
+            case .curl:        return "Bicep Curl"
+            case .daysTracked: return "Days Tracked"
             }
         }
 
@@ -128,6 +135,8 @@ struct Achievement: Identifiable {
             case .deadlift:    return "badge_deadlift"
             case .totalLifted: return "scalemass.fill"
             case .streak:      return "flame.fill"
+            case .curl:        return "dumbbell.fill"
+            case .daysTracked: return "fork.knife"
             }
         }
 
@@ -201,6 +210,40 @@ struct Achievement: Identifiable {
                 icon: Category.totalLifted.iconName, isUnlocked: { $0.totalVolume >= Double(v) }))
         }
 
+        // Claude  Date 07/11/2026
+        // Bicep Curl — a standalone isolation-lift badge (not part of the big-3).
+        // Thresholds tuned lower than the compound lifts (single-joint isolation).
+        let curlThresholds = [20, 40, 60, 80, 100, 140, 160]
+        let curlTitles = ["First Pump", "Building Guns", "Solid Curl", "Strong Arms",
+                          "Advanced Curl", "Elite Curl", "Legendary Curl"]
+        for (i, tier) in tiers.enumerated() {
+            let w = curlThresholds[i]
+            result.append(Achievement(
+                id: "curl_\(w)", category: .curl, tier: tier,
+                title: curlTitles[i], detail: "Curl \(w) lb",
+                icon: Category.curl.iconName, isUnlocked: { $0.bestCurlLift >= Double(w) }))
+        }
+
+        // Claude  Date 07/11/2026
+        // Days Tracked — distinct days the food diary landed within 75%-100% of the
+        // calorie goal (ProfileStats.daysNutritionOnGoal). Same day-count scale as
+        // Days Logged, since both measure "how many days did you show up."
+        // Claude  Date 07/11/2026
+        // Gold/Platinum/Diamond titles rotated per request: Gold<-"Consistent"
+        // (was Platinum's), Platinum<-"Disciplined" (was Diamond's), Diamond<-"Dialed
+        // In" (was Gold's). Thresholds/tiers/rewards unchanged — titles only.
+        let nutritionThresholds = [1, 5, 10, 25, 50, 100, 365]
+        let nutritionTitles = ["First Bite", "On Track", "Consistent", "Disciplined",
+                               "Dialed In", "Nutrition Pro", "Full Year Fueled"]
+        for (i, tier) in tiers.enumerated() {
+            let n = nutritionThresholds[i]
+            result.append(Achievement(
+                id: "nutrition_\(n)", category: .daysTracked, tier: tier,
+                title: nutritionTitles[i],
+                detail: "Track \(n) \(n == 1 ? "day" : "days") within your calorie goal",
+                icon: Category.daysTracked.iconName, isUnlocked: { $0.daysNutritionOnGoal >= n }))
+        }
+
         // Week Streak — consecutive weeks trained (sticky once earned). Claude
         // 07/09/2026: reworked to 2/5/10/26/43/52/104 weeks. The upper tiers hit
         // round day-milestones: 26 wk ≈ half year, 43 wk ≈ 300 days, 52 wk = a year,
@@ -255,16 +298,17 @@ enum AchievementShowcase {
             .sorted { tierRank($0.tier) > tierRank($1.tier) }
     }
 
-    /// Up to `maxFeatured` slots for the card's top row. Pinned picks come first
-    /// (in saved order, if still unlocked), then the best remaining unlocked, then
-    /// `nil` placeholders (rendered as locked) to fill the row.
+    /// The `maxFeatured` slots for the card's top row: EXACTLY the user's picks (in their
+    /// chosen order, if still unlocked), then `nil` placeholders (rendered as locked/empty)
+    /// to fill the row. No auto-fill — the card shows only what the user explicitly chose
+    /// in the Featured Badges picker.
+    // Claude  Date 06/13/2026 last changed: 07/01/2026 by: Claude
     static func featured(unlockedIDs: Set<String>, pinnedIDs: [String]) -> [Achievement?] {
         let unlocked = Achievement.all.filter { unlockedIDs.contains($0.id) }
-        var chosen: [Achievement] = pinnedIDs.compactMap { id in unlocked.first { $0.id == id } }
-        let rest = unlockedSorted(unlockedIDs).filter { a in !chosen.contains { $0.id == a.id } }
-        for achievement in rest where chosen.count < maxFeatured { chosen.append(achievement) }
-
-        var slots: [Achievement?] = chosen.prefix(maxFeatured).map { Optional($0) }
+        var slots: [Achievement?] = pinnedIDs
+            .compactMap { id in unlocked.first { $0.id == id } }
+            .prefix(maxFeatured)
+            .map { Optional($0) }
         while slots.count < maxFeatured { slots.append(nil) }
         return slots
     }

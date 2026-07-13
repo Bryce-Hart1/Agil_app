@@ -21,10 +21,12 @@ struct AnimatedCardBackground: View {
     var body: some View {
         ZStack {
             switch kind {
-            case .shootingStars: ShootingStarsBackground()
-            case .galaxy:        GalaxyBackground()
-            case .molten:        MoltenBackground()
-            case .cherryBlossom: CherryBlossomBackground()
+            case .shootingStars:         ShootingStarsBackground()
+            case .galaxy:                GalaxyBackground()
+            case .molten:                MoltenBackground()
+            case .cherryBlossom:         CherryBlossomBackground()
+            case .foundersShootingStars: FoundersShootingStarsBackground()
+            case .foundersGalaxy:        FoundersGalaxyBackground()
             }
         }
         .overlay(
@@ -148,6 +150,220 @@ private struct ShootingStarsBackground: View {
     private struct Star { let x, y, radius, phase, speed: Double }
     private struct Cloud { let x, y: Double; let color: Color; let size, phase, speed: Double }
     private struct Meteor { let startX, startY, angle, length, width, period, offset, activeFraction: Double }
+}
+
+// MARK: - Shooting Stars (Founders Edition)
+
+// Claude  Date 07/12/2026
+// "Shooting Stars — Founders Edition": the premium upgrade of the card above,
+// exclusive to founding supporters (never sold — see CardStyle.isFounders and
+// ThemeManager.grantFoundersCards). Same deep-space idea, turned up:
+//  - A broader purple/green/gold/white palette (vs. the original's purple/blue/
+//    pink/teal), including a slow-pulsing gold aura for extra depth.
+//  - Nebula clouds drift on *two* summed sine frequencies per axis so the
+//    motion never quite repeats, instead of one clean loop.
+//  - Nearly double the stars (130 vs 70), with a subset that throw a brief
+//    four-point sparkle flare at the peak of their twinkle.
+//  - Nearly double the meteors (16 vs 9), gold- and white-streaked, with a
+//    wider spread of angles so the sky reads busier and more dynamic.
+//  - A soft diagonal foil-shine sweep glides across the whole card on a slow
+//    loop, like light catching foil on a physical premium trading card.
+private struct FoundersShootingStarsBackground: View {
+    // Stable, seeded star field — distinct seed from the base card so the two
+    // fields don't visually echo each other.
+    private let stars: [Star] = {
+        var rng = SeededGenerator(seed: 141)
+        return (0..<130).map { _ in
+            Star(x: .random(in: 0...1, using: &rng),
+                 y: .random(in: 0...1, using: &rng),
+                 radius: .random(in: 0.4...1.9, using: &rng),
+                 phase: .random(in: 0...(2 * .pi), using: &rng),
+                 speed: .random(in: 0.6...2.4, using: &rng),
+                 sparkles: Bool.random(using: &rng) && Bool.random(using: &rng)) // ~25% flare-capable
+        }
+    }()
+
+    // The drifting colour clouds — purple/gold/green/white, each with a second
+    // slower sine frequency layered in so the drift path never quite repeats.
+    private let clouds: [Cloud] = [
+        Cloud(x: 0.20, y: 0.26, color: Color(red: 0.62, green: 0.24, blue: 0.92), size: 1.00, phase: 0.0, speed: 0.20, phase2: 0.6,  speed2: 0.11),
+        Cloud(x: 0.80, y: 0.22, color: Color(red: 0.98, green: 0.82, blue: 0.35), size: 0.72, phase: 1.4, speed: 0.16, phase2: 2.2,  speed2: 0.09),
+        Cloud(x: 0.66, y: 0.68, color: Color(red: 0.20, green: 0.78, blue: 0.48), size: 0.92, phase: 2.6, speed: 0.22, phase2: 4.0,  speed2: 0.13),
+        Cloud(x: 0.14, y: 0.74, color: Color(red: 0.90, green: 0.90, blue: 0.98), size: 0.66, phase: 3.8, speed: 0.15, phase2: 1.1,  speed2: 0.10),
+        Cloud(x: 0.46, y: 0.42, color: Color(red: 0.45, green: 0.18, blue: 0.80), size: 0.80, phase: 5.0, speed: 0.19, phase2: 3.3,  speed2: 0.08),
+        Cloud(x: 0.92, y: 0.60, color: Color(red: 0.16, green: 0.62, blue: 0.42), size: 0.70, phase: 0.9, speed: 0.17, phase2: 5.4,  speed2: 0.12),
+    ]
+
+    // A bigger, busier flurry than the base card's — mixed gold/white streaks
+    // over a wider angle spread.
+    private let meteors: [Meteor] = {
+        var rng = SeededGenerator(seed: 233)
+        return (0..<16).map { i in
+            Meteor(startX: .random(in: -0.15...0.75, using: &rng),
+                   startY: .random(in: -0.05...0.55, using: &rng),
+                   angle: .random(in: 0.22...0.70, using: &rng),
+                   length: .random(in: 70...160, using: &rng),
+                   width: .random(in: 1.4...2.8, using: &rng),
+                   period: .random(in: 2.2...5.6, using: &rng),
+                   offset: .random(in: 0...6.5, using: &rng),
+                   activeFraction: .random(in: 0.14...0.24, using: &rng),
+                   gold: i % 3 != 0)   // ~2 in 3 gold-tinted, the rest cool white
+        }
+    }()
+
+    // Claude  Date 07/12/2026
+    // Split into one small function per visual layer (base / aura / clouds /
+    // stars / meteors / shine) instead of one giant Canvas closure — the combined
+    // closure was too large for the type-checker ("unable to type-check this
+    // expression in reasonable time"). Each function draws straight into the
+    // GraphicsContext it's handed, same as the inline version did.
+    var body: some View {
+        TimelineView(.animation) { tl in
+            let t = tl.date.timeIntervalSinceReferenceDate
+            Canvas { ctx, size in
+                drawBase(ctx, size: size)
+                drawAura(ctx, size: size, t: t)
+                drawClouds(ctx, size: size, t: t)
+                drawStars(ctx, size: size, t: t)
+                drawMeteors(ctx, size: size, t: t)
+                drawShine(ctx, size: size, t: t)
+            }
+        }
+        .drawingGroup()   // composite the canvas on the GPU
+    }
+
+    // Deep-space base with a faint purple-to-green undertone corner to corner
+    // (vs. the base card's flat purple-to-black).
+    private func drawBase(_ ctx: GraphicsContext, size: CGSize) {
+        let rect = CGRect(origin: .zero, size: size)
+        ctx.fill(Path(rect), with: .linearGradient(
+            Gradient(colors: [Color(red: 0.07, green: 0.03,  blue: 0.14),
+                              Color(red: 0.02, green: 0.015, blue: 0.05),
+                              Color(red: 0.02, green: 0.05,  blue: 0.035)]),
+            startPoint: .zero, endPoint: CGPoint(x: size.width, y: size.height)))
+    }
+
+    // Slow pulsing gold aura, drifting gently, for extra depth — the "premium
+    // glow" that reads at a glance as a step up from the base card.
+    private func drawAura(_ ctx: GraphicsContext, size: CGSize, t: Double) {
+        let w = size.width, h = size.height
+        let auraPulse: Double = 0.5 + 0.5 * sin(t * 0.35)
+        let auraR: CGFloat = min(w, h) * CGFloat(0.34 + 0.05 * auraPulse)
+        let auraCenter = CGPoint(x: w * CGFloat(0.5 + 0.06 * sin(t * 0.07)),
+                                 y: h * CGFloat(0.46 + 0.05 * cos(t * 0.05)))
+        ctx.drawLayer { layer in
+            layer.addFilter(.blur(radius: auraR * 0.45))
+            layer.fill(
+                Path(ellipseIn: CGRect(x: auraCenter.x - auraR, y: auraCenter.y - auraR,
+                                       width: auraR * 2, height: auraR * 2)),
+                with: .radialGradient(
+                    Gradient(colors: [Color(red: 0.95, green: 0.78, blue: 0.30).opacity(0.10 + 0.06 * auraPulse), .clear]),
+                    center: auraCenter, startRadius: 0, endRadius: auraR))
+        }
+    }
+
+    // Drifting nebula clouds — two summed sine frequencies per axis so the path
+    // never quite repeats, unlike a single clean loop.
+    private func drawClouds(_ ctx: GraphicsContext, size: CGSize, t: Double) {
+        let w = size.width, h = size.height
+        ctx.drawLayer { layer in
+            layer.addFilter(.blur(radius: min(w, h) * 0.11))
+            for c in clouds {
+                let dx: CGFloat = CGFloat(sin(t * c.speed + c.phase) * 0.7 + sin(t * c.speed2 + c.phase2) * 0.3) * w * 0.10
+                let dy: CGFloat = CGFloat(cos(t * c.speed * 0.8 + c.phase) * 0.7 + cos(t * c.speed2 * 1.3 + c.phase2) * 0.3) * h * 0.08
+                let d = min(w, h) * c.size
+                let r = CGRect(x: c.x * w - d / 2 + dx, y: c.y * h - d / 2 + dy, width: d, height: d)
+                layer.fill(Path(ellipseIn: r), with: .color(c.color.opacity(0.40)))
+            }
+        }
+    }
+
+    // Twinkling stars — a quarter of them throw a brief four-point sparkle
+    // flare at the peak of their twinkle.
+    private func drawStars(_ ctx: GraphicsContext, size: CGSize, t: Double) {
+        let w = size.width, h = size.height
+        for s in stars {
+            let twPhase: Double = 0.5 + 0.5 * sin(t * s.speed + s.phase)
+            let tw: Double = 0.35 + 0.65 * twPhase
+            let r = s.radius
+            let center = CGPoint(x: s.x * w, y: s.y * h)
+            ctx.fill(Path(ellipseIn: CGRect(x: center.x - r, y: center.y - r, width: r * 2, height: r * 2)),
+                     with: .color(.white.opacity(tw)))
+            guard s.sparkles, twPhase > 0.88 else { continue }
+            let flare: CGFloat = CGFloat((twPhase - 0.88) / 0.12)
+            let len: CGFloat = r * 5 * flare
+            var cross = Path()
+            cross.move(to: CGPoint(x: center.x - len, y: center.y))
+            cross.addLine(to: CGPoint(x: center.x + len, y: center.y))
+            cross.move(to: CGPoint(x: center.x, y: center.y - len))
+            cross.addLine(to: CGPoint(x: center.x, y: center.y + len))
+            ctx.stroke(cross, with: .color(.white.opacity(0.5 * Double(flare))), lineWidth: 0.6)
+        }
+    }
+
+    // A busier flurry of shooting stars — gold- and white-streaked, more of
+    // them and a wider angle spread than the base card.
+    private func drawMeteors(_ ctx: GraphicsContext, size: CGSize, t: Double) {
+        let w = size.width, h = size.height
+        for m in meteors {
+            let local = ((t + m.offset) / m.period).truncatingRemainder(dividingBy: 1)
+            guard local < m.activeFraction else { continue }
+            let p: CGFloat = CGFloat(local / m.activeFraction)
+            let travel: CGFloat = (w + h) * 0.62
+            let dx: CGFloat = CGFloat(cos(m.angle))
+            let dy: CGFloat = CGFloat(sin(m.angle))
+            let headX: CGFloat = w * CGFloat(m.startX) + dx * travel * p
+            let headY: CGFloat = h * CGFloat(m.startY) + dy * travel * p
+            let head = CGPoint(x: headX, y: headY)
+            let len: CGFloat = CGFloat(m.length)
+            let tail = CGPoint(x: headX - dx * len, y: headY - dy * len)
+            let fade: CGFloat = CGFloat(sin(Double(p) * .pi))
+            let streakColor: Color = m.gold ? Color(red: 1.0, green: 0.87, blue: 0.55) : .white
+            var trail = Path()
+            trail.move(to: head)
+            trail.addLine(to: tail)
+            ctx.stroke(trail, with: .linearGradient(
+                Gradient(colors: [streakColor.opacity(0.95 * fade), .clear]),
+                startPoint: head, endPoint: tail),
+                style: StrokeStyle(lineWidth: CGFloat(m.width), lineCap: .round))
+            let hr: CGFloat = CGFloat(m.width) * 0.95
+            ctx.fill(Path(ellipseIn: CGRect(x: headX - hr, y: headY - hr, width: hr * 2, height: hr * 2)),
+                     with: .color(streakColor.opacity(fade)))
+        }
+    }
+
+    // Foil-shine sweep: a soft bright diagonal band glides across the whole
+    // card on a slow loop, like light catching foil on a physical premium
+    // trading card. Drawn last so it reads as a highlight riding on top of
+    // everything else.
+    private func drawShine(_ ctx: GraphicsContext, size: CGSize, t: Double) {
+        let w = size.width, h = size.height
+        let rect = CGRect(origin: .zero, size: size)
+        let shinePeriod = 6.5
+        let shineProgress: CGFloat = CGFloat((t / shinePeriod).truncatingRemainder(dividingBy: 1))
+        let sweepDistance: CGFloat = (w + h) * 0.85
+        let travel: CGFloat = (shineProgress - 0.5) * 2 * sweepDistance
+        let bandThickness: CGFloat = min(w, h) * 0.16
+        let bandLength: CGFloat = (w + h) * 1.6
+        var shine = ctx
+        shine.clip(to: Path(rect))
+        shine.translateBy(x: w * 0.5, y: h * 0.5)
+        shine.rotate(by: .radians(-0.5))
+        shine.translateBy(x: travel, y: 0)
+        let bandRect = CGRect(x: -bandThickness / 2, y: -bandLength / 2,
+                               width: bandThickness, height: bandLength)
+        shine.fill(Path(bandRect), with: .linearGradient(
+            Gradient(colors: [.clear,
+                              Color.white.opacity(0.14),
+                              Color(red: 1.0, green: 0.86, blue: 0.5).opacity(0.10),
+                              .clear]),
+            startPoint: CGPoint(x: -bandThickness / 2, y: 0),
+            endPoint: CGPoint(x: bandThickness / 2, y: 0)))
+    }
+
+    private struct Star { let x, y, radius, phase, speed: Double; let sparkles: Bool }
+    private struct Cloud { let x, y: Double; let color: Color; let size, phase, speed, phase2, speed2: Double }
+    private struct Meteor { let startX, startY, angle, length, width, period, offset, activeFraction: Double; let gold: Bool }
 }
 
 // MARK: - Galaxy
@@ -274,6 +490,327 @@ private struct GalaxyBackground: View {
     private struct ArmStar { let t01, arm, jitter, radius, phase, twinkle: Double }
     private struct CoreStar { let r01, angle, radius, phase, twinkle: Double }
     private struct BgStar { let x, y, radius, phase, speed: Double }
+}
+
+// MARK: - Galaxy (Founders Edition)
+
+// Claude  Date 07/12/2026
+// "Galaxy — Founders Edition": the premium upgrade of the card above, exclusive
+// to founding supporters (never sold — see CardStyle.isFounders and
+// ThemeManager.grantFoundersCards). Same rotating-spiral idea, turned up:
+//  - THREE spiral arms instead of two, with 300 arm stars (vs 220) coloured by
+//    radius across a much broader palette: warm gold at the core, ice blue
+//    through the mid-arm, violet-rose at the rim — plus scattered amber star
+//    clusters dotted along the arms.
+//  - A warm two-tone core glow (gold heart fading through blue) over a denser
+//    160-star bulge, instead of the original's single cool glow.
+//  - A small rose-tinted COMPANION galaxy spinning on its own in the corner.
+//  - Occasional SUPERNOVA flares that bloom and fade along the arms, riding the
+//    disc's rotation.
+//  - The disc precesses: its tilt (vertical squash) breathes and the spin axis
+//    wobbles a few degrees, so it reads as a living 3D object instead of a flat
+//    spinner.
+//  - Background stars drift laterally at seeded speeds (parallax) rather than
+//    sitting frozen behind the disc.
+//  - The same signature foil-shine sweep as the other Founders card, so the
+//    Founders line reads as a family.
+// Split into one small function per visual layer (same reason as the Founders
+// Shooting Stars card: one giant Canvas closure blows the type-checker budget).
+private struct FoundersGalaxyBackground: View {
+    // Stars along the three spiral arms. `amber` flags the warm cluster stars.
+    private let armStars: [ArmStar] = {
+        var rng = SeededGenerator(seed: 173)
+        return (0..<300).map { _ in
+            let t01 = pow(Double.random(in: 0...1, using: &rng), 0.7)   // bias outward
+            return ArmStar(t01: t01,
+                           arm: Double(Int.random(in: 0..<3, using: &rng)) * 2 * .pi / 3,
+                           jitter: .random(in: -0.20...0.20, using: &rng),
+                           radius: .random(in: 0.5...1.8, using: &rng),
+                           phase: .random(in: 0...(2 * .pi), using: &rng),
+                           twinkle: .random(in: 0.8...2.4, using: &rng),
+                           amber: Double.random(in: 0...1, using: &rng) < 0.16)
+        }
+    }()
+
+    // Dense golden bulge packed into the core (radius biased inward).
+    private let coreStars: [CoreStar] = {
+        var rng = SeededGenerator(seed: 157)
+        return (0..<160).map { _ in
+            CoreStar(r01: pow(Double.random(in: 0...1, using: &rng), 1.8),
+                     angle: .random(in: 0...(2 * .pi), using: &rng),
+                     radius: .random(in: 0.4...1.6, using: &rng),
+                     phase: .random(in: 0...(2 * .pi), using: &rng),
+                     twinkle: .random(in: 0.9...2.6, using: &rng))
+        }
+    }()
+
+    // Background field with per-star lateral drift for parallax.
+    private let bgStars: [BgStar] = {
+        var rng = SeededGenerator(seed: 191)
+        return (0..<80).map { _ in
+            BgStar(x: .random(in: 0...1, using: &rng),
+                   y: .random(in: 0...1, using: &rng),
+                   radius: .random(in: 0.4...1.3, using: &rng),
+                   phase: .random(in: 0...(2 * .pi), using: &rng),
+                   speed: .random(in: 0.6...2.0, using: &rng),
+                   drift: .random(in: 0.002...0.008, using: &rng))
+        }
+    }()
+
+    // The little companion galaxy's own star disc.
+    private let companionStars: [CompStar] = {
+        var rng = SeededGenerator(seed: 99)
+        return (0..<30).map { _ in
+            CompStar(r01: pow(Double.random(in: 0...1, using: &rng), 1.2),
+                     angle: .random(in: 0...(2 * .pi), using: &rng),
+                     radius: .random(in: 0.3...0.9, using: &rng),
+                     phase: .random(in: 0...(2 * .pi), using: &rng),
+                     twinkle: .random(in: 0.9...2.2, using: &rng))
+        }
+    }()
+
+    // Supernova events: each sits at a fixed spot on an arm (t01/arm/jitter,
+    // same placement math as an arm star) and flares on its own long loop.
+    private let novae: [Nova] = {
+        var rng = SeededGenerator(seed: 61)
+        return (0..<5).map { _ in
+            Nova(t01: .random(in: 0.35...0.90, using: &rng),
+                 arm: Double(Int.random(in: 0..<3, using: &rng)) * 2 * .pi / 3,
+                 jitter: .random(in: -0.15...0.15, using: &rng),
+                 period: .random(in: 7.0...14.0, using: &rng),
+                 offset: .random(in: 0...14.0, using: &rng))
+        }
+    }()
+
+    // MARK: Shared disc geometry
+
+    // Spin, twist, and the precession terms — one place so every layer of the
+    // disc (bulge, arms, novae) moves as a single rigid body.
+    private func discSpin(_ t: Double) -> Double { t * 0.075 }
+    private let twist: Double = 3.1
+    private func discSquash(_ t: Double) -> CGFloat { CGFloat(0.62 + 0.05 * sin(t * 0.09)) }
+    private func discWobble(_ t: Double) -> Double { 0.05 * sin(t * 0.13) }
+
+    private func discCenter(_ size: CGSize) -> CGPoint { CGPoint(x: size.width * 0.5, y: size.height * 0.46) }
+    private func discMaxR(_ size: CGSize) -> CGFloat { min(size.width, size.height) * 0.55 }
+
+    // A context copy rotated by the precession wobble about the disc centre.
+    private func wobbled(_ ctx: GraphicsContext, size: CGSize, t: Double) -> GraphicsContext {
+        let center = discCenter(size)
+        var disc = ctx
+        disc.translateBy(x: center.x, y: center.y)
+        disc.rotate(by: .radians(discWobble(t)))
+        disc.translateBy(x: -center.x, y: -center.y)
+        return disc
+    }
+
+    // Position of a point riding the spiral disc (arm-star placement math).
+    private func discPoint(t01: Double, arm: Double, jitter: Double,
+                           size: CGSize, t: Double) -> CGPoint {
+        let center = discCenter(size)
+        let r: CGFloat = CGFloat(t01) * discMaxR(size)
+        let angle: Double = arm + discSpin(t) + t01 * twist + jitter
+        return CGPoint(x: center.x + CGFloat(cos(angle)) * r,
+                       y: center.y + CGFloat(sin(angle)) * r * discSquash(t))
+    }
+
+    // MARK: Body
+
+    var body: some View {
+        TimelineView(.animation) { tl in
+            let t = tl.date.timeIntervalSinceReferenceDate
+            Canvas { ctx, size in
+                drawBase(ctx, size: size)
+                drawBackgroundStars(ctx, size: size, t: t)
+                drawCompanion(ctx, size: size, t: t)
+                drawCoreGlow(ctx, size: size, t: t)
+                drawCoreStars(ctx, size: size, t: t)
+                drawArmStars(ctx, size: size, t: t)
+                drawNovae(ctx, size: size, t: t)
+                drawShine(ctx, size: size, t: t)
+            }
+        }
+        .drawingGroup()   // composite the canvas on the GPU
+    }
+
+    // Deep-space base: violet toward the core with a whisper of teal along the
+    // bottom edge, so even the empty sky carries more colour than the original.
+    private func drawBase(_ ctx: GraphicsContext, size: CGSize) {
+        let rect = CGRect(origin: .zero, size: size)
+        ctx.fill(Path(rect), with: .radialGradient(
+            Gradient(colors: [Color(red: 0.13, green: 0.10, blue: 0.30),
+                              Color(red: 0.03, green: 0.02, blue: 0.09)]),
+            center: discCenter(size), startRadius: 0, endRadius: discMaxR(size) * 1.7))
+        ctx.fill(Path(rect), with: .linearGradient(
+            Gradient(colors: [.clear, Color(red: 0.05, green: 0.30, blue: 0.30).opacity(0.16)]),
+            startPoint: .zero, endPoint: CGPoint(x: 0, y: size.height)))
+    }
+
+    // Twinkling background field that also drifts sideways (parallax) instead
+    // of sitting frozen behind the rotating disc.
+    private func drawBackgroundStars(_ ctx: GraphicsContext, size: CGSize, t: Double) {
+        let w = size.width, h = size.height
+        for s in bgStars {
+            let xx: CGFloat = CGFloat((s.x + t * s.drift).truncatingRemainder(dividingBy: 1))
+            let tw: Double = 0.25 + 0.45 * (0.5 + 0.5 * sin(t * s.speed + s.phase))
+            let r: CGFloat = s.radius
+            ctx.fill(Path(ellipseIn: CGRect(x: xx * w - r, y: CGFloat(s.y) * h - r, width: r * 2, height: r * 2)),
+                     with: .color(.white.opacity(tw)))
+        }
+    }
+
+    // The rose-tinted companion dwarf galaxy, spinning on its own in the corner.
+    private func drawCompanion(_ ctx: GraphicsContext, size: CGSize, t: Double) {
+        let w = size.width, h = size.height
+        let c = CGPoint(x: w * 0.82, y: h * 0.13)
+        let r: CGFloat = min(w, h) * 0.11
+        ctx.drawLayer { layer in
+            layer.addFilter(.blur(radius: r * 0.7))
+            layer.fill(Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2)),
+                       with: .color(Color(red: 0.95, green: 0.60, blue: 0.55).opacity(0.30)))
+        }
+        let spin: Double = t * 0.18
+        for s in companionStars {
+            let rr: CGFloat = CGFloat(s.r01) * r
+            let a: Double = s.angle + spin
+            let x: CGFloat = c.x + CGFloat(cos(a)) * rr
+            let y: CGFloat = c.y + CGFloat(sin(a)) * rr * 0.7
+            let tw: Double = 0.40 + 0.50 * (0.5 + 0.5 * sin(t * s.twinkle + s.phase))
+            let rad: CGFloat = s.radius
+            ctx.fill(Path(ellipseIn: CGRect(x: x - rad, y: y - rad, width: rad * 2, height: rad * 2)),
+                     with: .color(Color(red: 1.0, green: 0.86, blue: 0.78).opacity(tw)))
+        }
+    }
+
+    // Two-tone core glow: a warm gold heart fading through blue — richer than
+    // the original's single cool gradient.
+    private func drawCoreGlow(_ ctx: GraphicsContext, size: CGSize, t: Double) {
+        let center = discCenter(size)
+        let pulse: Double = 0.5 + 0.5 * sin(t * 0.7)
+        let coreR: CGFloat = discMaxR(size) * CGFloat(0.46 + 0.06 * pulse)
+        ctx.drawLayer { layer in
+            layer.addFilter(.blur(radius: coreR * 0.5))
+            layer.fill(
+                Path(ellipseIn: CGRect(x: center.x - coreR, y: center.y - coreR,
+                                       width: coreR * 2, height: coreR * 2)),
+                with: .radialGradient(
+                    Gradient(stops: [
+                        .init(color: Color(red: 1.0,  green: 0.92, blue: 0.72), location: 0.00),
+                        .init(color: Color(red: 0.98, green: 0.75, blue: 0.40).opacity(0.55), location: 0.35),
+                        .init(color: Color(red: 0.50, green: 0.55, blue: 1.0).opacity(0.30),  location: 0.70),
+                        .init(color: .clear, location: 1.00),
+                    ]),
+                    center: center, startRadius: 0, endRadius: coreR))
+        }
+    }
+
+    // Golden bulge cluster, rotating and precessing with the disc.
+    private func drawCoreStars(_ ctx: GraphicsContext, size: CGSize, t: Double) {
+        let center = discCenter(size)
+        let maxR = discMaxR(size)
+        let spin = discSpin(t)
+        let squash = discSquash(t)
+        let disc = wobbled(ctx, size: size, t: t)
+        for s in coreStars {
+            let r: CGFloat = CGFloat(s.r01) * maxR * 0.45
+            let angle: Double = s.angle + spin
+            let x: CGFloat = center.x + CGFloat(cos(angle)) * r
+            let y: CGFloat = center.y + CGFloat(sin(angle)) * r * squash
+            let tw: Double = 0.45 + 0.55 * (0.5 + 0.5 * sin(t * s.twinkle + s.phase))
+            let rad: CGFloat = s.radius
+            disc.fill(Path(ellipseIn: CGRect(x: x - rad, y: y - rad, width: rad * 2, height: rad * 2)),
+                      with: .color(Color(red: 1.0, green: 0.93, blue: 0.80).opacity(tw)))
+        }
+    }
+
+    // Colour along the arm: gold at the core → ice blue mid-arm → violet-rose
+    // at the rim, with amber cluster stars breaking the gradient up.
+    private func armColor(_ s: ArmStar) -> Color {
+        if s.amber { return Color(red: 1.0, green: 0.72, blue: 0.42) }
+        if s.t01 < 0.5 {
+            let u = s.t01 / 0.5
+            return Color(red: 0.98 - 0.26 * u, green: 0.92 - 0.14 * u, blue: 0.80 + 0.20 * u)
+        }
+        let u = (s.t01 - 0.5) / 0.5
+        return Color(red: 0.74 + 0.14 * u, green: 0.78 - 0.30 * u, blue: 1.0)
+    }
+
+    // The three spiral arms.
+    private func drawArmStars(_ ctx: GraphicsContext, size: CGSize, t: Double) {
+        let disc = wobbled(ctx, size: size, t: t)
+        for s in armStars {
+            let p = discPoint(t01: s.t01, arm: s.arm, jitter: s.jitter, size: size, t: t)
+            let tw: Double = 0.4 + 0.6 * (0.5 + 0.5 * sin(t * s.twinkle + s.phase))
+            let rad: CGFloat = CGFloat(s.radius * (1.0 - 0.25 * s.t01)) * (s.amber ? 1.4 : 1.0)
+            disc.fill(Path(ellipseIn: CGRect(x: p.x - rad, y: p.y - rad, width: rad * 2, height: rad * 2)),
+                      with: .color(armColor(s).opacity(tw)))
+        }
+    }
+
+    // Supernova flares: bloom, throw a cross flare, and fade — each riding the
+    // rotating disc at its seeded arm position.
+    private func drawNovae(_ ctx: GraphicsContext, size: CGSize, t: Double) {
+        let disc = wobbled(ctx, size: size, t: t)
+        for n in novae {
+            let local = ((t + n.offset) / n.period).truncatingRemainder(dividingBy: 1)
+            guard local < 0.12 else { continue }
+            let p: Double = local / 0.12
+            let flare: CGFloat = CGFloat(sin(p * .pi))
+            let at = discPoint(t01: n.t01, arm: n.arm, jitter: n.jitter, size: size, t: t)
+            let glowR: CGFloat = discMaxR(size) * CGFloat(0.04 + 0.06 * p)
+            disc.drawLayer { layer in
+                layer.addFilter(.blur(radius: glowR * 0.6))
+                layer.fill(Path(ellipseIn: CGRect(x: at.x - glowR, y: at.y - glowR,
+                                                  width: glowR * 2, height: glowR * 2)),
+                           with: .color(Color(red: 1.0, green: 0.95, blue: 0.85).opacity(0.85 * flare)))
+            }
+            let len: CGFloat = glowR * 1.7 * flare
+            var cross = Path()
+            cross.move(to: CGPoint(x: at.x - len, y: at.y))
+            cross.addLine(to: CGPoint(x: at.x + len, y: at.y))
+            cross.move(to: CGPoint(x: at.x, y: at.y - len))
+            cross.addLine(to: CGPoint(x: at.x, y: at.y + len))
+            disc.stroke(cross, with: .color(.white.opacity(0.7 * flare)), lineWidth: 0.8)
+            let hr: CGFloat = 1.6 * flare
+            disc.fill(Path(ellipseIn: CGRect(x: at.x - hr, y: at.y - hr, width: hr * 2, height: hr * 2)),
+                      with: .color(.white.opacity(flare)))
+        }
+    }
+
+    // The Founders-line signature foil-shine sweep (same treatment as the
+    // Founders Shooting Stars card, slightly slower so the two never sync up).
+    private func drawShine(_ ctx: GraphicsContext, size: CGSize, t: Double) {
+        let w = size.width, h = size.height
+        let rect = CGRect(origin: .zero, size: size)
+        let shinePeriod = 7.5
+        let shineProgress: CGFloat = CGFloat((t / shinePeriod).truncatingRemainder(dividingBy: 1))
+        let sweepDistance: CGFloat = (w + h) * 0.85
+        let travel: CGFloat = (shineProgress - 0.5) * 2 * sweepDistance
+        let bandThickness: CGFloat = min(w, h) * 0.16
+        let bandLength: CGFloat = (w + h) * 1.6
+        var shine = ctx
+        shine.clip(to: Path(rect))
+        shine.translateBy(x: w * 0.5, y: h * 0.5)
+        shine.rotate(by: .radians(-0.5))
+        shine.translateBy(x: travel, y: 0)
+        let bandRect = CGRect(x: -bandThickness / 2, y: -bandLength / 2,
+                               width: bandThickness, height: bandLength)
+        // Quieter than the Shooting Stars version — the galaxy's sky is darker,
+        // so the same band opacity reads much louder here.
+        shine.fill(Path(bandRect), with: .linearGradient(
+            Gradient(colors: [.clear,
+                              Color.white.opacity(0.09),
+                              Color(red: 1.0, green: 0.86, blue: 0.5).opacity(0.06),
+                              .clear]),
+            startPoint: CGPoint(x: -bandThickness / 2, y: 0),
+            endPoint: CGPoint(x: bandThickness / 2, y: 0)))
+    }
+
+    private struct ArmStar { let t01, arm, jitter, radius, phase, twinkle: Double; let amber: Bool }
+    private struct CoreStar { let r01, angle, radius, phase, twinkle: Double }
+    private struct BgStar { let x, y, radius, phase, speed, drift: Double }
+    private struct CompStar { let r01, angle, radius, phase, twinkle: Double }
+    private struct Nova { let t01, arm, jitter, period, offset: Double }
 }
 
 // MARK: - Molten

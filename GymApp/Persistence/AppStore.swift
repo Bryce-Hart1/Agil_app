@@ -46,9 +46,22 @@ final class AppStore: ObservableObject {
     // can be evicted freely without touching the curated library; consulted by
     // CachedFoodService before any Open Food Facts barcode lookup. Persists on change.
     @Published private(set) var barcodeCache: BarcodeCache { didSet { persistence.save(barcodeCache, to: Self.barcodeCacheFile) } }
-    @Published var foodLog: [FoodEntry] { didSet { persistence.save(foodLog, to: Self.foodLogFile) } }
+    // Claude  Date 07/11/2026
+    // foodLog now also re-evaluates achievements on change (Days Tracked reads it),
+    // mirroring the activityLog didSet pattern above.
+    @Published var foodLog: [FoodEntry] {
+        didSet {
+            persistence.save(foodLog, to: Self.foodLogFile)
+            evaluateAchievements()
+        }
+    }
     @Published var waterLog: [WaterEntry] { didSet { persistence.save(waterLog, to: Self.waterLogFile) } }
     @Published var nutritionGoals: NutritionGoals { didSet { persistence.save(nutritionGoals, to: Self.nutritionGoalsFile) } }
+    // Claude  Date 07/12/2026
+    // User-created nutrient focus goals (fiber/sugar/sodium floors/ceilings shown
+    // as the diary's Focus card). Its own file rather than a NutritionGoals field
+    // because it's an add/remove list, not a fixed set of daily targets.
+    @Published var focusGoals: [NutrientFocusGoal] { didSet { persistence.save(focusGoals, to: Self.focusGoalsFile) } }
     // Claude  Date 06/13/2026
     // Achievement ids the user has unlocked. Sticky — once earned, never removed
     // (so e.g. a streak badge survives a missed week). Recomputed from history by
@@ -66,6 +79,12 @@ final class AppStore: ObservableObject {
     // The performance card to show on finishing a workout (transient). Displayed
     // BEFORE any badge/rank celebrations, so you see the session recap first.
     @Published var pendingWorkoutSummary: WorkoutSummary?
+    // Claude  Date 07/12/2026
+    // The Founders Edition cards to show in the unlock celebration (transient, empty
+    // = none). Set by the alpha dev tool today; by the real IAP purchase-success flow
+    // later. RootTabView renders FoundersUnlockOverlay from this. The grant of the
+    // cards themselves lives in ThemeManager — this only drives the reveal animation.
+    @Published var pendingFoundersUnlock: [CardStyle] = []
     // Claude  Date 06/16/2026
     // Alpha dev-only: a flat coin grant folded into totalCoinsEarned, so the dev
     // can top up the wallet to test shop/card purchases without grinding workouts.
@@ -98,6 +117,8 @@ final class AppStore: ObservableObject {
     private static let foodLogFile = "nutrition_log.json"
     private static let waterLogFile = "water_log.json"
     private static let nutritionGoalsFile = "nutrition_goals.json"
+    // Claude  Date 07/12/2026 — nutrient focus goals (diary Focus card).
+    private static let focusGoalsFile = "nutrient_focus_goals.json"
     // Claude  Date 06/16/2026 — alpha dev coin grant.
     private static let devCoinsFile = "dev_coins.json"
     // Claude  Date 06/17/2026 — barcode → product lookup cache.
@@ -129,6 +150,7 @@ final class AppStore: ObservableObject {
         self.foodLog = persistence.load(Self.foodLogFile, default: [FoodEntry]())
         self.waterLog = persistence.load(Self.waterLogFile, default: [WaterEntry]())
         self.nutritionGoals = persistence.load(Self.nutritionGoalsFile, default: NutritionGoals())
+        self.focusGoals = persistence.load(Self.focusGoalsFile, default: [NutrientFocusGoal]())
         self.barcodeCache = persistence.load(Self.barcodeCacheFile, default: BarcodeCache())
         self.devBonusCoins = persistence.load(Self.devCoinsFile, default: 0)
 
@@ -155,10 +177,11 @@ final class AppStore: ObservableObject {
     // When `announce`, newly-unlocked-and-not-yet-celebrated ones are queued for
     // the celebration overlay (lowest tier first, so it builds to the best).
     func evaluateAchievements(announce: Bool = true) {
-        // Claude  Date 06/13/2026 last changed: 06/14/2026 by: Claude
+        // Claude  Date 06/13/2026 last changed: 07/11/2026 by: Claude
         // Stats come from the activity ledger (completed sets, real timestamps),
-        // NOT from editable workout numbers — that's the anti-cheat fix.
-        let stats = ProfileStats(events: activityLog)
+        // NOT from editable workout numbers — that's the anti-cheat fix. Now also
+        // feeds the food diary + calorie goal for the Days Tracked badges.
+        let stats = ProfileStats(events: activityLog, foodLog: foodLog, nutritionGoals: nutritionGoals)
         var updated = unlockedAchievementIDs
         for achievement in Achievement.all where achievement.isUnlocked(stats) {
             updated.insert(achievement.id)
@@ -236,6 +259,20 @@ final class AppStore: ObservableObject {
             persistence.save(celebratedAchievementIDs, to: Self.celebratedFile)
         }
         pendingCelebrations.removeFirst()
+    }
+
+    // Claude  Date 07/12/2026
+    // Play the Founders Edition unlock celebration for every founders card. The
+    // grant itself is idempotent and lives in ThemeManager; this only fires the
+    // reveal overlay, so it can be replayed any time (the dev tool does exactly
+    // that). Later, the IAP purchase-success handler will call this after granting.
+    func celebrateFoundersUnlock() {
+        pendingFoundersUnlock = CardStyle.all.filter { $0.isFounders }
+    }
+
+    // Dismiss the Founders unlock celebration.
+    func dismissFoundersUnlock() {
+        pendingFoundersUnlock = []
     }
 
     // Claude  Date 06/13/2026
@@ -326,6 +363,15 @@ final class AppStore: ObservableObject {
         return true
     }
 
+    // Claude  Date 07/01/2026
+    // Reorder the featured badges (their left-to-right order on the card). Driven by the
+    // Featured Badges picker's drag-to-reorder (`.onMove`); persists via profile's didSet.
+    func moveShowcased(fromOffsets: IndexSet, toOffset: Int) {
+        var ids = profile.showcasedAchievementIDs
+        ids.move(fromOffsets: fromOffsets, toOffset: toOffset)
+        profile.showcasedAchievementIDs = ids
+    }
+
     // MARK: - Exercises
 
     // Claude  Date 06/09/2026 last changed: 06/14/2026 by: Claude
@@ -376,6 +422,24 @@ final class AppStore: ObservableObject {
         }
     }
 
+    // Claude  Date 07/09/2026
+    // Options for the cascading muscle pickers in the exercise editor, both DERIVED from
+    // the current library so they stay self-maintaining (no hand-kept table): the distinct
+    // muscle sub-groups within a region, and the distinct primary movers within one of
+    // those sub-groups. The "Other" catch-all is excluded from the group list — it only
+    // exists as a category under Region = .other.
+    func categories(in region: MuscleRegion) -> [String] {
+        let cats = exercises.filter { $0.region == region }.map(\.category)
+        return Array(Set(cats)).filter { $0 != "Other" }.sorted()
+    }
+
+    func movers(in category: String, region: MuscleRegion) -> [String] {
+        let m = exercises
+            .filter { $0.region == region && $0.category == category && !$0.primaryMover.isEmpty }
+            .map(\.primaryMover)
+        return Array(Set(m)).sorted()
+    }
+
     func exercise(for id: UUID) -> Exercise? {
         exercises.first { $0.id == id }
     }
@@ -411,7 +475,10 @@ final class AppStore: ObservableObject {
 
         var newEvents: [ActivityEvent] = []
         for logged in workouts[index].exercises {
-            let liftType = exercise(for: logged.exerciseId)?.liftType
+            // Claude  Date 07/11/2026
+            // effectiveLiftType (not the raw liftType tag) so any Arms/Biceps exercise
+            // credits the curl badge automatically, not just an explicitly tagged one.
+            let liftType = exercise(for: logged.exerciseId)?.effectiveLiftType
             for set in logged.sets where set.completedAt != nil {
                 guard !activityLog.contains(where: { $0.setId == set.id }) else { continue }
                 newEvents.append(ActivityEvent(
@@ -573,6 +640,21 @@ final class AppStore: ObservableObject {
     // The derived diary view for one calendar day (totals + per-meal grouping).
     func nutritionDay(for date: Date) -> NutritionDay {
         NutritionDay(date: date, foodLog: foodLog, waterLog: waterLog)
+    }
+
+    // MARK: - Nutrient focus goals
+
+    // Claude  Date 07/12/2026
+    // Focus-goal list mutations (didSet persists). One goal per nutrient, so
+    // addFocusGoal is a no-op if that nutrient is already tracked; in-place edits
+    // flow through ForEach($focusGoals) bindings in FocusGoalsView.
+    func addFocusGoal(for nutrient: NutrientFocusGoal.Nutrient) {
+        guard !focusGoals.contains(where: { $0.nutrient == nutrient }) else { return }
+        focusGoals.append(NutrientFocusGoal(nutrient: nutrient))
+    }
+
+    func deleteFocusGoals(at offsets: IndexSet) {
+        focusGoals.remove(atOffsets: offsets)
     }
 
     // Claude  Date 06/16/2026
@@ -773,6 +855,11 @@ extension AppStore {
         Exercise(name: "Face Pull", region: .shoulders, category: "Rear Delts", primaryMover: "Posterior Deltoid", quality: .optimal),
 
         // MARK: Arms — Biceps
+        // Claude  Date 07/11/2026 last changed: 07/11/2026 by: Claude
+        // A standard curl for the library. No explicit liftType tag needed — every
+        // exercise below counts toward the Bicep Curl badge automatically via
+        // Exercise.effectiveLiftType (region == .arms && category == "Biceps").
+        Exercise(name: "Barbell Curl", region: .arms, category: "Biceps", primaryMover: "Biceps Brachii", quality: .classic),
         Exercise(name: "Incline Dumbbell Curl", region: .arms, category: "Biceps", primaryMover: "Biceps Brachii", quality: .optimal),
         Exercise(name: "Cable Curl", region: .arms, category: "Biceps", primaryMover: "Biceps Brachii", quality: .optimal),
         Exercise(name: "EZ-Bar Curl", region: .arms, category: "Biceps", primaryMover: "Biceps Brachii", quality: .classic),

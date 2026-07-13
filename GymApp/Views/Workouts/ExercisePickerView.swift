@@ -38,7 +38,7 @@ struct ExercisePickerView: View {
                                     Text(exercise.name)
                                         .foregroundStyle(.primary)
                                     HStack(spacing: 6) {
-                                        Text(exercise.category)
+                                        Text(exercise.muscleSubtitle)
                                         if exercise.isUnilateral {
                                             Text("Unilateral").fontWeight(.semibold)
                                         }

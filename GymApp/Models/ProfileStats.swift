@@ -19,12 +19,21 @@ struct ProfileStats: Codable, Hashable {
     var bestSquatLift: Double
     var bestBenchLift: Double
     var bestDeadliftLift: Double
+    // Claude  Date 07/11/2026
+    // Heaviest confirmed Bicep Curl set, in lb — drives the Bicep Curl badges
+    // (same treatment as the big-3 lifts, just not flagged isBig3Lift).
+    var bestCurlLift: Double
     var weekStreak: Int          // consecutive calendar weeks (incl. current) with a workout
     var topMuscleGroup: String?  // most-trained category by set count
     var memberSince: Date?       // date of the earliest workout
     var favoriteCurrentExercise: String? //current favorite exercise based on last 15 workouts avg
     var totalPoints: Int //total points racked up by user
-    
+    // Claude  Date 07/11/2026
+    // Distinct days the food diary landed within 75%-100% of the calorie goal —
+    // drives the Days Tracked badges. Only populated by init(events:) (see there);
+    // init(workouts:exercises:) has no nutrition data to compute it from.
+    var daysNutritionOnGoal: Int
+
 
     init(workouts: [Workout], exercises: [Exercise]) {
         totalWorkouts = workouts.count
@@ -41,11 +50,12 @@ struct ProfileStats: Codable, Hashable {
         )
         var setsByCategory: [String: Int] = [:]
 
-        // Claude  Date 06/13/2026 last changed: 06/14/2026 by: Claude
-        // Map each big-3 exercise to its lift type, so each lift's best is tracked
-        // separately (squat / bench / deadlift each earn their own badges).
+        // Claude  Date 06/13/2026 last changed: 07/11/2026 by: Claude
+        // Map each lift-tracked exercise to its lift type, so each lift's best is
+        // tracked separately. Uses effectiveLiftType (not the raw tag) so any
+        // Arms/Biceps exercise counts toward the curl badge automatically.
         let liftTypeByExercise = Dictionary(
-            exercises.compactMap { e in e.liftType.map { (e.id, $0) } },
+            exercises.compactMap { e in e.effectiveLiftType.map { (e.id, $0) } },
             uniquingKeysWith: { first, _ in first }
         )
 
@@ -69,6 +79,7 @@ struct ProfileStats: Codable, Hashable {
         bestSquatLift = bestByLift[.squat] ?? 0
         bestBenchLift = bestByLift[.bench] ?? 0
         bestDeadliftLift = bestByLift[.deadlift] ?? 0
+        bestCurlLift = bestByLift[.curl] ?? 0
         topMuscleGroup = setsByCategory.max { $0.value < $1.value }?.key
         memberSince = workouts.map(\.date).min()
 
@@ -109,6 +120,8 @@ struct ProfileStats: Codable, Hashable {
         favoriteCurrentExercise = setsByExercise.max { $0.value < $1.value }
             .flatMap { nameByExercise[$0.key] }
         totalPoints = Coins.earned(from: workouts)
+        // No nutrition data in this init — see init(events:) for the real computation.
+        daysNutritionOnGoal = 0
     }
 
     // Claude  Date 06/14/2026
@@ -120,7 +133,11 @@ struct ProfileStats: Codable, Hashable {
     // the anti-cheat boundary: credit comes ONLY from sets completed in real time,
     // and days/streak are counted from each event's `loggedAt`, so backdating or
     // bulk-typing in a single session can't fabricate progress.
-    init(events: [ActivityEvent]) {
+    // Claude  Date 07/11/2026 last changed: 07/11/2026 by: Claude
+    // Added foodLog/nutritionGoals (defaulted, so the one existing call site in
+    // AppStore.evaluateAchievements is the only place that needs updating) to
+    // drive daysNutritionOnGoal — the Days Tracked badge.
+    init(events: [ActivityEvent], foodLog: [FoodEntry] = [], nutritionGoals: NutritionGoals = NutritionGoals()) {
         let calendar = Calendar.current
         totalWorkouts = 0
         totalSets = events.count
@@ -165,6 +182,7 @@ struct ProfileStats: Codable, Hashable {
         bestSquatLift = confirmedBest(.squat)
         bestBenchLift = confirmedBest(.bench)
         bestDeadliftLift = confirmedBest(.deadlift)
+        bestCurlLift = confirmedBest(.curl)
 
         // Consecutive calendar weeks ending this week with a completed set
         // (mirrors the workout-based logic above, but keyed on real `loggedAt`).
@@ -190,6 +208,21 @@ struct ProfileStats: Codable, Hashable {
         memberSince = events.map(\.loggedAt).min()
         favoriteCurrentExercise = nil
         totalPoints = 0
+
+        // Claude  Date 07/11/2026
+        // Days Tracked credit: group the food diary by real calendar day and count
+        // days whose total calories land within 75%-100% of the current goal — close
+        // enough to "hit goal" without rewarding trivial under-logging. Uses the
+        // *current* nutritionGoals for all days (goals aren't versioned historically),
+        // matching how big-3 thresholds are just fixed numbers, not point-in-time
+        // snapshots.
+        let foodByDay = Dictionary(grouping: foodLog) { calendar.startOfDay(for: $0.loggedAt) }
+        let goalCalories = nutritionGoals.calories
+        let lowerBound = 0.75 * goalCalories
+        daysNutritionOnGoal = foodByDay.values.filter { dayEntries in
+            let dayCalories = dayEntries.reduce(0.0) { $0 + $1.consumed.calories }
+            return dayCalories >= lowerBound && dayCalories <= goalCalories
+        }.count
     }
 
 }

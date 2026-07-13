@@ -113,10 +113,18 @@ struct SettingsView: View {
                 Button("Reset achievements", role: .destructive) {
                     store.resetAchievements()
                 }
+                // Claude  Date 07/12/2026
+                // Previews the future IAP "Founders Edition" purchase moment: grants the
+                // founders cards (idempotent — they're auto-granted on launch too) and
+                // plays the unlock celebration. Replayable any time.
+                Button("Unlock Founders cards") {
+                    theme.grantFoundersCards()
+                    store.celebrateFoundersUnlock()
+                }
             } header: {
                 Text("Developer (alpha)")
             } footer: {
-                Text("Gallery previews every badge + rank (tap to play its celebration). Unlock all fills in every badge so the card and lists populate. Replay re-plays earned unlocks; Reset wipes progress and re-earns it from your history.")
+                Text("Gallery previews every badge + rank (tap to play its celebration). Unlock all fills in every badge so the card and lists populate. Replay re-plays earned unlocks; Reset wipes progress and re-earns it from your history. Unlock Founders cards plays the founders unlock celebration (a preview of the future in-app purchase).")
             }
 
             // Claude  Date 06/16/2026

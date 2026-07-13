@@ -70,6 +70,24 @@ final class ThemeManager: ObservableObject {
         self.unlockedThemeIDs = stored.unlockedThemeIDs
         self.unlockedCardStyleIDs = stored.unlockedCardStyleIDs
         self.unlockedAvatarIDs = stored.unlockedAvatarIDs
+        grantFoundersCards()
+    }
+
+    // Claude  Date 07/12/2026 last changed: 07/12/2026 by: Claude
+    // Grant every Founders Edition card. Idempotent — returns true only if something
+    // was newly granted, so a caller can decide whether to celebrate. Founders cards
+    // aren't sold anywhere, so there's no purchase flow to unlock them through; the
+    // real IAP purchase-success handler will call this later. There's no accounts/IAP
+    // system yet to gate on, so today it's simply "if you're running this build, you're
+    // a founder" (true while Bryce is the only tester) — see the launch-time call in
+    // init(). Swap that gate for a real receipt/account check before a wider release.
+    @discardableResult
+    func grantFoundersCards() -> Bool {
+        var granted = false
+        for style in CardStyle.all where style.isFounders {
+            if unlockedCardStyleIDs.insert(style.id).inserted { granted = true }
+        }
+        return granted
     }
 
     /// Presets first, then the user's custom themes.
@@ -125,11 +143,15 @@ final class ThemeManager: ObservableObject {
         return true
     }
 
-    // Claude  Date 06/13/2026
+    // Claude  Date 06/13/2026 last changed: 07/12/2026 by: Claude
     // Card-style equivalents of isUnlocked / purchase. The free default style is
     // always unlocked; paid ones are recorded in unlockedCardStyleIDs once bought.
+    // Founders cards are the exception: they're never "free for everyone" just
+    // because their price is 0 — they only count as unlocked once explicitly
+    // granted (see grantFoundersCards), so they stay exclusive.
     func isCardStyleUnlocked(_ style: CardStyle) -> Bool {
-        style.price == 0 || unlockedCardStyleIDs.contains(style.id)
+        if style.isFounders { return unlockedCardStyleIDs.contains(style.id) }
+        return style.price == 0 || unlockedCardStyleIDs.contains(style.id)
     }
 
     @discardableResult

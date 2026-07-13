@@ -6,12 +6,17 @@ import Foundation
 // explicitly so achievements don't depend on how it's named.
 enum LiftType: String, Codable, CaseIterable, Hashable {
     case squat, bench, deadlift
+    // Claude  Date 07/11/2026
+    // Bicep curl badge — an isolation lift, not part of the big-3, but tracked the
+    // same way (see Achievement.Category.curl).
+    case curl
 
     var title: String {
         switch self {
         case .squat:    return "Back Squat"
         case .bench:    return "Bench Press"
         case .deadlift: return "Deadlift"
+        case .curl:     return "Bicep Curl"
         }
     }
 }
@@ -95,6 +100,14 @@ struct Exercise: Identifiable, Codable, Hashable {
         isUnilateral ? "\(name) (Unilateral)" : name
     }
 
+    // Claude  Date 07/09/2026
+    // Muscle subtitle for library rows: the sub-group, plus the specific primary mover
+    // when one is set (e.g. "Calves · Soleus"). Falls back to just the sub-group when the
+    // mover is blank (custom lifts left it empty).
+    var muscleSubtitle: String {
+        primaryMover.isEmpty ? category : "\(category) · \(primaryMover)"
+    }
+
     // Claude  Date 06/13/2026 last changed: 06/14/2026 by: Claude
     // Whether this exercise counts toward the "big 3" lift achievements. Driven
     // solely by the explicit `liftType` tag now — the old name heuristic was
@@ -102,6 +115,17 @@ struct Exercise: Identifiable, Codable, Hashable {
     // Close-Grip Bench Press…) would otherwise false-match on "squat"/"bench".
     var countsAsBig3: Bool {
         liftType != nil
+    }
+
+    // Claude  Date 07/11/2026
+    // The lift type actually credited for achievements. Unlike the big-3 (which
+    // require an explicit tag, since the library has name collisions like "Hack
+    // Squat"), any Arms/Biceps exercise automatically counts as a curl — no manual
+    // tagging needed, so every existing and future biceps exercise (Hammer Curl,
+    // Cable Curl, a custom curl the user adds, etc.) credits the Bicep Curl badge.
+    // Explicit tags still take priority when present.
+    var effectiveLiftType: LiftType? {
+        liftType ?? (region == .arms && category == "Biceps" ? .curl : nil)
     }
 
     // Claude  Date 06/09/2026 last changed: 06/14/2026 by: Claude

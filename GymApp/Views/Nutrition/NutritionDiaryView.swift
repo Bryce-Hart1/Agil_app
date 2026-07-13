@@ -17,6 +17,9 @@ struct NutritionJournalView: View {
     // Claude  Date 06/16/2026
     // The logged entry being edited (nil = editor closed). Tapping a row opens it.
     @State private var editingEntry: FoodEntry?
+    // Claude  Date 07/12/2026
+    // Whether the focus-goals editor sheet is up (top-left toolbar button).
+    @State private var showingFocusGoals = false
 
     private var day: NutritionDay { store.nutritionDay(for: selectedDate) }
 
@@ -25,6 +28,9 @@ struct NutritionJournalView: View {
             List {
                 dateSection
                 summarySection
+                if !store.focusGoals.isEmpty {
+                    focusSection
+                }
                 waterSection
                 ForEach(MealType.allCases) { meal in
                     mealSection(meal)
@@ -33,6 +39,15 @@ struct NutritionJournalView: View {
             .navigationTitle("Log")
             .themed(theme.current)
             .toolbar {
+                // Claude  Date 07/12/2026
+                // Top-left: nutrient focus goals ("I want to eat more fiber").
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        showingFocusGoals = true
+                    } label: {
+                        Image(systemName: "scope")
+                    }
+                }
                 ToolbarItem(placement: .primaryAction) {
                     NavigationLink {
                         NutritionGoalsView()
@@ -43,6 +58,9 @@ struct NutritionJournalView: View {
             }
             .sheet(item: $addingToMeal) { meal in
                 FoodPickerView(meal: meal, date: selectedDate)
+            }
+            .sheet(isPresented: $showingFocusGoals) {
+                FocusGoalsView()
             }
             .sheet(item: $editingEntry) { entry in
                 EditFoodEntryView(entry: entry)
@@ -91,6 +109,25 @@ struct NutritionJournalView: View {
         Section("Summary") {
             MacroSummaryView(totals: day.totals, goals: store.nutritionGoals,
                              accent: theme.current.accent)
+        }
+    }
+
+    // MARK: - Focus goals
+
+    // Claude  Date 07/12/2026
+    // The Focus card: one progress row per user-created nutrient focus goal (see
+    // NutrientFocusGoal), fed from the selected day's totals so it follows the
+    // date stepper. Only rendered when at least one goal exists.
+    // TODO: Claude  Date 07/12/2026 — later: optional daily local notification
+    // nudging unmet focus goals (UNCalendarNotificationTrigger, added alongside
+    // WorkoutNotifications' existing schedule/cancel pairs; reuse
+    // NutrientFocusGoal.progressText for the wording).
+    private var focusSection: some View {
+        Section("Focus") {
+            ForEach(store.focusGoals) { goal in
+                FocusGoalRow(goal: goal,
+                             consumed: goal.nutrient.value(from: day.totals))
+            }
         }
     }
 
@@ -189,6 +226,67 @@ private struct FoodEntryRow: View {
     }
 
     private func g(_ value: Double) -> String { "\(Int(value.rounded()))g" }
+}
+
+// Claude  Date 07/12/2026
+// One focus-goal progress row under the Summary: tinted icon chip, a thin bar in
+// the Summary card's style (grow-in spring, animated updates), and a status
+// caption from NutrientFocusGoal.progressText. For "stay under" goals the bar
+// shows budget used and turns orange→red past the ceiling; met goals get a
+// checkmark next to the label.
+private struct FocusGoalRow: View {
+    let goal: NutrientFocusGoal
+    let consumed: Double
+
+    @State private var shown = false
+
+    var body: some View {
+        let tint = goal.nutrient.tint
+        let fraction = goal.target > 0 ? min(consumed / goal.target, 1) : 0
+        let over = consumed > goal.target
+        let met = goal.isMet(consumed: consumed)
+        let barColors: [Color] = (goal.direction == .atMost && over)
+            ? [.orange, .red.opacity(0.85)]
+            : [tint, tint.opacity(0.65)]
+
+        HStack(spacing: 10) {
+            iconChip(goal.nutrient.systemImage, tint: tint)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 4) {
+                    Text(goal.nutrient.label).font(.caption).fontWeight(.medium)
+                    if met {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.caption2)
+                            .foregroundStyle(tint)
+                            .transition(.scale.combined(with: .opacity))
+                    }
+                    Spacer()
+                    Text("\(Int(consumed.rounded())) / \(Int(goal.target)) \(goal.nutrient.unit) · \(goal.progressText(consumed: consumed))")
+                        .font(.caption2).monospacedDigit()
+                        .foregroundStyle((goal.direction == .atMost && over)
+                                         ? Color.orange : Color.secondary)
+                }
+                GeometryReader { geo in
+                    let shownFraction = shown ? fraction : 0
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(tint.opacity(0.15))
+                        Capsule()
+                            .fill(LinearGradient(colors: barColors,
+                                                 startPoint: .leading, endPoint: .trailing))
+                            .frame(width: geo.size.width * shownFraction)
+                    }
+                    .animation(.spring(response: 0.55, dampingFraction: 0.8),
+                               value: shownFraction)
+                }
+                .frame(height: 8)
+            }
+        }
+        .padding(.vertical, 2)
+        .animation(.spring(response: 0.35, dampingFraction: 0.8), value: met)
+        .onAppear {
+            withAnimation(.spring(response: 0.55, dampingFraction: 0.8)) { shown = true }
+        }
+    }
 }
 
 #Preview {

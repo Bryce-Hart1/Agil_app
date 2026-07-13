@@ -30,9 +30,17 @@ struct WorkoutMiniBar: View {
                 )
                 .shadow(color: .black.opacity(0.18), radius: 6, y: 2)
                 .padding(.horizontal, 10)
-                // Tap anywhere on the bar (except Skip) to reopen the workout.
+                // Claude  Date 07/11/2026
+                // Tap anywhere on the bar (except Skip): while resting, expand to the
+                // full-screen timer; otherwise reopen the workout as before.
                 .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .onTapGesture { onOpen() }
+                .onTapGesture {
+                    if session.isResting || session.showRestComplete {
+                        session.showFullScreenTimer = true
+                    } else {
+                        onOpen()
+                    }
+                }
         }
     }
 
@@ -56,10 +64,21 @@ struct WorkoutMiniBar: View {
 
             Spacer()
 
+            // Claude  Date 07/11/2026
+            // Visual hint that the bar can be expanded to the full-screen timer while
+            // resting/just-finished (the tap-to-expand gesture is on the row itself,
+            // see .onTapGesture above — this icon has no gesture of its own).
             if session.isResting {
+                Image(systemName: "arrow.up.left.and.arrow.down.right")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 Button("Skip") { session.skipRest() }
                     .buttonStyle(.bordered)
                     .tint(theme.current.accent)
+            } else if session.showRestComplete {
+                Image(systemName: "arrow.up.left.and.arrow.down.right")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
             } else {
                 Image(systemName: "chevron.up")
                     .foregroundStyle(.secondary)
@@ -101,8 +120,8 @@ struct WorkoutMiniBar: View {
     }
 
     private func subtitle(for active: Workout) -> String {
-        if session.isResting { return "Tap to return to your workout" }
-        if session.showRestComplete { return "Back to it — tap to continue" }
+        if session.isResting { return "Tap to view timer" }
+        if session.showRestComplete { return "Back to it — tap to view" }
         let exercises = active.exercises.count
         let done = active.completedSets
         let exPart = "\(exercises) exercise\(exercises == 1 ? "" : "s")"

@@ -26,6 +26,10 @@ private struct PresetEditor: View {
     // Claude  Date 07/01/2026
     // Drives the "?" explainer alert for the adaptive-progression toggle.
     @State private var showingAdaptiveHelp = false
+    // Claude  Date 07/09/2026
+    // The library exercise being edited from a section's pencil (nil = none) — same
+    // in-place edit affordance the workout editor has.
+    @State private var editingExercise: Exercise?
 
     var body: some View {
         Form {
@@ -100,7 +104,26 @@ private struct PresetEditor: View {
                         Label("Remove Exercise", systemImage: "trash")
                     }
                 } header: {
-                    Text(store.exercise(for: item.exerciseId)?.name ?? "Exercise")
+                    HStack {
+                        Text(store.exercise(for: item.exerciseId)?.name ?? "Exercise")
+                        // Claude  Date 07/09/2026
+                        // Pencil → edit the underlying library exercise's details in place
+                        // while designing the preset, exactly like the workout editor.
+                        // Saving updates the shared library, so every preset/workout using
+                        // it relabels.
+                        if let exercise = store.exercise(for: item.exerciseId) {
+                            Button {
+                                editingExercise = exercise
+                            } label: {
+                                Image(systemName: "pencil")
+                                    .fontWeight(.bold)
+                                    .imageScale(.large)
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(theme.current.accent)
+                            .accessibilityLabel("Edit \(exercise.name)")
+                        }
+                    }
                 }
             }
 
@@ -160,6 +183,12 @@ private struct PresetEditor: View {
             ReorderExercisesSheet(title: "Reorder", items: $preset.items) {
                 store.exercise(for: $0.exerciseId)?.name ?? "Exercise"
             }
+        }
+        // Claude  Date 07/09/2026
+        // Edit the tapped exercise's library details (name, region, mover, …). Saving
+        // updates the shared library, so this preset and any workout using it relabel.
+        .sheet(item: $editingExercise) { exercise in
+            NewExerciseView(editing: exercise)
         }
         // Claude  Date 07/01/2026
         // Plain-language explainer for adaptive progression (double progression).

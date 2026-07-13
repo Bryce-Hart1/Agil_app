@@ -31,6 +31,26 @@ struct NutritionGoals: Codable, Hashable {
         Nutrients(calories: calories, protein: protein, carbs: carbs, fat: fat)
     }
 
+    // Claude  Date 07/12/2026
+    // Standard Atwater energy densities for converting between calories and macro
+    // grams (protein and carbs ≈ 4 kcal/g, fat ≈ 9 kcal/g). Defined here so the
+    // goals screen's macro calculator and any future callers share one source.
+    static let kcalPerGramProtein: Double = 4
+    static let kcalPerGramCarbs: Double = 4
+    static let kcalPerGramFat: Double = 9
+
+    // Claude  Date 07/12/2026
+    // Back-fill the three macro gram goals from the calorie goal and a percentage
+    // split of calories (the three percentages should sum to ~100). Grams round to
+    // whole numbers, so the recomputed kcal total can drift a few kcal from the
+    // stated goal — fine for a daily target. Used by NutritionGoalsView's
+    // "calculate from calories" helper; manual gram entry remains untouched.
+    mutating func applyMacroSplit(proteinPct: Double, carbsPct: Double, fatPct: Double) {
+        protein = (calories * proteinPct / 100 / Self.kcalPerGramProtein).rounded()
+        carbs   = (calories * carbsPct   / 100 / Self.kcalPerGramCarbs).rounded()
+        fat     = (calories * fatPct     / 100 / Self.kcalPerGramFat).rounded()
+    }
+
     // Claude  Date 06/16/2026
     // Forgiving decode so goals saved before a field existed fall back to the
     // defaults above. encode(to:) is synthesized.

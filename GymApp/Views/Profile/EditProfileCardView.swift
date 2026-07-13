@@ -53,7 +53,11 @@ struct EditProfileCardView: View {
             }
 
             Section {
-                ForEach(CardStyle.all) { style in
+                // Claude  Date 07/12/2026
+                // Founders cards aren't purchasable, so an unowned one shouldn't show
+                // up here with a misleading "Buy" button — only list it once granted
+                // (see ThemeManager.isCardStyleUnlocked / grantFoundersCards).
+                ForEach(CardStyle.all.filter { !$0.isFounders || theme.isCardStyleUnlocked($0) }) { style in
                     CardStyleRow(
                         style: style,
                         isSelected: store.profile.cardStyleID == style.id,
@@ -71,10 +75,22 @@ struct EditProfileCardView: View {
 
             Section {
                 Toggle("Show rank on card", isOn: $store.profile.showsRankOnCard)
+                // Claude  Date 07/01/2026 — pick the (up to 4) badges shown on the card.
+                NavigationLink {
+                    FeaturedBadgesView()
+                } label: {
+                    HStack {
+                        Label("Featured Badges", systemImage: "rosette")
+                        Spacer()
+                        Text("\(store.profile.showcasedAchievementIDs.count)/\(AchievementShowcase.maxFeatured)")
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                }
             } header: {
                 Text("Card elements")
             } footer: {
-                Text("Equip your Strategist rank emblem onto the card.")
+                Text("Equip your Strategist rank emblem, and choose which badges to feature.")
             }
 
             Section("Preview") {
@@ -92,12 +108,6 @@ struct EditProfileCardView: View {
                 .frame(height: 420)
                 .listRowInsets(EdgeInsets())
                 .listRowBackground(Color.clear)
-            }
-
-            Section {
-                Text("Choosing which traits to show and more card styles are coming soon.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
             }
         }
         .navigationTitle("Edit Profile Card")

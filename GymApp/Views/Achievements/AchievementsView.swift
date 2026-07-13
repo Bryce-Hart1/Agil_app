@@ -10,7 +10,6 @@ struct AchievementsView: View {
     @EnvironmentObject private var theme: ThemeManager
 
     @State private var showBig3Info = false
-    @State private var showCapAlert = false
 
     private var unlockedCount: Int {
         Achievement.all.filter { store.unlockedAchievementIDs.contains($0.id) }.count
@@ -34,23 +33,17 @@ struct AchievementsView: View {
                         .monospacedDigit()
                 }
             } footer: {
-                Text("Tap an unlocked badge to feature it on your profile card (up to 4).")
+                Text("Feature up to 4 of these on your profile card from Profile → Edit Profile Card → Featured Badges. A pin marks the ones you've featured.")
             }
 
             ForEach(Achievement.Category.allCases, id: \.self) { category in
                 Section {
                     ForEach(Achievement.all.filter { $0.category == category }) { achievement in
-                        let unlocked = store.unlockedAchievementIDs.contains(achievement.id)
                         AchievementRow(
                             achievement: achievement,
-                            unlocked: unlocked,
+                            unlocked: store.unlockedAchievementIDs.contains(achievement.id),
                             showcased: store.profile.showcasedAchievementIDs.contains(achievement.id)
                         )
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            guard unlocked else { return }
-                            if !store.toggleShowcased(achievement.id) { showCapAlert = true }
-                        }
                     }
                 } header: {
                     sectionHeader(category)
@@ -64,11 +57,6 @@ struct AchievementsView: View {
             Button("Got it", role: .cancel) {}
         } message: {
             Text(big3Explanation)
-        }
-        .alert("Showcase full", isPresented: $showCapAlert) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text("You can feature up to 4 badges on your card. Unpin one to add another.")
         }
     }
 
