@@ -27,6 +27,7 @@ struct AnimatedCardBackground: View {
             case .cherryBlossom:         CherryBlossomBackground()
             case .foundersShootingStars: FoundersShootingStarsBackground()
             case .foundersGalaxy:        FoundersGalaxyBackground()
+            case .foundersConstellation: FoundersConstellationBackground()
             }
         }
         .overlay(
@@ -811,6 +812,254 @@ private struct FoundersGalaxyBackground: View {
     private struct BgStar { let x, y, radius, phase, speed, drift: Double }
     private struct CompStar { let r01, angle, radius, phase, twinkle: Double }
     private struct Nova { let t01, arm, jitter, period, offset: Double }
+}
+
+// MARK: - Constellation (Founders Edition)
+
+// Claude  Date 07/13/2026
+// "Constellation — Founders Edition": the third Founders card, and the pink one
+// (tying back to the brand's Classic Pink #EA0F8B) where the other two are
+// purple/gold and blue-violet. A quiet night sky: ambient white stars twinkle
+// over a near-black plum base, and five brighter warm-pink stars — joined by
+// thin sky-atlas lines — trace a loose capital "A", the way real constellation
+// charts only roughly resemble their namesake. Each anchor is seeded-jittered
+// off the true letterform so the figure reads as discovered in the sky, not
+// stamped on it. Motion stays deliberately calm (slow twinkle, two lazy
+// meteors) so the figure keeps the spotlight, plus the Founders-line signature
+// foil-shine sweep on its own period so the three cards never sync up.
+// Split into one small function per visual layer (same reason as the other
+// Founders cards: one giant Canvas closure blows the type-checker budget).
+private struct FoundersConstellationBackground: View {
+    // Warm pink-white shared by the figure's stars and their chart lines.
+    private let pink = Color(red: 0.98, green: 0.55, blue: 0.75)
+
+    // Ambient background field — cool, dim, and calm next to the pink anchors.
+    private let stars: [Star] = {
+        var rng = SeededGenerator(seed: 271)
+        return (0..<85).map { _ in
+            Star(x: .random(in: 0...1, using: &rng),
+                 y: .random(in: 0...1, using: &rng),
+                 radius: .random(in: 0.35...1.4, using: &rng),
+                 phase: .random(in: 0...(2 * .pi), using: &rng),
+                 speed: .random(in: 0.4...1.6, using: &rng))
+        }
+    }()
+
+    // The "A" figure: five anchors in letter-box space (apex, two crossbar/
+    // mid-leg points, two feet), each nudged by a seeded jitter (~2-3% of card
+    // size once mapped) so the shape reads hand-placed rather than typeset.
+    private let anchors: [Anchor] = {
+        var rng = SeededGenerator(seed: 307)
+        let letterform: [(x: Double, y: Double)] = [
+            (0.50, 0.00),   // apex
+            (0.32, 0.62),   // left mid-leg / crossbar end
+            (0.68, 0.62),   // right mid-leg / crossbar end
+            (0.12, 1.00),   // left foot
+            (0.88, 1.00),   // right foot
+        ]
+        return letterform.map { p in
+            let jx = Double.random(in: -0.05...0.05, using: &rng)
+            let jy = Double.random(in: -0.04...0.04, using: &rng)
+            return Anchor(x: p.x + jx, y: p.y + jy,
+                          radius: .random(in: 1.9...2.6, using: &rng),
+                          phase: .random(in: 0...(2 * .pi), using: &rng),
+                          speed: .random(in: 0.35...0.8, using: &rng))
+        }
+    }()
+
+    // Which anchors the chart lines join (indices into `anchors`): the two
+    // legs plus the crossbar.
+    private let links: [(Int, Int)] = [(0, 1), (1, 3), (0, 2), (2, 4), (1, 2)]
+
+    // Two barely-there plum pools that drift very slowly — depth without noise.
+    private let haze: [Haze] = [
+        Haze(x: 0.30, y: 0.35, color: Color(red: 0.45, green: 0.08, blue: 0.28), size: 0.95, phase: 0.0, speed: 0.05),
+        Haze(x: 0.78, y: 0.70, color: Color(red: 0.36, green: 0.06, blue: 0.17), size: 0.85, phase: 2.6, speed: 0.04),
+    ]
+
+    // Just two meteors, on long lazy loops — this card stays quiet.
+    private let meteors: [Meteor] = {
+        var rng = SeededGenerator(seed: 353)
+        return (0..<2).map { _ in
+            Meteor(startX: .random(in: -0.1...0.5, using: &rng),
+                   startY: .random(in: 0.0...0.35, using: &rng),
+                   angle: .random(in: 0.30...0.50, using: &rng),
+                   length: .random(in: 55...95, using: &rng),
+                   width: .random(in: 1.1...1.7, using: &rng),
+                   period: .random(in: 9.0...14.0, using: &rng),
+                   offset: .random(in: 0...14.0, using: &rng),
+                   activeFraction: .random(in: 0.10...0.16, using: &rng))
+        }
+    }()
+
+    // Maps a letter-box point into card space: sized off min(w,h) so the "A"
+    // keeps its proportions on any card, centred slightly left/high of true
+    // centre (like the Galaxy core) so it doesn't feel machine-placed.
+    private func anchorPoint(_ a: Anchor, size: CGSize) -> CGPoint {
+        let scale = min(size.width, size.height)
+        let c = CGPoint(x: size.width * 0.47, y: size.height * 0.45)
+        return CGPoint(x: c.x + CGFloat(a.x - 0.5) * scale * 0.58,
+                       y: c.y + CGFloat(a.y - 0.5) * scale * 0.66)
+    }
+
+    var body: some View {
+        TimelineView(.animation) { tl in
+            let t = tl.date.timeIntervalSinceReferenceDate
+            Canvas { ctx, size in
+                drawBase(ctx, size: size)
+                drawHaze(ctx, size: size, t: t)
+                drawStars(ctx, size: size, t: t)
+                drawLinks(ctx, size: size, t: t)
+                drawAnchors(ctx, size: size, t: t)
+                drawMeteors(ctx, size: size, t: t)
+                drawShine(ctx, size: size, t: t)
+            }
+        }
+        .drawingGroup()   // composite the canvas on the GPU
+    }
+
+    // Near-black base with a warm plum/maroon undertone — the "pink family"
+    // read, vs. Galaxy's cool blue-black and Shooting Stars' purple-green.
+    private func drawBase(_ ctx: GraphicsContext, size: CGSize) {
+        let rect = CGRect(origin: .zero, size: size)
+        ctx.fill(Path(rect), with: .linearGradient(
+            Gradient(colors: [Color(red: 0.09,  green: 0.025, blue: 0.06),
+                              Color(red: 0.035, green: 0.01,  blue: 0.03),
+                              Color(red: 0.06,  green: 0.015, blue: 0.045)]),
+            startPoint: .zero, endPoint: CGPoint(x: size.width, y: size.height)))
+    }
+
+    // The plum pools, blurred to a faint glow behind everything.
+    private func drawHaze(_ ctx: GraphicsContext, size: CGSize, t: Double) {
+        let w = size.width, h = size.height
+        ctx.drawLayer { layer in
+            layer.addFilter(.blur(radius: min(w, h) * 0.18))
+            for p in haze {
+                let dx = CGFloat(sin(t * p.speed + p.phase)) * w * 0.05
+                let dy = CGFloat(cos(t * p.speed * 0.8 + p.phase)) * h * 0.04
+                let d = min(w, h) * CGFloat(p.size)
+                layer.fill(Path(ellipseIn: CGRect(x: CGFloat(p.x) * w - d / 2 + dx,
+                                                  y: CGFloat(p.y) * h - d / 2 + dy,
+                                                  width: d, height: d)),
+                           with: .color(p.color.opacity(0.16)))
+            }
+        }
+    }
+
+    // Ambient twinkle field — dimmer than the other cards' so the figure's
+    // stars are unmistakably the brightest points in the sky.
+    private func drawStars(_ ctx: GraphicsContext, size: CGSize, t: Double) {
+        let w = size.width, h = size.height
+        for s in stars {
+            let tw = 0.22 + 0.48 * (0.5 + 0.5 * sin(t * s.speed + s.phase))
+            let r = s.radius
+            ctx.fill(Path(ellipseIn: CGRect(x: s.x * w - r, y: s.y * h - r, width: r * 2, height: r * 2)),
+                     with: .color(.white.opacity(tw)))
+        }
+    }
+
+    // The sky-atlas strokes: thin, faint pink lines joining the anchors, each
+    // end pulled back short of its star (charts leave that gap), with a slow
+    // breathing opacity so the figure feels lit rather than printed.
+    private func drawLinks(_ ctx: GraphicsContext, size: CGSize, t: Double) {
+        let breathe = 0.26 + 0.07 * sin(t * 0.30)
+        let gap: CGFloat = min(size.width, size.height) * 0.025
+        for (i, j) in links {
+            let a = anchorPoint(anchors[i], size: size)
+            let b = anchorPoint(anchors[j], size: size)
+            let dx = b.x - a.x, dy = b.y - a.y
+            let len = max(sqrt(dx * dx + dy * dy), 0.0001)
+            let ux = dx / len, uy = dy / len
+            var line = Path()
+            line.move(to: CGPoint(x: a.x + ux * gap, y: a.y + uy * gap))
+            line.addLine(to: CGPoint(x: b.x - ux * gap, y: b.y - uy * gap))
+            ctx.stroke(line, with: .color(pink.opacity(breathe)), lineWidth: 0.7)
+        }
+    }
+
+    // The figure's stars: larger and warmer than the field, each on its own
+    // slow twinkle, with a soft pink halo so they read as the sky's brightest.
+    private func drawAnchors(_ ctx: GraphicsContext, size: CGSize, t: Double) {
+        for a in anchors {
+            let p = anchorPoint(a, size: size)
+            let tw = 0.70 + 0.30 * (0.5 + 0.5 * sin(t * a.speed + a.phase))
+            let r = CGFloat(a.radius)
+            let haloR = r * 4.5
+            ctx.drawLayer { layer in
+                layer.addFilter(.blur(radius: haloR * 0.55))
+                layer.fill(Path(ellipseIn: CGRect(x: p.x - haloR, y: p.y - haloR,
+                                                  width: haloR * 2, height: haloR * 2)),
+                           with: .color(pink.opacity(0.28 * tw)))
+            }
+            ctx.fill(Path(ellipseIn: CGRect(x: p.x - r, y: p.y - r, width: r * 2, height: r * 2)),
+                     with: .color(Color(red: 1.0, green: 0.82, blue: 0.90).opacity(tw)))
+        }
+    }
+
+    // The two lazy meteors — same streak math as the other cards, pink-white
+    // tinted and far less frequent, so the sky stays quiet between passes.
+    private func drawMeteors(_ ctx: GraphicsContext, size: CGSize, t: Double) {
+        let w = size.width, h = size.height
+        for m in meteors {
+            let local = ((t + m.offset) / m.period).truncatingRemainder(dividingBy: 1)
+            guard local < m.activeFraction else { continue }
+            let p: CGFloat = CGFloat(local / m.activeFraction)
+            let travel: CGFloat = (w + h) * 0.6
+            let dx: CGFloat = CGFloat(cos(m.angle))
+            let dy: CGFloat = CGFloat(sin(m.angle))
+            let headX: CGFloat = w * CGFloat(m.startX) + dx * travel * p
+            let headY: CGFloat = h * CGFloat(m.startY) + dy * travel * p
+            let head = CGPoint(x: headX, y: headY)
+            let tail = CGPoint(x: headX - dx * CGFloat(m.length), y: headY - dy * CGFloat(m.length))
+            let fade: CGFloat = CGFloat(sin(Double(p) * .pi))
+            let streak = Color(red: 1.0, green: 0.88, blue: 0.93)
+            var trail = Path()
+            trail.move(to: head)
+            trail.addLine(to: tail)
+            ctx.stroke(trail, with: .linearGradient(
+                Gradient(colors: [streak.opacity(0.85 * fade), .clear]),
+                startPoint: head, endPoint: tail),
+                style: StrokeStyle(lineWidth: CGFloat(m.width), lineCap: .round))
+            let hr: CGFloat = CGFloat(m.width) * 0.9
+            ctx.fill(Path(ellipseIn: CGRect(x: headX - hr, y: headY - hr, width: hr * 2, height: hr * 2)),
+                     with: .color(streak.opacity(fade)))
+        }
+    }
+
+    // The Founders-line signature foil-shine sweep, on its own period (8.5s vs
+    // 6.5 / 7.5 on the other two cards) so the three never sync up. The touch
+    // of gold lives here only — the Founders accent over the pink sky.
+    private func drawShine(_ ctx: GraphicsContext, size: CGSize, t: Double) {
+        let w = size.width, h = size.height
+        let rect = CGRect(origin: .zero, size: size)
+        let shinePeriod = 8.5
+        let shineProgress: CGFloat = CGFloat((t / shinePeriod).truncatingRemainder(dividingBy: 1))
+        let sweepDistance: CGFloat = (w + h) * 0.85
+        let travel: CGFloat = (shineProgress - 0.5) * 2 * sweepDistance
+        let bandThickness: CGFloat = min(w, h) * 0.16
+        let bandLength: CGFloat = (w + h) * 1.6
+        var shine = ctx
+        shine.clip(to: Path(rect))
+        shine.translateBy(x: w * 0.5, y: h * 0.5)
+        shine.rotate(by: .radians(-0.5))
+        shine.translateBy(x: travel, y: 0)
+        let bandRect = CGRect(x: -bandThickness / 2, y: -bandLength / 2,
+                               width: bandThickness, height: bandLength)
+        // Between the other two cards' band opacities — this sky is dark like
+        // the Galaxy's, but the sweep still has to read as the family signature.
+        shine.fill(Path(bandRect), with: .linearGradient(
+            Gradient(colors: [.clear,
+                              Color.white.opacity(0.10),
+                              Color(red: 1.0, green: 0.86, blue: 0.5).opacity(0.07),
+                              .clear]),
+            startPoint: CGPoint(x: -bandThickness / 2, y: 0),
+            endPoint: CGPoint(x: bandThickness / 2, y: 0)))
+    }
+
+    private struct Star { let x, y, radius, phase, speed: Double }
+    private struct Anchor { let x, y, radius, phase, speed: Double }
+    private struct Haze { let x, y: Double; let color: Color; let size, phase, speed: Double }
+    private struct Meteor { let startX, startY, angle, length, width, period, offset, activeFraction: Double }
 }
 
 // MARK: - Molten

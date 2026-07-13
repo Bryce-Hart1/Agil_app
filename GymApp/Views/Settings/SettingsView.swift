@@ -15,6 +15,10 @@ struct SettingsView: View {
     // Offline food mode (same key the food search + barcode scanner read): keeps food
     // lookups local unless the user explicitly chooses to go online for a given search.
     @AppStorage("offlineFoodMode") private var offlineFoodMode = false
+    // Fable  Date 07/13/2026
+    // Rest-timer face style (same key RestTimerFullScreenView reads): false keeps
+    // the original progress ring, true swaps in the analog stopwatch face.
+    @AppStorage("restTimerAnalogStyle") private var restTimerAnalogStyle = false
 
     var body: some View {
         List {
@@ -35,6 +39,17 @@ struct SettingsView: View {
                     }
                 }
             }
+            // Fable  Date 07/13/2026
+            // Opt-in analog stopwatch face for the full-screen rest timer; lives right
+            // under Appearance since it's a purely visual preference.
+            Section {
+                Toggle("Analog stopwatch", isOn: $restTimerAnalogStyle)
+            } header: {
+                Text("Rest timer")
+            } footer: {
+                Text("Shows the full-screen rest timer as an analog stopwatch face instead of the progress ring.")
+            }
+
             // Claude  Date 06/18/2026
             // Friends: opt into sharing just your profile card, see your friend code,
             // and look up a friend's card. The footer states the privacy contract.

@@ -45,6 +45,11 @@ struct ProfileView: View {
             }
             .navigationTitle("Profile")
             .navigationBarTitleDisplayMode(.inline)
+            // Claude  Date 07/13/2026
+            // Centered mode-switcher pill in the nav bar (shared by all root tabs).
+            // As the principal item it takes the inline title's spot — the tab
+            // label already says Profile, so no title text is lost that matters.
+            .modeNotchToolbar()
         }
     }
 

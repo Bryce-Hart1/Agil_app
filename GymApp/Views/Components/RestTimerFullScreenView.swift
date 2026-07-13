@@ -13,6 +13,12 @@ struct RestTimerFullScreenView: View {
 
     @State private var appear = false
 
+    // Fable  Date 07/13/2026
+    // Same key the "Analog stopwatch" toggle in SettingsView writes — picks which
+    // face fills the timer slot below. Defaults false so the ring stays the
+    // out-of-the-box look unless the user opts in.
+    @AppStorage("restTimerAnalogStyle") private var restTimerAnalogStyle = false
+
     var body: some View {
         ZStack {
             theme.current.background.ignoresSafeArea()
@@ -22,7 +28,15 @@ struct RestTimerFullScreenView: View {
             VStack(spacing: 28) {
                 closeButton
                 Spacer()
-                ring
+                // Fable  Date 07/13/2026
+                // Settings-driven face swap: the analog stopwatch (RestTimerAnalogView)
+                // replaces only this slot — the surrounding close/label/action layout is
+                // shared by both styles so they stay in lockstep.
+                if restTimerAnalogStyle {
+                    RestTimerAnalogView()
+                } else {
+                    ring
+                }
                 Text(session.showRestComplete ? "Rest complete" : "Resting")
                     .font(.title3.weight(.semibold))
                     .foregroundStyle(.secondary)
