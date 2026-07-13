@@ -23,12 +23,13 @@ enum AnimatedCard: Hashable {
     case galaxy
     case molten
     case cherryBlossom
-    // Claude  Date 07/12/2026 last changed: 07/12/2026 by: Claude
+    // Claude  Date 07/12/2026 last changed: 07/13/2026 by: Claude
     // The Founders Edition upgrades — not sold anywhere (see CardStyle.isFounders
-    // / ThemeManager.grantFoundersCards). Added foundersGalaxy alongside
-    // foundersShootingStars.
+    // / ThemeManager.grantFoundersCards). Added foundersConstellation alongside
+    // foundersShootingStars and foundersGalaxy.
     case foundersShootingStars
     case foundersGalaxy
+    case foundersConstellation
 
     var accent: Color {
         switch self {
@@ -38,6 +39,7 @@ enum AnimatedCard: Hashable {
         case .cherryBlossom:         return Color(red: 0.96, green: 0.55, blue: 0.72)
         case .foundersShootingStars: return Color(red: 1.0,  green: 0.82, blue: 0.25)
         case .foundersGalaxy:        return Color(red: 0.98, green: 0.68, blue: 0.45)
+        case .foundersConstellation: return Color(red: 0.98, green: 0.55, blue: 0.75)
         }
     }
 }
@@ -146,6 +148,11 @@ struct CardStyle: Identifiable, Hashable {
         // Founders Edition — the upgraded Galaxy variant. Same gating as above.
         CardStyle(id: "founders_galaxy", name: "Galaxy — Founders Edition",
                   background: .animated(.foundersGalaxy), tier: .founders, isFounders: true),
+        // Claude  Date 07/13/2026
+        // Founders Edition — Constellation, the pink entry in the line (no base
+        // card to upgrade; it's an original). Same gating as the two above.
+        CardStyle(id: "founders_constellation", name: "Constellation — Founders Edition",
+                  background: .animated(.foundersConstellation), tier: .founders, isFounders: true),
     ]
 
     /// The free default style — its color matches UserProfile's default.

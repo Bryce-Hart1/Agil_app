@@ -83,24 +83,10 @@ struct ProfileStats: Codable, Hashable {
         topMuscleGroup = setsByCategory.max { $0.value < $1.value }?.key
         memberSince = workouts.map(\.date).min()
 
-        // Consecutive calendar weeks ending this week that contain a workout.
-        let calendar = Calendar.current
-        var weeksWithWorkouts = Set<Date>()
-        for workout in workouts {
-            if let weekStart = calendar.dateInterval(of: .weekOfYear, for: workout.date)?.start {
-                weeksWithWorkouts.insert(weekStart)
-            }
-        }
-        var streak = 0
-        if let thisWeek = calendar.dateInterval(of: .weekOfYear, for: Date())?.start {
-            var cursor = thisWeek
-            while weeksWithWorkouts.contains(cursor) {
-                streak += 1
-                guard let previous = calendar.date(byAdding: .weekOfYear, value: -1, to: cursor) else { break }
-                cursor = previous
-            }
-        }
-        weekStreak = streak
+        // Claude  Date 07/13/2026
+        // Consecutive calendar weeks ending this week that contain a workout —
+        // shared helper (also used by the mode notch's Food-side stat).
+        weekStreak = Self.weekStreak(of: workouts.map(\.date))
 
         // Claude  Date 06/10/2026 last changed: 06/13/2026 by: Claude
         // favoriteCurrentExercise = the most-performed exercise (by set count)
@@ -184,24 +170,10 @@ struct ProfileStats: Codable, Hashable {
         bestDeadliftLift = confirmedBest(.deadlift)
         bestCurlLift = confirmedBest(.curl)
 
-        // Consecutive calendar weeks ending this week with a completed set
-        // (mirrors the workout-based logic above, but keyed on real `loggedAt`).
-        var weeksWithActivity = Set<Date>()
-        for event in events {
-            if let weekStart = calendar.dateInterval(of: .weekOfYear, for: event.loggedAt)?.start {
-                weeksWithActivity.insert(weekStart)
-            }
-        }
-        var streak = 0
-        if let thisWeek = calendar.dateInterval(of: .weekOfYear, for: Date())?.start {
-            var cursor = thisWeek
-            while weeksWithActivity.contains(cursor) {
-                streak += 1
-                guard let previous = calendar.date(byAdding: .weekOfYear, value: -1, to: cursor) else { break }
-                cursor = previous
-            }
-        }
-        weekStreak = streak
+        // Claude  Date 07/13/2026
+        // Consecutive calendar weeks ending this week with a completed set — same
+        // shared helper as the workout-based init, but keyed on real `loggedAt`.
+        weekStreak = Self.weekStreak(of: events.map(\.loggedAt))
 
         // Display-only fields — not used by any achievement.
         topMuscleGroup = nil
@@ -223,6 +195,31 @@ struct ProfileStats: Codable, Hashable {
             let dayCalories = dayEntries.reduce(0.0) { $0 + $1.consumed.calories }
             return dayCalories >= lowerBound && dayCalories <= goalCalories
         }.count
+    }
+
+    // Claude  Date 07/13/2026
+    // Consecutive calendar weeks ending this week that contain at least one of
+    // `dates`. Extracted from the two inits above (which duplicated this loop) so
+    // the mode notch can compute the streak from workout dates alone, without
+    // paying for a full ProfileStats build.
+    static func weekStreak(of dates: [Date], asOf now: Date = Date()) -> Int {
+        let calendar = Calendar.current
+        var weeksWithActivity = Set<Date>()
+        for date in dates {
+            if let weekStart = calendar.dateInterval(of: .weekOfYear, for: date)?.start {
+                weeksWithActivity.insert(weekStart)
+            }
+        }
+        var streak = 0
+        if let thisWeek = calendar.dateInterval(of: .weekOfYear, for: now)?.start {
+            var cursor = thisWeek
+            while weeksWithActivity.contains(cursor) {
+                streak += 1
+                guard let previous = calendar.date(byAdding: .weekOfYear, value: -1, to: cursor) else { break }
+                cursor = previous
+            }
+        }
+        return streak
     }
 
 }
