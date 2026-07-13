@@ -173,6 +173,36 @@ struct NewExerciseView: View {
                 } footer: {
                     Text("Turn on for movements done one side at a time (e.g. single-arm row, lunges) so they can be tracked separately on graphs. Leave off for two-sided lifts like bench press.")
                 }
+
+                // Claude  Date 07/13/2026
+                // When editing an existing lift, make the outcome of the edit explicit
+                // rather than implicit: "Save" tweaks THIS lift in place (every workout and
+                // preset using it updates), while "Save as New Lift" leaves the original as-is
+                // and adds a separate copy carrying these changes. Creating a brand-new lift
+                // has no such ambiguity, so it keeps the single toolbar "Save" above.
+                if editing != nil {
+                    Section {
+                        Button(action: saveInPlace) {
+                            Text("Save")
+                                .fontWeight(.semibold)
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(trimmedName.isEmpty)
+                        .listRowBackground(Color.clear)
+
+                        Button(action: saveAsNew) {
+                            Text("Save as New Lift")
+                                .fontWeight(.semibold)
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(trimmedName.isEmpty)
+                        .listRowBackground(Color.clear)
+                    } footer: {
+                        Text("“Save” updates this lift everywhere it's used. “Save as New Lift” keeps the original and adds a separate copy with these changes.")
+                    }
+                }
             }
             .navigationTitle(editing == nil ? "New Exercise" : "Edit Exercise")
             .navigationBarTitleDisplayMode(.inline)
@@ -181,8 +211,14 @@ struct NewExerciseView: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save", action: save).disabled(trimmedName.isEmpty)
+                // Claude  Date 07/13/2026
+                // Creating a new lift keeps the one-tap toolbar Save. When editing, the
+                // save choice ("Save" vs "Save as New Lift") lives in the bottom section
+                // instead, so it's a deliberate pick rather than a single ambiguous button.
+                if editing == nil {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Save", action: saveAsNew).disabled(trimmedName.isEmpty)
+                    }
                 }
             }
             .onChange(of: region) { newRegion in
@@ -283,10 +319,14 @@ struct NewExerciseView: View {
         }
     }
 
-    private func save() {
-        // Resolve the muscle group: Region = Other keeps the free-text "Other" fallback;
-        // a real region is always a real sub-group (custom-but-blank falls back to a known
-        // one), never "Other".
+    // Resolve the muscle group + primary mover from the current form state. Shared by
+    // every save path so in-place and new-lift saves normalize identically.
+    // Claude  Date 06/09/2026 last changed: 07/13/2026 by: Claude
+    // Region = Other keeps the free-text "Other" fallback; a real region is always a real
+    // sub-group (custom-but-blank falls back to a known one), never "Other". Free-typed
+    // movers get snapped to canonical spelling; picked/auto ones are already canonical.
+    // (07/13) Factored out of the old save() so "Save" and "Save as New Lift" share it.
+    private func resolvedFields() -> (category: String, mover: String) {
         let resolvedCategory: String
         if region == .other {
             let t = category.trimmingCharacters(in: .whitespaces)
@@ -297,33 +337,43 @@ struct NewExerciseView: View {
         } else {
             resolvedCategory = category
         }
-
-        // Free-typed movers get snapped to canonical spelling; picked/auto ones are already canonical.
         let resolvedMover = (showsMoverFreeText || moverIsCustom)
             ? Exercise.normalizedPrimaryMover(primaryMover)
             : primaryMover
+        return (resolvedCategory, resolvedMover)
+    }
 
-        let saved: Exercise
-        if var existing = editing {
-            // Edit in place — preserve id, liftType, and quality (not shown in this form).
-            existing.name = trimmedName
-            existing.region = region
-            existing.category = resolvedCategory
-            existing.isUnilateral = isUnilateral
-            existing.primaryMover = resolvedMover
-            store.updateExercise(existing)
-            saved = existing
-        } else {
-            // Create — no liftType is passed; custom lifts are never big-3 (stays nil).
-            saved = store.addExercise(
-                name: trimmedName,
-                region: region,
-                category: resolvedCategory,
-                isUnilateral: isUnilateral,
-                primaryMover: resolvedMover
-            )
-        }
-        onCreate(saved)
+    // Claude  Date 07/13/2026
+    // "Save" while editing — update THIS lift in place, preserving its id, liftType, and
+    // quality (not shown in this form). Every workout/preset that references it updates.
+    // Falls back to creating one if somehow called without an edit target.
+    private func saveInPlace() {
+        guard var existing = editing else { return saveAsNew() }
+        let fields = resolvedFields()
+        existing.name = trimmedName
+        existing.region = region
+        existing.category = fields.category
+        existing.isUnilateral = isUnilateral
+        existing.primaryMover = fields.mover
+        store.updateExercise(existing)
+        onCreate(existing)
+        dismiss()
+    }
+
+    // Claude  Date 07/13/2026
+    // "Save as New Lift" (and the create flow) — add a brand-new, separate exercise from
+    // the current form, leaving any edited original untouched. No liftType is passed;
+    // custom lifts are never big-3 (stays nil).
+    private func saveAsNew() {
+        let fields = resolvedFields()
+        let created = store.addExercise(
+            name: trimmedName,
+            region: region,
+            category: fields.category,
+            isUnilateral: isUnilateral,
+            primaryMover: fields.mover
+        )
+        onCreate(created)
         dismiss()
     }
 }

@@ -69,6 +69,18 @@ private struct PresetEditor: View {
             ForEach($preset.items) { $item in
                 Section {
                     RepRangeRow(targetRepRange: $item.targetRepRange)
+                    // Claude  Date 07/13/2026
+                    // Planned set count, picked up front. Starting a workout from this
+                    // preset pre-fills this many empty sets (see AppStore.workout(from:)).
+                    // "None" clears it so no sets are pre-filled for this exercise.
+                    Picker(selection: $item.targetSets) {
+                        Text("None").tag(Int?.none)
+                        ForEach(1...8, id: \.self) { count in
+                            Text("\(count)").tag(Int?.some(count))
+                        }
+                    } label: {
+                        Label("Sets", systemImage: "number")
+                    }
                     TextField("Note (form cues…)",
                               text: Binding($item.note, replacingNilWith: ""),
                               axis: .vertical)
@@ -174,8 +186,12 @@ private struct PresetEditor: View {
             ExercisePickerView { exercise in
                 // New preset items default to an 8–12 range since rep targets are
                 // the whole point of a preset; it can be cleared or changed.
+                // Claude  Date 07/13/2026
+                // Also default to 3 planned sets so the preset pre-fills sets out of the
+                // box (the picker's "None" clears it). See PresetItem.defaultTargetSets.
                 preset.items.append(
-                    PresetItem(exerciseId: exercise.id, targetRepRange: RepRange(min: 8, max: 12))
+                    PresetItem(exerciseId: exercise.id, targetRepRange: RepRange(min: 8, max: 12),
+                               targetSets: PresetItem.defaultTargetSets)
                 )
             }
         }

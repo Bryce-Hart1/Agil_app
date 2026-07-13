@@ -26,9 +26,23 @@ struct ModeNotch: View {
             }
         } label: {
             HStack(spacing: 8) {
-                Image(systemName: mode.icon)
-                    .font(.subheadline)
-                    .foregroundStyle(theme.current.accent)
+                // Claude  Date 07/13/2026
+                // Food's icon is a custom template asset (bowl-food), lifting is an
+                // SF Symbol. Frame the custom image to sit alongside the subheadline
+                // text at the same visual weight the symbol had; template rendering
+                // lets it pick up the accent tint.
+                Group {
+                    if mode.iconIsCustomAsset {
+                        Image(mode.icon)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 17, height: 17)
+                    } else {
+                        Image(systemName: mode.icon)
+                            .font(.subheadline)
+                    }
+                }
+                .foregroundStyle(theme.current.accent)
                 Text(mode.label)
                     .font(.subheadline)
                     .fontWeight(.semibold)

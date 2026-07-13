@@ -76,7 +76,9 @@ struct ProfileView: View {
     // The hub revealed by scrolling below the card.
     private var navRows: some View {
         VStack(spacing: 0) {
-            profileNavRow("Edit Profile Card", systemImage: "slider.horizontal.3") {
+            // Claude  Date 07/13/2026
+            // Icon: custom template asset "wrench" (was slider.horizontal.3).
+            profileNavRow("Edit Profile Card", image: "wrench") {
                 EditProfileCardView()
             }
             Divider().padding(.leading, 16)
@@ -95,16 +97,44 @@ struct ProfileView: View {
         .background(theme.current.surface, in: RoundedRectangle(cornerRadius: 14))
     }
 
-    // Claude  Date 06/12/2026
-    // A tappable row that pushes a destination, styled as a settings row.
+    // Claude  Date 06/12/2026 last changed: 07/13/2026 by: Claude
+    // A tappable row that pushes a destination, styled as a settings row. The
+    // SF-Symbol and custom-asset variants both funnel into the shared core below.
     private func profileNavRow<Destination: View>(
         _ title: String,
         systemImage: String,
         @ViewBuilder destination: () -> Destination
     ) -> some View {
+        profileNavRow(title, icon: { Image(systemName: systemImage) }, destination: destination)
+    }
+
+    // Claude  Date 07/13/2026
+    // Variant taking a custom asset-catalog icon (template image) instead of an SF
+    // Symbol — used by the Edit Profile Card row (wrench). Sized to match the
+    // symbol rows' icon footprint.
+    private func profileNavRow<Destination: View>(
+        _ title: String,
+        image: String,
+        @ViewBuilder destination: () -> Destination
+    ) -> some View {
+        profileNavRow(
+            title,
+            icon: { Image(image).resizable().scaledToFit().frame(width: 20, height: 20) },
+            destination: destination
+        )
+    }
+
+    // Claude  Date 07/13/2026
+    // Shared row body — accepts any icon view so both the SF-Symbol and custom-asset
+    // variants above can reuse it.
+    private func profileNavRow<Icon: View, Destination: View>(
+        _ title: String,
+        @ViewBuilder icon: () -> Icon,
+        @ViewBuilder destination: () -> Destination
+    ) -> some View {
         NavigationLink(destination: destination()) {
             HStack {
-                Label(title, systemImage: systemImage)
+                Label { Text(title) } icon: { icon() }
                 Spacer()
                 Image(systemName: "chevron.right")
                     .font(.footnote.weight(.semibold))

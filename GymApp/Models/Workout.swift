@@ -130,10 +130,16 @@ struct Workout: Identifiable, Codable, Hashable {
     // is completed (see AppStore.finishWorkout) — nil while still in progress.
     var startedAt: Date
     var finishedAt: Date?
+    // Claude  Date 07/13/2026
+    // The preset this workout was started from (nil for an empty/ad-hoc workout). Lets
+    // the editor offer "Override Preset" — pushing the workout's current exercises, rep
+    // ranges, and set counts back onto the source template. Synthesized decode below
+    // defaults it to nil for workouts saved before the field existed.
+    var presetID: UUID?
 
     init(id: UUID = UUID(), date: Date = Date(), exercises: [LoggedExercise] = [],
          notes: String = "", isFinished: Bool = false,
-         startedAt: Date = Date(), finishedAt: Date? = nil) {
+         startedAt: Date = Date(), finishedAt: Date? = nil, presetID: UUID? = nil) {
         self.id = id
         self.date = date
         self.exercises = exercises
@@ -141,6 +147,7 @@ struct Workout: Identifiable, Codable, Hashable {
         self.isFinished = isFinished
         self.startedAt = startedAt
         self.finishedAt = finishedAt
+        self.presetID = presetID
     }
 
     /// Total number of sets across all exercises in this workout.
@@ -161,7 +168,7 @@ struct Workout: Identifiable, Codable, Hashable {
     // appear as in-progress. New workouts use the init default (false = active).
     // encode(to:) is synthesized.
     enum CodingKeys: String, CodingKey {
-        case id, date, exercises, notes, isFinished, startedAt, finishedAt
+        case id, date, exercises, notes, isFinished, startedAt, finishedAt, presetID
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -175,5 +182,8 @@ struct Workout: Identifiable, Codable, Hashable {
         // start and carry no finish time (WorkoutSummary then uses its old set-span calc).
         startedAt = try c.decodeIfPresent(Date.self, forKey: .startedAt) ?? date
         finishedAt = try c.decodeIfPresent(Date.self, forKey: .finishedAt)
+        // Claude  Date 07/13/2026
+        // Source preset link: absent on older workouts (they weren't tagged), so nil.
+        presetID = try c.decodeIfPresent(UUID.self, forKey: .presetID)
     }
 }

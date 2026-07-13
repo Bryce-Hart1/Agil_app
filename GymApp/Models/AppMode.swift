@@ -14,9 +14,16 @@ enum AppMode: String, CaseIterable, Hashable {
     /// The mode you land in when tapping the switcher from this one.
     var toggled: AppMode { self == .lifting ? .nutrition : .lifting }
 
-    // Claude  Date 07/13/2026
+    // Claude  Date 07/13/2026 last changed: 07/13/2026 by: Claude
     // The notch advertises where you ARE (the old switcher tab advertised the
-    // other world instead), so these describe the current mode itself.
-    var icon: String { self == .lifting ? "dumbbell" : "fork.knife" }
+    // other world instead), so these describe the current mode itself. Food now
+    // uses the hand-made "bowl-food" asset; lifting stays on the SF Symbol
+    // dumbbell — see iconIsCustomAsset for how the notch picks the right Image init.
+    var icon: String { self == .lifting ? "dumbbell" : "bowl-food" }
     var label: String { self == .lifting ? "Lifting" : "Food" }
+
+    // Claude  Date 07/13/2026
+    // Whether `icon` names a custom asset-catalog image (Image("name")) rather than
+    // an SF Symbol (Image(systemName:)). Only the food side uses a custom asset.
+    var iconIsCustomAsset: Bool { self == .nutrition }
 }

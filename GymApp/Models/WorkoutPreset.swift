@@ -16,15 +16,29 @@ struct PresetItem: Identifiable, Codable, Hashable {
     // the parent preset is adaptive. nil = use AppStore.smartIncrement's default (5 lb,
     // or 10 lb for lower-body / deadlift). Synthesized Codable defaults it to nil.
     var weightIncrement: Double?
+    // Claude  Date 07/13/2026
+    // Planned number of working sets for this exercise, chosen up front in the preset.
+    // Starting a workout from the preset pre-fills this many (empty, unchecked) sets so
+    // you don't tap "Add Set" repeatedly (see AppStore.workout(from:)). nil = don't
+    // pre-fill (presets that predate this, or the picker's "None"). Blank workouts have
+    // no preset, so this never applies to them. Synthesized Codable defaults it to nil.
+    var targetSets: Int?
+
+    // Claude  Date 07/13/2026
+    // Default set count for a freshly added preset exercise (a typical working-set count
+    // for a strength movement). Existing preset items keep whatever they had, incl. nil.
+    static let defaultTargetSets = 3
 
     init(id: UUID = UUID(), exerciseId: UUID, targetRepRange: RepRange? = nil,
-         note: String? = nil, restSeconds: Int? = nil, weightIncrement: Double? = nil) {
+         note: String? = nil, restSeconds: Int? = nil, weightIncrement: Double? = nil,
+         targetSets: Int? = nil) {
         self.id = id
         self.exerciseId = exerciseId
         self.targetRepRange = targetRepRange
         self.note = note
         self.restSeconds = restSeconds
         self.weightIncrement = weightIncrement
+        self.targetSets = targetSets
     }
 }
 

@@ -41,34 +41,45 @@ struct RootTabView: View {
                     .tabItem { Label("Workouts", systemImage: "dumbbell") }
                     .tag(1)
 
-                // Claude  Date 06/16/2026
+                // Claude  Date 06/16/2026 last changed: 07/13/2026 by: Claude
                 // The "Build" hub: workout presets (templates), with the exercise
-                // library reachable from its top-left link.
+                // library reachable from its top-left link. (Icon: custom template
+                // asset "hammer" via Label(_:image:), replacing plus.square.on.square.)
                 PresetsListView()
-                    .tabItem { Label("Build", systemImage: "plus.square.on.square") }
+                    .tabItem { Label("Build", image: "hammer") }
                     .tag(2)
 
+                // Claude  Date 07/13/2026
+                // Icon: custom template asset "chart-scatter" (was chart.bar.xaxis).
                 ProgressDashboardView()
-                    .tabItem { Label("Progress", systemImage: "chart.bar.xaxis") }
+                    .tabItem { Label("Progress", image: "chart-scatter") }
                     .tag(3)
 
+                // Claude  Date 07/13/2026
+                // Icon: custom template asset "user-circle-dashed" (was
+                // person.crop.circle). Shared by both worlds' Profile tab.
                 ProfileView()
-                    .tabItem { Label("Profile", systemImage: "person.crop.circle") }
+                    .tabItem { Label("Profile", image: "user-circle-dashed") }
                     .tag(4)
             } else {
-                // Claude  Date 06/16/2026 Edited 6/16/26 Bryce Hart
+                // Claude  Date 06/16/2026 Edited 6/16/26 Bryce Hart last changed: 07/13/2026 by: Claude
                 // Nutrition world: per-day food Journal, the food library, and the
                 // shared profile. Goals are reached from the Journal's toolbar.
+                // (Icons: custom template assets "notepad"/"orange", replacing
+                // fork.knife/carrot.)
                 NutritionJournalView()
-                    .tabItem { Label("Journal", systemImage: "fork.knife") }
+                    .tabItem { Label("Journal", image: "notepad") }
                     .tag(1)
 
                 FoodLibraryView()
-                    .tabItem { Label("Foods", systemImage: "carrot") }
+                    .tabItem { Label("Foods", image: "orange") }
                     .tag(2)
 
+                // Claude  Date 07/13/2026
+                // Icon: custom template asset "user-circle-dashed" (was
+                // person.crop.circle). Shared by both worlds' Profile tab.
                 ProfileView()
-                    .tabItem { Label("Profile", systemImage: "person.crop.circle") }
+                    .tabItem { Label("Profile", image: "user-circle-dashed") }
                     .tag(3)
             }
         }

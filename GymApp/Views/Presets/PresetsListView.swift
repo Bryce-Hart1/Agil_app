@@ -18,8 +18,24 @@ struct PresetsListView: View {
                         NavigationLink(value: preset.id) {
                             PresetRow(preset: preset, accent: theme.current.accent)
                         }
+                        // Claude  Date 07/13/2026
+                        // Swipe left to Edit (opens the preset editor, same as tapping) or
+                        // Delete. Explicit swipeActions replace the old .onDelete so both
+                        // live on the same trailing swipe; Delete stays the full-swipe action.
+                        .swipeActions(edge: .trailing) {
+                            Button(role: .destructive) {
+                                store.deletePreset(id: preset.id)
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+                            Button {
+                                path.append(preset.id)
+                            } label: {
+                                Label("Edit", systemImage: "pencil")
+                            }
+                            .tint(theme.current.accent)
+                        }
                     }
-                    .onDelete(perform: store.deletePresets)
                 }
             }
             .navigationTitle("Presets")

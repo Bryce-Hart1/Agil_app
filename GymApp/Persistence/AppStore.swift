@@ -762,13 +762,23 @@ final class AppStore: ObservableObject {
         return AdaptiveSuggestion(weight: latest.weight, deltaFromLast: 0, outcome: .held)
     }
 
+    /// Looks up a preset by id (nil when it no longer exists).
+    // Claude  Date 07/13/2026
+    // Mirror of exercise(for:) — used by the workout editor to resolve a workout's
+    // source preset (for the "Override Preset" affordance and its name).
+    func preset(for id: UUID) -> WorkoutPreset? {
+        presets.first { $0.id == id }
+    }
+
     /// Builds a fresh workout from a preset: each preset item becomes a logged
-    /// exercise carrying the target rep range, with no sets yet (you fill those in).
-    // Claude  Date 06/18/2026 last changed: 07/01/2026 by: Claude
+    /// exercise carrying the target rep range, pre-filled with the preset's planned
+    /// number of (empty, unchecked) sets so you're not tapping "Add Set" repeatedly.
+    // Claude  Date 06/18/2026 last changed: 07/13/2026 by: Claude
     // Backfill the rep range so every queued lift has one: the preset's own range wins,
     // else the history-preferred range, else the 8–12 default (see defaultRepRange). For
     // an ADAPTIVE preset, also attach a per-exercise weight suggestion (adaptiveSuggestion),
     // computed against that resolved rep range and the exercise's smart increment.
+    // (07/13) Tag the workout with its source preset and pre-fill item.targetSets sets.
     func workout(from preset: WorkoutPreset) -> Workout {
         Workout(exercises: preset.items.map { item in
             let range = defaultRepRange(for: item.exerciseId, explicit: item.targetRepRange)
@@ -779,17 +789,78 @@ final class AppStore: ObservableObject {
                 : nil
             return LoggedExercise(exerciseId: item.exerciseId, targetRepRange: range,
                                   note: item.note, restSeconds: item.restSeconds,
+                                  sets: initialSets(for: item, range: range, adaptive: adaptive),
                                   adaptive: adaptive)
-        })
+        }, presetID: preset.id)
+    }
+
+    // Claude  Date 07/13/2026
+    // The pre-filled sets for a preset item when a workout is started: item.targetSets
+    // logical sets (nil / 0 → none, preserving the old "empty" behavior). Each seeds its
+    // reps from the low end of the target range (else 8) and its weight from the adaptive
+    // suggestion (else 0) — the same defaults "Add Set" uses. Nothing is checked off, so
+    // these count toward nothing until the user completes them. Unilateral exercises get
+    // a matched Left+Right pair per logical set (mirroring ExerciseLogSection.addSet).
+    private func initialSets(for item: PresetItem, range: RepRange,
+                             adaptive: AdaptiveSuggestion?) -> [ExerciseSet] {
+        guard let count = item.targetSets, count > 0 else { return [] }
+        let low = Swift.min(range.min, range.max)
+        let reps = low > 0 ? low : 8
+        let weight = adaptive?.weight ?? 0
+        let unilateral = exercise(for: item.exerciseId)?.isUnilateral ?? false
+        return (0..<count).flatMap { _ -> [ExerciseSet] in
+            unilateral
+                ? [ExerciseSet(reps: reps, weight: weight, side: .left),
+                   ExerciseSet(reps: reps, weight: weight, side: .right)]
+                : [ExerciseSet(reps: reps, weight: weight)]
+        }
+    }
+
+    // Claude  Date 07/13/2026
+    // The logical set count of a logged exercise, for capturing into a preset item's
+    // targetSets. Unilateral exercises store Left/Right as two ExerciseSets per logical
+    // set, so halve them. No sets logged → nil (don't pin a count).
+    private func logicalSetCount(of logged: LoggedExercise) -> Int? {
+        let count = logged.sets.count
+        guard count > 0 else { return nil }
+        let unilateral = exercise(for: logged.exerciseId)?.isUnilateral ?? false
+        return unilateral ? count / 2 : count
     }
 
     /// Builds a preset from a workout: each logged exercise becomes a preset item
-    /// carrying its rep range and note (sets are dropped — presets hold no sets).
+    /// carrying its rep range, note, and how many sets were logged (sets themselves are
+    /// dropped — presets hold no sets, just the planned count).
+    // Claude  Date 06/18/2026 last changed: 07/13/2026 by: Claude
+    // (07/13) Capture the logged set count into targetSets so a preset saved from a
+    // workout remembers how many sets to pre-fill next time.
     func makePreset(from workout: Workout, name: String) -> WorkoutPreset {
         WorkoutPreset(name: name, items: workout.exercises.map {
             PresetItem(exerciseId: $0.exerciseId, targetRepRange: $0.targetRepRange,
-                       note: $0.note, restSeconds: $0.restSeconds)
+                       note: $0.note, restSeconds: $0.restSeconds,
+                       targetSets: logicalSetCount(of: $0))
         })
+    }
+
+    // Claude  Date 07/13/2026
+    // Overwrite an existing preset from a workout ("Override Preset"): rebuild its items
+    // to match the workout's current exercises — which lifts are kept vs removed (and
+    // their order), each lift's rep range, note, rest, and logged set count. The preset's
+    // own identity (id, name, icon, adaptive toggle) is left untouched, and each surviving
+    // item keeps its id and adaptive weight-step override (a preset-only field the workout
+    // doesn't carry) by matching on exerciseId. No-op if the preset no longer exists.
+    func updatePreset(id: UUID, from workout: Workout) {
+        guard let index = presets.firstIndex(where: { $0.id == id }) else { return }
+        let existing = presets[index].items
+        presets[index].items = workout.exercises.map { logged in
+            let prior = existing.first { $0.exerciseId == logged.exerciseId }
+            return PresetItem(id: prior?.id ?? UUID(),
+                              exerciseId: logged.exerciseId,
+                              targetRepRange: logged.targetRepRange,
+                              note: logged.note,
+                              restSeconds: logged.restSeconds,
+                              weightIncrement: prior?.weightIncrement,
+                              targetSets: logicalSetCount(of: logged))
+        }
     }
 }
 

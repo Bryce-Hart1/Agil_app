@@ -38,10 +38,26 @@ private struct WorkoutEditor: View {
     @State private var showingSaveAsPreset = false
     @State private var presetName = ""
     @State private var savedPresetConfirmation = false
-    // Claude  Date 07/01/2026
-    // True when the save-as-preset alert was opened from the bottom "Save as Preset &
-    // Exit" button, so saving pops the editor instead of showing the confirmation.
-    @State private var exitAfterSavingPreset = false
+    // Claude  Date 07/13/2026
+    // Drive the confirm + success alerts for "Override Preset" — pushing this workout's
+    // current exercises, rep ranges, and set counts back onto its source preset.
+    @State private var showingOverrideConfirm = false
+    @State private var overridePresetConfirmation = false
+
+    // Claude  Date 07/13/2026
+    // The preset this workout was started from, if it still exists (nil for empty/ad-hoc
+    // workouts, or if the preset was since deleted). Gates the "Override Preset" affordance.
+    private var sourcePreset: WorkoutPreset? {
+        workout.presetID.flatMap { store.preset(for: $0) }
+    }
+
+    // Claude  Date 07/13/2026
+    // Display name for the source preset, with the same "Untitled Preset" fallback the
+    // presets list uses for a blank name.
+    private var sourcePresetName: String {
+        guard let name = sourcePreset?.name else { return "this preset" }
+        return name.isEmpty ? "Untitled Preset" : name
+    }
 
     var body: some View {
         Form {
@@ -119,19 +135,37 @@ private struct WorkoutEditor: View {
                 .buttonStyle(.borderedProminent)
                 .listRowBackground(Color.clear)
 
-                // Claude  Date 07/01/2026
+                // Claude  Date 07/13/2026
+                // "Override Preset" — when this workout was started from a preset, push its
+                // current shape (which exercises are kept/removed, their rep ranges, and set
+                // counts) back onto that template. Confirmed first, then stays in the editor
+                // so the workout keeps going. Only shown when the source preset still exists.
+                if sourcePreset != nil && !workout.exercises.isEmpty {
+                    Button {
+                        hideKeyboard()
+                        showingOverrideConfirm = true
+                    } label: {
+                        Text("Override Preset")
+                            .fontWeight(.semibold)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .listRowBackground(Color.clear)
+                }
+
+                // Claude  Date 07/01/2026 last changed: 07/13/2026 by: Claude
                 // The same "Save as Preset" the ⋯ menu offers, surfaced down here where
                 // it's discoverable while building an in-progress workout. Saves the
-                // exercises/rep ranges as a template and leaves the editor — the workout
-                // itself stays in progress (it isn't completed).
+                // exercises/rep ranges/set counts as a NEW template; the workout itself
+                // stays in progress. (07/13) Stays in the editor and confirms, like the
+                // menu action — parallel to "Override Preset" beside it.
                 if !workout.isFinished && !workout.exercises.isEmpty {
                     Button {
                         hideKeyboard()
                         presetName = ""
-                        exitAfterSavingPreset = true
                         showingSaveAsPreset = true
                     } label: {
-                        Text("Save as Preset & Exit")
+                        Text("Save as New Preset")
                             .fontWeight(.semibold)
                             .frame(maxWidth: .infinity)
                     }
@@ -159,13 +193,22 @@ private struct WorkoutEditor: View {
                             Label("Reorder Exercises", systemImage: "arrow.up.arrow.down")
                         }
                     }
+                    // Claude  Date 07/13/2026
+                    // Mirror the bottom "Override Preset" here for discoverability, when
+                    // this workout came from a preset that still exists.
+                    if sourcePreset != nil && !workout.exercises.isEmpty {
+                        Button {
+                            showingOverrideConfirm = true
+                        } label: {
+                            Label("Override Preset", systemImage: "square.stack.3d.up")
+                        }
+                    }
                     if !workout.exercises.isEmpty {
                         Button {
                             presetName = ""
-                            exitAfterSavingPreset = false
                             showingSaveAsPreset = true
                         } label: {
-                            Label("Save as Preset", systemImage: "square.stack.badge.plus")
+                            Label("Save as New Preset", systemImage: "square.stack.badge.plus")
                         }
                     }
                 } label: {
@@ -200,29 +243,45 @@ private struct WorkoutEditor: View {
                 store.exercise(for: $0.exerciseId)?.name ?? "Exercise"
             }
         }
-        .alert("Save as Preset", isPresented: $showingSaveAsPreset) {
+        .alert("Save as New Preset", isPresented: $showingSaveAsPreset) {
             TextField("Preset name", text: $presetName)
             Button("Save") {
                 let name = presetName.trimmingCharacters(in: .whitespaces)
-                store.addPreset(store.makePreset(from: workout, name: name.isEmpty ? "New Preset" : name))
-                // Claude  Date 07/01/2026
-                // From the bottom button: leave the editor straight after saving. From the
-                // ⋯ menu: stay put and confirm, as before.
-                if exitAfterSavingPreset {
-                    exitAfterSavingPreset = false
-                    dismiss()
-                } else {
-                    savedPresetConfirmation = true
-                }
+                let preset = store.makePreset(from: workout, name: name.isEmpty ? "New Preset" : name)
+                store.addPreset(preset)
+                // Claude  Date 07/13/2026
+                // Link the workout to the preset it just spawned, so "Override Preset"
+                // now targets it for any further tweaks this session.
+                workout.presetID = preset.id
+                savedPresetConfirmation = true
             }
-            Button("Cancel", role: .cancel) { exitAfterSavingPreset = false }
+            Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Save these exercises and rep ranges as a reusable preset.")
+            Text("Save these exercises, rep ranges, and set counts as a reusable preset.")
         }
         .alert("Saved to Presets", isPresented: $savedPresetConfirmation) {
             Button("OK", role: .cancel) {}
         } message: {
             Text("Find it on the Presets tab to set an icon or tweak it.")
+        }
+        // Claude  Date 07/13/2026
+        // Confirm before overwriting the source preset — it's an in-place change to a
+        // saved template. Applying stays in the editor and shows a brief success alert.
+        .alert("Override Preset", isPresented: $showingOverrideConfirm) {
+            Button("Override", role: .destructive) {
+                if let preset = sourcePreset {
+                    store.updatePreset(id: preset.id, from: workout)
+                    overridePresetConfirmation = true
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Update “\(sourcePresetName)” to match this workout — its exercises, rep ranges, and set counts. This can’t be undone.")
+        }
+        .alert("Preset Updated", isPresented: $overridePresetConfirmation) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("“\(sourcePresetName)” now matches this workout.")
         }
     }
 }

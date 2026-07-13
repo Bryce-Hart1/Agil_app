@@ -9,20 +9,34 @@ struct ExercisesListView: View {
     @EnvironmentObject private var theme: ThemeManager
 
     @State private var showingAdd = false
+    // Claude  Date 07/13/2026
+    // The library exercise being edited via a row's swipe action (nil = none). Drives
+    // the same NewExerciseView editor the workout/preset pencils use.
+    @State private var editingExercise: Exercise?
 
     var body: some View {
-        // Claude  Date 06/14/2026
+        // Claude  Date 06/14/2026 last changed: 07/13/2026 by: Claude
         // Grouped by body region (primary) → muscle sub-group (secondary): each
-        // region is a section, its rows clustered by sub-group. Swipe-delete maps
-        // the section-relative offset back to the specific exercise.
+        // region is a section, its rows clustered by sub-group. Swipe left on a row to
+        // Edit or Delete (Delete stays the full-swipe action).
         List {
             ForEach(store.exercisesByRegion(), id: \.region) { group in
                 Section(group.region.title) {
                     ForEach(group.exercises) { exercise in
                         ExerciseRow(exercise: exercise, accent: theme.current.accent)
-                    }
-                    .onDelete { offsets in
-                        offsets.map { group.exercises[$0] }.forEach(store.deleteExercise)
+                            .swipeActions(edge: .trailing) {
+                                Button(role: .destructive) {
+                                    store.deleteExercise(exercise)
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                                Button {
+                                    editingExercise = exercise
+                                } label: {
+                                    Label("Edit", systemImage: "pencil")
+                                }
+                                .tint(theme.current.accent)
+                            }
                     }
                 }
             }
@@ -36,6 +50,12 @@ struct ExercisesListView: View {
         }
         .sheet(isPresented: $showingAdd) {
             NewExerciseView()
+        }
+        // Claude  Date 07/13/2026
+        // Edit the swiped exercise in place. Saving updates the shared library (or, via
+        // "Save as New Lift", adds a separate copy), so every workout/preset relabels.
+        .sheet(item: $editingExercise) { exercise in
+            NewExerciseView(editing: exercise)
         }
     }
 }
