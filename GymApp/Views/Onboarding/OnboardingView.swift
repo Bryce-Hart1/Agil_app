@@ -3,24 +3,27 @@ import SwiftUI
 import UIKit
 #endif
 
-// Claude  Date 06/12/2026 last changed: 07/12/2026 by: Claude
+// Claude  Date 06/12/2026 last changed: 07/14/2026 by: Claude
 // First-run welcome shown over everything until onboarding is completed. A
-// short multi-step flow: (1) name, (2) where your data lives (offline vs
-// friends), (3) how coins work — then into the app. (Redesigned this pass:
-// added a drifting accent-glow background, directional slide transitions
-// between steps, an animated logo entrance, richer choice cards, an animated
-// coin-ladder chart, and gradient controls. Persistence behavior unchanged.)
+// short multi-step flow: (1) name, (2) what you identify as (on-device only,
+// calibrates strength-badge thresholds), (3) where your data lives (offline vs
+// friends), (4) how coins work — then into the app. (This pass added the
+// identity step and generalized the choice cards it shares with the data step.)
 struct OnboardingView: View {
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var theme: ThemeManager
 
-    // Claude  Date 06/13/2026
-    // The ordered onboarding steps.
-    private enum Step: Int, CaseIterable { case welcome, data, coins }
+    // Claude  Date 06/13/2026 last changed: 07/14/2026 by: Claude
+    // The ordered onboarding steps. (Added identity between welcome and data.)
+    private enum Step: Int, CaseIterable { case welcome, identity, data, coins }
 
     @State private var step: Step = .welcome
     @State private var name = ""
     @State private var dataMode: DataMode = .offline
+    // Claude  Date 07/14/2026
+    // The identity choice. Defaults to "prefer not to say" so the step never
+    // blocks Continue; persisted to profile.gender in finish().
+    @State private var gender: Gender = .unspecified
 
     // Claude  Date 07/12/2026
     // Tracks which way we're moving through the wizard so the step transition
@@ -45,6 +48,7 @@ struct OnboardingView: View {
                     case .welcome:
                         WelcomeStep(name: $name, accent: accent, surface: surface,
                                     canAdvance: !trimmedName.isEmpty, onSubmit: advance)
+                    case .identity: identityStep
                     case .data: dataStep
                     case .coins: coinsStep
                     }
@@ -70,28 +74,73 @@ struct OnboardingView: View {
 
     // MARK: - Steps
 
+    // Claude  Date 07/14/2026
+    // The identity step: what the user identifies as. This is ON-DEVICE ONLY and
+    // exists for exactly one reason — calibrating strength-badge thresholds so
+    // progression tiers are fair (see Achievement.catalog(for:)). The privacy
+    // caption below the cards is the load-bearing copy; keep it honest if the
+    // use of this field ever changes. Inherits the "Nice to meet you" greeting
+    // since it's now the first step after entering a name.
+    private var identityStep: some View {
+        VStack(spacing: 18) {
+            Spacer()
+
+            stepHeader(
+                icon: "person.crop.circle.badge.questionmark",
+                title: "Nice to meet you, \(trimmedName)!",
+                subtitle: "One quick question to calibrate your strength badges."
+            )
+
+            choiceCard(
+                isSelected: gender == .male,
+                systemImage: "figure.stand",
+                title: "Male",
+                description: "Strength badges use the standard thresholds."
+            ) { gender = .male }
+            choiceCard(
+                isSelected: gender == .female,
+                systemImage: "figure.stand.dress",
+                title: "Female",
+                description: "Strength badges use thresholds calibrated for women."
+            ) { gender = .female }
+            choiceCard(
+                isSelected: gender == .unspecified,
+                systemImage: "hand.raised.fill",
+                title: "Prefer not to say",
+                description: "Uses the standard badge thresholds."
+            ) { gender = .unspecified }
+
+            Text("This never leaves your phone — it isn't shared, synced, or sent anywhere. It's used for exactly one thing: strength-badge thresholds that are fair for you. Change it anytime in Settings.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 8)
+            Spacer()
+        }
+    }
+
     private var dataStep: some View {
         VStack(spacing: 18) {
             Spacer()
 
             stepHeader(
                 icon: "externaldrive.badge.icloud",
-                title: "Nice to meet you, \(trimmedName)!",
-                subtitle: "Where should your data live? You can change this anytime in Settings."
+                title: "Where should your data live?",
+                subtitle: "You can change this anytime in Settings."
             )
 
             choiceCard(
-                .offline,
+                isSelected: dataMode == .offline,
                 systemImage: "iphone",
                 title: "Offline",
                 description: "Everything stays on this device. Private, fast, and yours alone."
-            )
+            ) { dataMode = .offline }
             choiceCard(
-                .friends,
+                isSelected: dataMode == .friends,
                 systemImage: "person.2.fill",
                 title: "Friends only",
                 description: "Add people with a friend code to see their profile card and stats. (Coming soon.)"
-            )
+            ) { dataMode = .friends }
             Spacer()
         }
     }
@@ -164,11 +213,15 @@ struct OnboardingView: View {
         }
     }
 
-    private func choiceCard(_ mode: DataMode, systemImage: String,
-                            title: String, description: String) -> some View {
-        let isSelected = dataMode == mode
-        return Button {
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) { dataMode = mode }
+    // Claude  Date 07/12/2026 last changed: 07/14/2026 by: Claude
+    // A selectable option card. (Generalized from the DataMode-only version so the
+    // identity and data steps share one card style: selection state and the action
+    // are now passed in instead of being hardwired to `dataMode`.)
+    private func choiceCard(isSelected: Bool, systemImage: String,
+                            title: String, description: String,
+                            action: @escaping () -> Void) -> some View {
+        Button {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) { action() }
             tapHaptic()
         } label: {
             HStack(spacing: 14) {
@@ -277,6 +330,8 @@ struct OnboardingView: View {
         switch step {
         case .welcome:
             guard !trimmedName.isEmpty else { return }
+            withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) { step = .identity }
+        case .identity:
             withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) { step = .data }
         case .data:
             withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) { step = .coins }
@@ -295,6 +350,9 @@ struct OnboardingView: View {
     private func finish() {
         store.profile.displayName = trimmedName
         store.profile.dataMode = dataMode
+        // Claude  Date 07/14/2026
+        // On-device only — calibrates badge thresholds (see Achievement.catalog).
+        store.profile.gender = gender
         store.profile.hasOnboarded = true
     }
 }

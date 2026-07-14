@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// The app's top-level tab bar. Each tab is an independent navigation stack.
 /// Applies the selected theme's accent tint and light/dark appearance app-wide.
@@ -171,6 +174,52 @@ struct RootTabView: View {
         .animation(.easeInOut(duration: 0.25), value: store.pendingCelebrations.first?.id)
         .animation(.easeInOut(duration: 0.25), value: store.pendingPromotions.first)
         .animation(.easeInOut(duration: 0.25), value: store.pendingFoundersUnlock.isEmpty)
+        // Claude  Date 07/14/2026 last changed: 07/14/2026 by: Claude
+        // The first-boot spotlight tour, above everything (its own layer, after the
+        // celebration ladder — in practice they never coexist: the tour fires on a
+        // fresh profile with nothing queued, and replays are user-initiated). The
+        // GeometryReader ignores safe area, so anchors resolve — and the synthesized
+        // chrome fallbacks are computed — in full-screen coordinates. NOTE: ignoring
+        // safe area also zeroes proxy.safeAreaInsets, so the real device insets come
+        // from UIKit (deviceInsets below) — using the proxy's was the bug that put
+        // the notch spotlight too high and the tab spotlights too low.
+        .overlayPreferenceValue(TourAnchorKey.self) { anchors in
+            GeometryReader { proxy in
+                if store.tourActive {
+                    TourOverlay(
+                        steps: TourScript.steps,
+                        frameFor: { target in
+                            anchors[target].map { proxy[$0] }
+                                ?? target.fallbackFrame(size: proxy.size,
+                                                        insets: deviceInsets,
+                                                        mode: mode)
+                        },
+                        onApply: applyTourStep,
+                        onFinish: { store.completeTour() },
+                        size: proxy.size,
+                        insets: deviceInsets
+                    )
+                    .transition(.opacity)
+                }
+            }
+            .ignoresSafeArea()
+        }
+        .animation(.easeInOut(duration: 0.25), value: store.tourActive)
+        // Claude  Date 07/14/2026
+        // Auto-start the tour exactly once, right after onboarding completes. The
+        // delay lets the fullScreenCover's dismissal animation finish first (the
+        // cover closes reactively when hasOnboarded flips). The onAppear catch-up
+        // covers a relaunch where the tour never ran (killed mid-tour, or an
+        // existing pre-tour profile that migrated in hasSeenTour = false).
+        .onChange(of: store.profile.hasOnboarded) { done in
+            guard done, !store.profile.hasSeenTour else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { store.startTour() }
+        }
+        .onAppear {
+            if store.profile.hasOnboarded && !store.profile.hasSeenTour {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { store.startTour() }
+            }
+        }
         // Claude  Date 06/18/2026
         // Keep the shared card in sync (Friends mode only). Push on launch + whenever
         // the app returns to the foreground, and react to card-relevant edits: profile
@@ -215,6 +264,41 @@ struct RootTabView: View {
         }
         selection = 1
         session.requestedWorkoutID = id
+    }
+
+    // Claude  Date 07/14/2026
+    // The real device safe-area insets, read from the key window. Needed because
+    // the tour overlay's GeometryReader ignores safe area for full-screen
+    // coordinates, which zeroes the insets SwiftUI would otherwise report.
+    private var deviceInsets: EdgeInsets {
+        #if canImport(UIKit)
+        let insets = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .first(where: \.isKeyWindow)?.safeAreaInsets ?? .zero
+        return EdgeInsets(top: insets.top, leading: insets.left,
+                          bottom: insets.bottom, trailing: insets.right)
+        #else
+        return EdgeInsets()
+        #endif
+    }
+
+    // Claude  Date 07/14/2026
+    // Put the app in the state a tour step needs before its spotlight lands. Uses
+    // the same ordering trick as openActiveWorkout: when flipping worlds, pre-set
+    // the destination world's remembered tab so the onChange(of: modeRaw) restore
+    // lands exactly where the step points.
+    private func applyTourStep(_ tourStep: TourStep) {
+        if tourStep.mode != mode {
+            if tourStep.mode == .lifting {
+                liftingTab = tourStep.tab ?? liftingTab
+            } else {
+                nutritionTab = tourStep.tab ?? nutritionTab
+            }
+            modeRaw = tourStep.mode.rawValue
+        } else if let tab = tourStep.tab {
+            selection = tab
+        }
     }
 }
 

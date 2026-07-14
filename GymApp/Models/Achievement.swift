@@ -145,12 +145,36 @@ struct Achievement: Identifiable {
         var isBig3Lift: Bool { self == .squat || self == .bench || self == .deadlift }
     }
 
-    // Claude  Date 06/13/2026 last changed: 06/15/2026 by: Claude
-    // The 42-achievement catalog: 6 categories × 7 tiers. Thresholds map to tiers
+    // Claude  Date 06/13/2026 last changed: 07/14/2026 by: Claude
+    // The 56-achievement catalog: 8 categories × 7 tiers. Thresholds map to tiers
     // in order (bronze → legend). Top tiers (diamond/emerald/legend) are tuned so a
     // natural, drug-free lifter can realistically reach them — notably the big-3,
     // where bench has a lower ceiling than squat/deadlift (see big3Specs).
-    static let all: [Achievement] = {
+    // (This pass: the catalog is now gender-calibrated — see catalog(for:) below —
+    // and the stale "42/6" count in this header was corrected to 56/8.)
+
+    // Claude  Date 07/14/2026
+    // Gender-calibrated catalog. Strength categories (squat/bench/deadlift/curl/
+    // totalLifted) carry female threshold+title variants tuned to natural female
+    // strength ceilings; day/streak categories are identical. .male/.unspecified
+    // use the baseline arrays. CRITICAL INVARIANT: achievement ids are ALWAYS
+    // derived from the BASELINE threshold arrays, so the same 56 ids exist in
+    // every variant — persisted unlock sets (achievements.json), pinned badges,
+    // coin rewards, and Strategist rank scoring stay valid when the user changes
+    // their identity in Settings. Unlocks are sticky either way (never removed).
+    static func catalog(for gender: Gender) -> [Achievement] {
+        gender == .female ? femaleCatalog : baselineCatalog
+    }
+
+    // Claude  Date 07/14/2026
+    // Baseline alias kept for id/tier-only consumers (Coins, StrategistScoring,
+    // previews) that don't care about gender-varying thresholds/titles.
+    static let all: [Achievement] = baselineCatalog
+    private static let baselineCatalog: [Achievement] = build(for: .unspecified)
+    private static let femaleCatalog: [Achievement] = build(for: .female)
+
+    private static func build(for gender: Gender) -> [Achievement] {
+        let female = gender == .female
         let tiers: [BadgeTier] = [.bronze, .silver, .gold, .platinum, .diamond, .emerald, .legend]
         var result: [Achievement] = []
 
@@ -172,25 +196,41 @@ struct Achievement: Identifiable {
         // carries its OWN thresholds + titles: squat/deadlift climb to 7 plates (675
         // lb), while bench tops out at 405 lb — the natural-athlete ceiling for a
         // raw press. Glyphs come from each category's iconName (one per lift).
+        // Claude  Date 07/14/2026
+        // Female variants: plate-friendly bar loads with legend ≈ the natural female
+        // ceiling (405 squat/DL, 225 bench). Ids still come from baselineThresholds
+        // (see the invariant on catalog(for:)).
         let squatDLThresholds = [135, 225, 315, 405, 495, 585, 675]
         let plateTitles = ["One Plate", "Two Plates", "Three Plates", "Four Plates",
                            "Five Plates", "Six Plates", "Seven Plates"]
+        let squatDLFemaleThresholds = [95, 135, 185, 225, 275, 315, 405]
+        let squatDLFemaleTitles = ["Bar & Change", "One Plate", "185 Club", "Two Plates",
+                                   "275 Club", "Three Plates", "Four Plates"]
         let benchThresholds = [135, 185, 225, 275, 315, 365, 405]
         let benchTitles = ["One Plate", "Plate & a Quarter", "Two Plates",
                            "Two & a Quarter", "Three Plates", "Three & a Quarter",
                            "Four Plates"]
+        let benchFemaleThresholds = [65, 95, 115, 135, 155, 185, 225]
+        let benchFemaleTitles = ["First Press", "95 Club", "115 Club", "One Plate",
+                                 "155 Club", "185 Club", "Two Plates"]
         let big3Specs: [(category: Category, id: String, verb: String,
-                         thresholds: [Int], titles: [String],
+                         baselineThresholds: [Int], thresholds: [Int], titles: [String],
                          best: (ProfileStats) -> Double)] = [
-            (.squat,    "squat",    "Squat",    squatDLThresholds, plateTitles, { $0.bestSquatLift }),
-            (.bench,    "bench",    "Bench",    benchThresholds,   benchTitles, { $0.bestBenchLift }),
-            (.deadlift, "deadlift", "Deadlift", squatDLThresholds, plateTitles, { $0.bestDeadliftLift }),
+            (.squat,    "squat",    "Squat",    squatDLThresholds,
+             female ? squatDLFemaleThresholds : squatDLThresholds,
+             female ? squatDLFemaleTitles : plateTitles, { $0.bestSquatLift }),
+            (.bench,    "bench",    "Bench",    benchThresholds,
+             female ? benchFemaleThresholds : benchThresholds,
+             female ? benchFemaleTitles : benchTitles, { $0.bestBenchLift }),
+            (.deadlift, "deadlift", "Deadlift", squatDLThresholds,
+             female ? squatDLFemaleThresholds : squatDLThresholds,
+             female ? squatDLFemaleTitles : plateTitles, { $0.bestDeadliftLift }),
         ]
         for spec in big3Specs {
             for (i, tier) in tiers.enumerated() {
                 let w = spec.thresholds[i]
                 result.append(Achievement(
-                    id: "\(spec.id)_\(w)", category: spec.category, tier: tier,
+                    id: "\(spec.id)_\(spec.baselineThresholds[i])", category: spec.category, tier: tier,
                     title: spec.titles[i], detail: "\(spec.verb) \(w) lb",
                     icon: spec.category.iconName, isUnlocked: { spec.best($0) >= Double(w) }))
             }
@@ -198,28 +238,40 @@ struct Achievement: Identifiable {
 
         // Total Lifted — lifetime volume (Σ reps × weight). The 50k/day credit cap
         // (AchievementPolicy) means the top tiers take real elapsed years.
-        let volThresholds = [100_000, 500_000, 2_000_000, 10_000_000,
-                             25_000_000, 50_000_000, 100_000_000]
-        let volTitles = ["100K Club", "Half Million", "Two Million", "Ten Million",
-                         "25 Million", "50 Million", "Nine-Figure"]
+        // Claude  Date 07/14/2026
+        // Female variant scales the lifetime targets (~60-75%) to match the lower
+        // per-session tonnage of the calibrated lift thresholds. Ids stay baseline.
+        let volBaseline = [100_000, 500_000, 2_000_000, 10_000_000,
+                           25_000_000, 50_000_000, 100_000_000]
+        let volFemale = [75_000, 300_000, 1_000_000, 6_000_000,
+                         15_000_000, 30_000_000, 60_000_000]
+        let volThresholds = female ? volFemale : volBaseline
+        let volTitles = female
+            ? ["75K Club", "300K Club", "First Million", "Six Million",
+               "15 Million", "30 Million", "60 Million"]
+            : ["100K Club", "Half Million", "Two Million", "Ten Million",
+               "25 Million", "50 Million", "Nine-Figure"]
         for (i, tier) in tiers.enumerated() {
             let v = volThresholds[i]
             result.append(Achievement(
-                id: "volume_\(v)", category: .totalLifted, tier: tier,
+                id: "volume_\(volBaseline[i])", category: .totalLifted, tier: tier,
                 title: volTitles[i], detail: "Lift \(compactNumber(v)) lb total",
                 icon: Category.totalLifted.iconName, isUnlocked: { $0.totalVolume >= Double(v) }))
         }
 
-        // Claude  Date 07/11/2026
+        // Claude  Date 07/11/2026 last changed: 07/14/2026 by: Claude
         // Bicep Curl — a standalone isolation-lift badge (not part of the big-3).
         // Thresholds tuned lower than the compound lifts (single-joint isolation).
-        let curlThresholds = [20, 40, 60, 80, 100, 140, 160]
+        // (Added the female threshold variant; titles are weight-agnostic and shared.
+        // Ids stay derived from the baseline array.)
+        let curlBaseline = [20, 40, 60, 80, 100, 140, 160]
+        let curlThresholds = female ? [15, 25, 35, 45, 60, 80, 100] : curlBaseline
         let curlTitles = ["First Pump", "Building Guns", "Solid Curl", "Strong Arms",
                           "Advanced Curl", "Elite Curl", "Legendary Curl"]
         for (i, tier) in tiers.enumerated() {
             let w = curlThresholds[i]
             result.append(Achievement(
-                id: "curl_\(w)", category: .curl, tier: tier,
+                id: "curl_\(curlBaseline[i])", category: .curl, tier: tier,
                 title: curlTitles[i], detail: "Curl \(w) lb",
                 icon: Category.curl.iconName, isUnlocked: { $0.bestCurlLift >= Double(w) }))
         }
@@ -260,7 +312,7 @@ struct Achievement: Identifiable {
         }
 
         return result
-    }()
+    }
 
     private static func compactNumber(_ value: Int) -> String {
         if value >= 1_000_000 { return "\(value / 1_000_000)M" }
@@ -292,8 +344,12 @@ enum AchievementShowcase {
     }
 
     /// All unlocked achievements, best (highest tier) first.
-    static func unlockedSorted(_ unlockedIDs: Set<String>) -> [Achievement] {
-        Achievement.all
+    // Claude  Date 07/14/2026
+    // Takes the catalog as a parameter so callers can pass the gender-calibrated
+    // variant (store.achievementCatalog) and show the right titles/details.
+    static func unlockedSorted(_ unlockedIDs: Set<String>,
+                               catalog: [Achievement] = Achievement.all) -> [Achievement] {
+        catalog
             .filter { unlockedIDs.contains($0.id) }
             .sorted { tierRank($0.tier) > tierRank($1.tier) }
     }
@@ -302,9 +358,11 @@ enum AchievementShowcase {
     /// chosen order, if still unlocked), then `nil` placeholders (rendered as locked/empty)
     /// to fill the row. No auto-fill — the card shows only what the user explicitly chose
     /// in the Featured Badges picker.
-    // Claude  Date 06/13/2026 last changed: 07/01/2026 by: Claude
-    static func featured(unlockedIDs: Set<String>, pinnedIDs: [String]) -> [Achievement?] {
-        let unlocked = Achievement.all.filter { unlockedIDs.contains($0.id) }
+    // Claude  Date 06/13/2026 last changed: 07/14/2026 by: Claude
+    // (Now takes the catalog so the gender-calibrated variant's titles flow through.)
+    static func featured(unlockedIDs: Set<String>, pinnedIDs: [String],
+                         catalog: [Achievement] = Achievement.all) -> [Achievement?] {
+        let unlocked = catalog.filter { unlockedIDs.contains($0.id) }
         var slots: [Achievement?] = pinnedIDs
             .compactMap { id in unlocked.first { $0.id == id } }
             .prefix(maxFeatured)

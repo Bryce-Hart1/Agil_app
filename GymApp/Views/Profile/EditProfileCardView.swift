@@ -103,7 +103,8 @@ struct EditProfileCardView: View {
                     rank: store.profile.showsRankOnCard ? store.strategistRank : nil,
                     rankProgress: store.strategistProgress,
                     avatarID: store.profile.avatarID,
-                    ringFillMode: .rankProgress
+                    ringFillMode: .rankProgress,
+                    catalog: store.achievementCatalog
                 )
                 .frame(height: 420)
                 .listRowInsets(EdgeInsets())

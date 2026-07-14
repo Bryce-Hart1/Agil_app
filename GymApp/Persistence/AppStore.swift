@@ -85,6 +85,11 @@ final class AppStore: ObservableObject {
     // later. RootTabView renders FoundersUnlockOverlay from this. The grant of the
     // cards themselves lives in ThemeManager — this only drives the reveal animation.
     @Published var pendingFoundersUnlock: [CardStyle] = []
+    // Claude  Date 07/14/2026
+    // Whether the spotlight tour overlay is running (transient). Auto-started once
+    // after onboarding (RootTabView) and replayable from Settings; the persistent
+    // "seen it" flag is profile.hasSeenTour. Skipping counts as seen.
+    @Published var tourActive = false
     // Claude  Date 06/16/2026
     // Alpha dev-only: a flat coin grant folded into totalCoinsEarned, so the dev
     // can top up the wallet to test shop/card purchases without grinding workouts.
@@ -169,7 +174,25 @@ final class AppStore: ObservableObject {
         evaluateAchievements(announce: false)
     }
 
+    // MARK: - Tour
+
+    // Claude  Date 07/14/2026
+    // Start/finish the first-boot spotlight tour. Lives here (not view @State) so
+    // Settings can trigger a replay from a pushed screen. completeTour handles both
+    // "Done" and "Skip" — either way the tour never auto-plays again.
+    func startTour() { tourActive = true }
+    func completeTour() {
+        tourActive = false
+        profile.hasSeenTour = true
+    }
+
     // MARK: - Achievements
+
+    // Claude  Date 07/14/2026
+    // The gender-calibrated achievement catalog (thresholds/titles vary; the id set
+    // is identical in every variant, so unlock persistence is gender-agnostic).
+    // Everything user-facing should read this instead of Achievement.all.
+    var achievementCatalog: [Achievement] { Achievement.catalog(for: profile.gender) }
 
     // Claude  Date 06/13/2026
     // Add any achievements whose criteria are currently met to the unlocked set.
@@ -182,8 +205,12 @@ final class AppStore: ObservableObject {
         // NOT from editable workout numbers — that's the anti-cheat fix. Now also
         // feeds the food diary + calorie goal for the Days Tracked badges.
         let stats = ProfileStats(events: activityLog, foodLog: foodLog, nutritionGoals: nutritionGoals)
+        // Claude  Date 07/14/2026
+        // Evaluate against the gender-calibrated catalog — this is where the
+        // identity choice actually changes badge progress. Ids are identical
+        // across variants, so the sticky unlocked set stays valid either way.
         var updated = unlockedAchievementIDs
-        for achievement in Achievement.all where achievement.isUnlocked(stats) {
+        for achievement in achievementCatalog where achievement.isUnlocked(stats) {
             updated.insert(achievement.id)
         }
         guard updated != unlockedAchievementIDs else { return }
@@ -193,7 +220,7 @@ final class AppStore: ObservableObject {
         persistence.save(updated, to: Self.achievementsFile)
 
         if announce {
-            queueCelebrations(Achievement.all.filter {
+            queueCelebrations(achievementCatalog.filter {
                 newlyUnlocked.contains($0.id) && !celebratedAchievementIDs.contains($0.id)
             })
         } else {
@@ -282,7 +309,7 @@ final class AppStore: ObservableObject {
         celebratedAchievementIDs = []
         persistence.save(celebratedAchievementIDs, to: Self.celebratedFile)
         pendingCelebrations = []
-        queueCelebrations(Achievement.all.filter { unlockedAchievementIDs.contains($0.id) })
+        queueCelebrations(achievementCatalog.filter { unlockedAchievementIDs.contains($0.id) })
     }
 
     // Claude  Date 06/15/2026
@@ -291,7 +318,7 @@ final class AppStore: ObservableObject {
     // everything celebrated, sets the rank as seen) so it doesn't fire a wall of
     // overlays. Use "Reset achievements" to return to history-based progress.
     func unlockAllAchievements() {
-        unlockedAchievementIDs = Set(Achievement.all.map(\.id))
+        unlockedAchievementIDs = Set(achievementCatalog.map(\.id))
         celebratedAchievementIDs = unlockedAchievementIDs
         celebratedRank = strategistRank
         pendingCelebrations = []

@@ -58,7 +58,9 @@ struct BadgeGalleryView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(alignment: .top, spacing: 14) {
                 ForEach(BadgeTier.allCases, id: \.self) { tier in
-                    let achievement = Achievement.all.first { $0.category == category && $0.tier == tier }
+                    // Claude  Date 07/14/2026 — gender-calibrated catalog so previewed
+                    // celebrations show the right title/threshold text.
+                    let achievement = store.achievementCatalog.first { $0.category == category && $0.tier == tier }
                     VStack(spacing: 6) {
                         BadgeView(icon: category.iconName, tier: tier,
                                   unlocked: unlocked, size: 54, glimmer: true, ringed: ringed)

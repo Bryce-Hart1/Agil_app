@@ -16,15 +16,17 @@ struct FeaturedBadgesView: View {
 
     // The chosen badges, in display order (dropping any not currently unlocked — badges are
     // sticky, so this is just defensive).
+    // Claude  Date 07/14/2026 — reads the gender-calibrated catalog for correct titles.
     private var featured: [Achievement] {
         store.profile.showcasedAchievementIDs.compactMap { id in
-            Achievement.all.first { $0.id == id }
+            store.achievementCatalog.first { $0.id == id }
         }
     }
 
     // Unlocked badges not already featured, best tier first — the pool you can add from.
     private var available: [Achievement] {
-        AchievementShowcase.unlockedSorted(store.unlockedAchievementIDs)
+        AchievementShowcase.unlockedSorted(store.unlockedAchievementIDs,
+                                           catalog: store.achievementCatalog)
             .filter { !store.profile.showcasedAchievementIDs.contains($0.id) }
     }
 

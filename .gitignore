@@ -15,6 +15,7 @@ project.pbxproj
 agil.xcodeproj
 
 #local md files for ideas and claude
+.claude
 new_ideas.md
 claude_notes.md
 CLAUDE.md
@@ -34,3 +35,5 @@ Cargo.lock
 Info.plist
 GymApp 2.xcodeproj
 
+#assets (not public)
+assets

@@ -78,6 +78,9 @@ enum StrategistRank: Int, CaseIterable, Comparable, Codable {
 enum StrategistScoring {
     static let maxScore = 168
 
+    // Claude  Date 07/14/2026
+    // Stays on Achievement.all (not the gender-calibrated catalog): scoring reads
+    // only id + tier, which are identical across catalog variants by invariant.
     static func score(unlockedIDs: Set<String>) -> Int {
         Achievement.all
             .filter { unlockedIDs.contains($0.id) }

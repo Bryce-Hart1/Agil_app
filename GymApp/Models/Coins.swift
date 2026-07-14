@@ -53,10 +53,12 @@ enum Coins {
         return total
     }
 
-    // Claude  Date 06/13/2026
+    // Claude  Date 06/13/2026 last changed: 07/14/2026 by: Claude
     // Coins granted by unlocked achievements = Σ of their tier rewards. Driven by
     // the persisted unlocked set (AppStore.unlockedAchievementIDs) so, like the
     // achievements themselves, these coins stick once earned.
+    // (Deliberately stays on Achievement.all rather than the gender-calibrated
+    // catalog: it reads only id + tier reward, which are identical in every variant.)
     static func earnedFromAchievements(unlockedIDs: Set<String>) -> Int {
         Achievement.all
             .filter { unlockedIDs.contains($0.id) }

@@ -11,8 +11,13 @@ struct AchievementsView: View {
 
     @State private var showBig3Info = false
 
+    // Claude  Date 07/14/2026
+    // Read the gender-calibrated catalog so thresholds/titles reflect the user's
+    // identity choice (same ids/tiers in every variant, so counts are unaffected).
+    private var catalog: [Achievement] { store.achievementCatalog }
+
     private var unlockedCount: Int {
-        Achievement.all.filter { store.unlockedAchievementIDs.contains($0.id) }.count
+        catalog.filter { store.unlockedAchievementIDs.contains($0.id) }.count
     }
 
     // Powerlifting's three competition lifts; worded to match how we track them.
@@ -28,7 +33,7 @@ struct AchievementsView: View {
                 HStack {
                     Label("Unlocked", systemImage: "rosette")
                     Spacer()
-                    Text("\(unlockedCount) / \(Achievement.all.count)")
+                    Text("\(unlockedCount) / \(catalog.count)")
                         .foregroundStyle(.secondary)
                         .monospacedDigit()
                 }
@@ -38,7 +43,7 @@ struct AchievementsView: View {
 
             ForEach(Achievement.Category.allCases, id: \.self) { category in
                 Section {
-                    ForEach(Achievement.all.filter { $0.category == category }) { achievement in
+                    ForEach(catalog.filter { $0.category == category }) { achievement in
                         AchievementRow(
                             achievement: achievement,
                             unlocked: store.unlockedAchievementIDs.contains(achievement.id),

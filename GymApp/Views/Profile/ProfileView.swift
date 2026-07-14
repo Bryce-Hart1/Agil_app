@@ -31,9 +31,15 @@ struct ProfileView: View {
                             rank: store.profile.showsRankOnCard ? store.strategistRank : nil,
                             rankProgress: store.strategistProgress,
                             avatarID: store.profile.avatarID,
-                            ringFillMode: .rankProgress
+                            ringFillMode: .rankProgress,
+                            catalog: store.achievementCatalog
                         )
                         .frame(height: max(380, geo.size.height - 32))
+                        // Claude  Date 07/14/2026
+                        // Spotlight-tour anchor: the one in-content target, reported
+                        // via the real preference plumbing (chrome targets use
+                        // synthesized fallbacks instead — see TourSupport).
+                        .tourTarget(.profileCard)
 
                         rankBanner
 
@@ -80,6 +86,13 @@ struct ProfileView: View {
             // Icon: custom template asset "wrench" (was slider.horizontal.3).
             profileNavRow("Edit Profile Card", image: "wrench") {
                 EditProfileCardView()
+            }
+            Divider().padding(.leading, 16)
+            // Claude  Date 07/14/2026
+            // Friends manager (share code, add/accept, friends list, blocks). Sits
+            // between Edit Profile Card and Achievements.
+            profileNavRow("Friends", systemImage: "person.2") {
+                FriendsView()
             }
             Divider().padding(.leading, 16)
             profileNavRow("Achievements", systemImage: "rosette") {
@@ -177,13 +190,20 @@ struct ProfileShowcaseCard: View {
     // next rank — a personal "how close am I" meter). Friends viewing your card keep the
     // default .rankSegments (your rank crest), so your progress-to-next stays private.
     var ringFillMode: RankRingFill = .rankSegments
+    // Claude  Date 07/14/2026
+    // Which achievement catalog resolves the pinned badge ids. Your OWN card passes the
+    // gender-calibrated store.achievementCatalog; friend cards keep the baseline default —
+    // a friend's identity is never shared (SharedCard privacy contract), and ids/tiers are
+    // identical across variants so the badges themselves render the same.
+    var catalog: [Achievement] = Achievement.all
 
     // Claude  Date 06/13/2026 last changed: 07/12/2026 by: Claude
     // Just the user's pinned badges (in their chosen order, still-unlocked, capped at
     // maxFeatured). The empty slots that AchievementShowcase.featured pads with are
     // dropped here, so the row shows only real badges — no "Locked" placeholders.
     private var featuredBadges: [Achievement] {
-        AchievementShowcase.featured(unlockedIDs: unlockedIDs, pinnedIDs: pinnedIDs)
+        AchievementShowcase.featured(unlockedIDs: unlockedIDs, pinnedIDs: pinnedIDs,
+                                     catalog: catalog)
             .compactMap { $0 }
     }
 

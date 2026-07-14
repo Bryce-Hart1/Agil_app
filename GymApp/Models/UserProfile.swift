@@ -9,10 +9,21 @@ enum DataMode: String, Codable, Hashable {
     case friends   // can add others via a friend code (future)
 }
 
-// Claude  Date 06/09/2026 last changed: 06/13/2026 by: Claude
+// Claude  Date 07/14/2026
+// The user's self-identified gender, chosen during onboarding. ON-DEVICE ONLY:
+// it is used for exactly one thing — calibrating strength-badge thresholds
+// (see Achievement.catalog(for:)) — and is deliberately absent from SharedCard/
+// CardSyncService per the privacy contract in SharedCard.swift. .unspecified
+// ("prefer not to say") uses the baseline thresholds.
+enum Gender: String, Codable, Hashable, CaseIterable {
+    case male, female, unspecified
+}
+
+// Claude  Date 06/09/2026 last changed: 07/14/2026 by: Claude
 // The local user profile. Drives onboarding, the profile card, and (later) the
 // online/shareable profile. Codable so it can sync to the backend.
-// (Added dataMode — the onboarding data-storage choice.)
+// (Added gender — on-device badge calibration — and hasSeenTour, the one-shot
+// flag for the first-boot spotlight tour.)
 struct UserProfile: Codable, Hashable {
     var displayName: String
     // Whether first-run onboarding (the welcome name prompt) has been completed.
@@ -31,11 +42,18 @@ struct UserProfile: Codable, Hashable {
     // Whether the Strategist rank emblem is equipped onto the showcase card. Off by
     // default; the rank still always shows in the banner below the card.
     var showsRankOnCard: Bool
+    // Claude  Date 07/14/2026
+    // On-device only (never synced/shared): calibrates strength-badge thresholds.
+    var gender: Gender
+    // Claude  Date 07/14/2026
+    // Whether the first-boot spotlight tour has been seen (completed OR skipped).
+    var hasSeenTour: Bool
 
     init(displayName: String = "", hasOnboarded: Bool = false,
          cardStyleID: String = CardStyle.defaultStyle.id, avatarID: String = Avatar.defaultAvatar.id,
          dataMode: DataMode = .offline,
-         showcasedAchievementIDs: [String] = [], showsRankOnCard: Bool = false) {
+         showcasedAchievementIDs: [String] = [], showsRankOnCard: Bool = false,
+         gender: Gender = .unspecified, hasSeenTour: Bool = false) {
         self.displayName = displayName
         self.hasOnboarded = hasOnboarded
         self.cardStyleID = cardStyleID
@@ -43,6 +61,8 @@ struct UserProfile: Codable, Hashable {
         self.dataMode = dataMode
         self.showcasedAchievementIDs = showcasedAchievementIDs
         self.showsRankOnCard = showsRankOnCard
+        self.gender = gender
+        self.hasSeenTour = hasSeenTour
     }
 
     // Claude  Date 06/12/2026 last changed: 06/13/2026 by: Claude
@@ -52,7 +72,8 @@ struct UserProfile: Codable, Hashable {
     // new: if absent, migrate from the legacy cardColorHex (#000000 → "black",
     // anything else → the default style).
     enum CodingKeys: String, CodingKey {
-        case displayName, hasOnboarded, cardStyleID, avatarID, dataMode, showcasedAchievementIDs, showsRankOnCard
+        case displayName, hasOnboarded, cardStyleID, avatarID, dataMode, showcasedAchievementIDs, showsRankOnCard,
+             gender, hasSeenTour
     }
     private enum LegacyKeys: String, CodingKey { case cardColorHex }
     init(from decoder: Decoder) throws {
@@ -64,6 +85,10 @@ struct UserProfile: Codable, Hashable {
         dataMode = try c.decodeIfPresent(DataMode.self, forKey: .dataMode) ?? .offline
         showcasedAchievementIDs = try c.decodeIfPresent([String].self, forKey: .showcasedAchievementIDs) ?? []
         showsRankOnCard = try c.decodeIfPresent(Bool.self, forKey: .showsRankOnCard) ?? false
+        // Claude  Date 07/14/2026 — new fields; older profiles default to baseline
+        // thresholds and get the spotlight tour once on their next launch.
+        gender = try c.decodeIfPresent(Gender.self, forKey: .gender) ?? .unspecified
+        hasSeenTour = try c.decodeIfPresent(Bool.self, forKey: .hasSeenTour) ?? false
         if let id = try c.decodeIfPresent(String.self, forKey: .cardStyleID) {
             cardStyleID = id
         } else {

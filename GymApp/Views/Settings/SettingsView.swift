@@ -19,6 +19,11 @@ struct SettingsView: View {
     // Rest-timer face style (same key RestTimerFullScreenView reads): false keeps
     // the original progress ring, true swaps in the analog stopwatch face.
     @AppStorage("restTimerAnalogStyle") private var restTimerAnalogStyle = false
+    // Claude  Date 07/14/2026
+    // For "Replay app tour": Settings is pushed on the Profile stack, so pop back
+    // first — the tour spotlights root-level chrome (ModeNotch, tab bar) that a
+    // pushed screen covers.
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         List {
@@ -27,6 +32,22 @@ struct SettingsView: View {
             Section("Profile") {
                 TextField("Display name", text: $store.profile.displayName)
                     .textInputAutocapitalization(.words)
+            }
+            // Claude  Date 07/14/2026
+            // Identity (from onboarding, editable here). On-device only; its sole
+            // purpose is calibrating strength-badge thresholds. Changing it silently
+            // re-evaluates achievements — see identityBinding. The footer restates
+            // the privacy contract and the sticky-badge guarantee.
+            Section {
+                Picker("Identify as", selection: identityBinding) {
+                    Text("Male").tag(Gender.male)
+                    Text("Female").tag(Gender.female)
+                    Text("Prefer not to say").tag(Gender.unspecified)
+                }
+            } header: {
+                Text("Identity")
+            } footer: {
+                Text("Stays on this device — never shared or uploaded. Used only to calibrate strength-badge thresholds. Badges you've already earned always stay earned.")
             }
             Section("Appearance") {
                 NavigationLink {
@@ -80,9 +101,9 @@ struct SettingsView: View {
                 }
 
                 NavigationLink {
-                    FriendLookupView()
+                    FriendsView()
                 } label: {
-                    Label("View a friend's card", systemImage: "person.crop.square")
+                    Label("Manage friends", systemImage: "person.2")
                 }
             } header: {
                 Text("Friends")
@@ -99,6 +120,25 @@ struct SettingsView: View {
                 Text("Food lookups")
             } footer: {
                 Text("When on, food search and barcode scans only use foods saved on this device. If something isn't found, you'll be asked to enter it yourself or search Open Food Facts online just for that lookup.")
+            }
+
+            // Claude  Date 07/14/2026
+            // Replay the first-boot spotlight tour. Pops Settings first (see the
+            // dismiss note above); the short delay lets the pop animation land before
+            // the overlay appears and starts driving tabs/modes itself.
+            Section {
+                Button {
+                    dismiss()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                        store.startTour()
+                    }
+                } label: {
+                    Label("Replay app tour", systemImage: "sparkles.rectangle.stack")
+                }
+            } header: {
+                Text("Help")
+            } footer: {
+                Text("Replays the guided tour of the app's main screens.")
             }
 
             Section("About") {
@@ -203,6 +243,21 @@ struct SettingsView: View {
                 let mode: DataMode = isOn ? .friends : .offline
                 store.profile.dataMode = mode
                 cardSync.handleModeChange(to: mode, store: store)
+            }
+        )
+    }
+
+    // Claude  Date 07/14/2026
+    // Drives the Identity picker: persists via the profile's didSet, then silently
+    // re-evaluates achievements against the newly selected catalog (announce: false —
+    // flipping a picker shouldn't fire a celebration wall). Unlocks are sticky, so
+    // switching identities never removes an earned badge.
+    private var identityBinding: Binding<Gender> {
+        Binding(
+            get: { store.profile.gender },
+            set: { newValue in
+                store.profile.gender = newValue
+                store.evaluateAchievements(announce: false)
             }
         )
     }

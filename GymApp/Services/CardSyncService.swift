@@ -17,8 +17,15 @@ import Security
 // so rapid edits coalesce into one request and unchanged cards never hit the network.
 @MainActor
 final class CardSyncService: ObservableObject {
-    // Public identity (the friend code). nil until the user first opts into Friends mode.
+    // The device identity: the UUID used as X-User-Id and in card URLs. nil until the
+    // user first opts into Friends mode. (This is NOT the human-shareable code — see
+    // `friendCode` below.)
     @Published private(set) var identity: DeviceIdentity?
+    // Claude  Date 07/14/2026
+    // The short, server-owned friend code (5-char Crockford base-32) the user shares.
+    // Populated from our own card after the first successful push (the server assigns
+    // it), persisted, and shown wherever the user needs to hand it out.
+    @Published private(set) var friendCode: String?
 
     private let backend: CardBackend
     private let persistence: PersistenceService
@@ -32,11 +39,12 @@ final class CardSyncService: ObservableObject {
 
     private static let identityFile = "identity.json"
     private static let lastPushedFile = "last_pushed_card.json"
+    private static let friendCodeFile = "friend_code.json"
     private static let keychainKey = "agil.cardKey"
     private static let pushDebounce: UInt64 = 800_000_000   // 0.8s
 
-    /// The user's shareable friend code, once Friends mode has been enabled.
-    var myFriendCode: String? { identity?.userID }
+    /// The user's shareable friend code, once Friends mode has synced at least once.
+    var myFriendCode: String? { friendCode }
 
     init(backend: CardBackend = BackendClient(),
          persistence: PersistenceService = PersistenceService(),
@@ -46,6 +54,7 @@ final class CardSyncService: ObservableObject {
         self.keychain = keychain
         self.identity = persistence.load(Self.identityFile, default: DeviceIdentity?.none)
         self.lastPushed = persistence.load(Self.lastPushedFile, default: SharedCard?.none)
+        self.friendCode = persistence.load(Self.friendCodeFile, default: String?.none)
     }
 
     // MARK: - Identity
@@ -104,9 +113,29 @@ final class CardSyncService: ObservableObject {
                 try await backend.putCard(wire, key: key)
                 self.lastPushed = snapshot
                 persistence.save(snapshot as SharedCard?, to: Self.lastPushedFile)
+                // Claude  Date 07/14/2026
+                // The server assigns/owns our short friend code; learn it by reading
+                // back our own card after the push. Cheap and only when it's unknown.
+                if self.friendCode == nil,
+                   let mine = try? await backend.fetchCard(id: id),
+                   let code = mine.friendCode {
+                    self.friendCode = code
+                    persistence.save(code as String?, to: Self.friendCodeFile)
+                }
             } catch {
                 print("⚠️ card sync push failed: \(error)")
             }
+        }
+    }
+
+    // Claude  Date 07/14/2026
+    // Make sure we know our own friend code before showing the Friends screen, in
+    // case a push hasn't captured it yet this session. No-op once known.
+    func ensureFriendCode() async {
+        guard friendCode == nil, let id = identity?.userID else { return }
+        if let mine = try? await backend.fetchCard(id: id), let code = mine.friendCode {
+            friendCode = code
+            persistence.save(code as String?, to: Self.friendCodeFile)
         }
     }
 
@@ -123,34 +152,103 @@ final class CardSyncService: ObservableObject {
             rankProgress: store.strategistProgress,
             showcasedAchievementIDs: store.profile.showcasedAchievementIDs,
             memberSince: stats.memberSince,
-            updatedAt: nil
+            updatedAt: nil,
+            // Server-owned — never sent from the client (ignored on PUT).
+            friendCode: nil
         )
     }
 
-    // MARK: - Fetch / delete
+    // MARK: - Friends graph
 
-    /// Fetch a friend's card by their code. Returns nil on 404 or any error.
-    func fetchFriendCard(id: String) async -> SharedCard? {
-        let trimmed = id.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
+    // Claude  Date 07/14/2026
+    // The outcome of trying to add a friend, shaped for direct display. `.sent` and
+    // `.autoAccepted` are the two success shapes; `.failed` carries a user-facing
+    // message — the 429 (rate-limit) message is passed through VERBATIM per the
+    // backend contract, the others are friendly translations of the status codes.
+    enum AddFriendResult: Equatable {
+        case sent
+        case autoAccepted
+        case failed(String)
+    }
+
+    // Send a friend request BY short code. See AddFriendResult for the mapping.
+    func sendFriendRequest(code: String) async -> AddFriendResult {
+        let trimmed = code.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return .failed("Enter a friend code first.") }
+        guard let auth = auth() else { return .failed("Turn on Friends mode first.") }
         do {
-            return try await backend.fetchCard(id: trimmed)
+            let outcome = try await backend.sendFriendRequest(code: trimmed, auth: auth)
+            return outcome == .autoAccepted ? .autoAccepted : .sent
+        } catch let BackendError.rateLimited(message) {
+            return .failed(message)   // shown verbatim
+        } catch BackendError.badRequest {
+            return .failed("That's your own code — you can't add yourself.")
+        } catch BackendError.forbidden {
+            return .failed("You can't send a request to this person.")
+        } catch BackendError.notFound {
+            return .failed("No one found for that code. Double-check it and try again.")
+        } catch BackendError.conflict {
+            return .failed("You're already friends, or a request is already pending.")
         } catch {
-            print("⚠️ fetch friend card failed: \(error)")
-            return nil
+            return .failed("Couldn't send the request. Check your connection and try again.")
         }
     }
 
+    /// Cards of everyone with a pending incoming request to us.
+    func loadIncomingRequests() async -> [SharedCard] { await load { try await backend.incomingRequests(auth: $0) } }
+    /// Cards of our accepted friends.
+    func loadFriends() async -> [SharedCard] { await load { try await backend.friends(auth: $0) } }
+    /// Cards of everyone we've blocked.
+    func loadBlocked() async -> [SharedCard] { await load { try await backend.blocks(auth: $0) } }
+
+    // Mutations. All key off the other user's UUID (`otherId`), never their code —
+    // the caller pulls that UUID from the SharedCard.userId in the loaded lists.
+    @discardableResult func acceptRequest(_ otherId: String) async -> Bool { await act { try await backend.acceptRequest(otherId: otherId, auth: $0) } }
+    @discardableResult func declineRequest(_ otherId: String) async -> Bool { await act { try await backend.declineRequest(otherId: otherId, auth: $0) } }
+    @discardableResult func unfriend(_ otherId: String) async -> Bool { await act { try await backend.unfriend(otherId: otherId, auth: $0) } }
+    @discardableResult func block(userId otherId: String) async -> Bool { await act { try await backend.block(userId: otherId, code: nil, auth: $0) } }
+    @discardableResult func unblock(_ otherId: String) async -> Bool { await act { try await backend.unblock(otherId: otherId, auth: $0) } }
+
+    // MARK: - Delete
+
     // Remove our card from the server and clear the push cache (so re-enabling Friends
-    // re-uploads from scratch). Keeps the id + secret so the same friend code returns.
+    // re-uploads from scratch). Keeps the id + secret so the same identity returns; the
+    // short friend code is server-owned, so we drop our cached copy and re-learn it on
+    // the next push.
     private func deleteMyCard() {
         pushTask?.cancel()
         lastPushed = nil
+        friendCode = nil
         persistence.save(SharedCard?.none, to: Self.lastPushedFile)
+        persistence.save(String?.none, to: Self.friendCodeFile)
         guard let id = identity?.userID, let key = keychain.get(Self.keychainKey) else { return }
         Task { [backend] in
             do { try await backend.deleteCard(id: id, key: key) }
             catch { print("⚠️ card delete failed: \(error)") }
         }
+    }
+
+    // MARK: - Friends plumbing
+
+    // Our credentials for a /friends call, or nil if Friends mode was never enabled
+    // (no identity/secret yet).
+    private func auth() -> BackendAuth? {
+        guard let id = identity?.userID, let key = keychain.get(Self.keychainKey) else { return nil }
+        return BackendAuth(userId: id, key: key)
+    }
+
+    // Run a list-returning call, swallowing errors to an empty list (the UI treats
+    // "couldn't load" and "nothing here" the same — an empty section).
+    private func load(_ call: (BackendAuth) async throws -> [SharedCard]) async -> [SharedCard] {
+        guard let auth = auth() else { return [] }
+        do { return try await call(auth) }
+        catch { print("⚠️ friends load failed: \(error)"); return [] }
+    }
+
+    // Run a mutation, returning whether it succeeded.
+    private func act(_ call: (BackendAuth) async throws -> Void) async -> Bool {
+        guard let auth = auth() else { return false }
+        do { try await call(auth); return true }
+        catch { print("⚠️ friends action failed: \(error)"); return false }
     }
 }
