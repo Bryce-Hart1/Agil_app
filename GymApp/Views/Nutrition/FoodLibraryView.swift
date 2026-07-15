@@ -14,6 +14,11 @@ struct FoodLibraryView: View {
     // Claude  Date 06/18/2026 — barcode scan state (scanner sheet + carried-over code).
     @State private var showingScanner = false
     @State private var scannedBarcode: String?
+    // Claude  Date 07/14/2026
+    // The food whose detail page is up (tap a row, or a barcode that just resolved).
+    // Non-nil drives the FoodDetailView sheet. `item:`-bound so it also carries which
+    // food to show.
+    @State private var detailFood: FoodDetail?
 
     // Claude  Date 06/18/2026
     // Recents = the library newest-first (foods are appended on create / first scan, so
@@ -38,11 +43,17 @@ struct FoodLibraryView: View {
                 } else {
                     Section("Recents") {
                         ForEach(recents) { food in
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(food.displayLabel).font(.subheadline).fontWeight(.medium)
-                                Text("\(Int(food.nutrients.calories.rounded())) kcal · \(food.servingLabel)")
-                                    .font(.caption2).foregroundStyle(.secondary)
+                            // Claude  Date 07/14/2026
+                            // Tapping a food opens its detail page (the same view a scan
+                            // pops), built from the library FoodItem via the adapter.
+                            Button { detailFood = FoodDetail(from: food) } label: {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(food.displayLabel).font(.subheadline).fontWeight(.medium)
+                                    Text("\(Int(food.nutrients.calories.rounded())) kcal · \(food.servingLabel)")
+                                        .font(.caption2).foregroundStyle(.secondary)
+                                }
                             }
+                            .buttonStyle(.plain)
                         }
                         .onDelete { offsets in
                             offsets.map { recents[$0] }.forEach(store.deleteFood)
@@ -75,12 +86,20 @@ struct FoodLibraryView: View {
             .sheet(isPresented: $showingNewFood, onDismiss: { scannedBarcode = nil }) {
                 NewFoodView(initialBarcode: scannedBarcode)
             }
-            // Claude  Date 06/18/2026
+            // Claude  Date 06/18/2026 last changed: 07/14/2026 by: Claude
             // Scan-to-Recents: a found product is cached into the library (no logging,
             // since there's no meal context here); a miss opens "New Food" with the code.
+            // (Now also pops the detail page for the resolved food — presented just after
+            // the scanner sheet closes to avoid a sheet-swap race, same trick as manual
+            // entry below.)
             .sheet(isPresented: $showingScanner) {
                 BarcodeScanSheet(
-                    onResolved: { food in store.cacheFood(food) },
+                    onResolved: { food in
+                        let cached = store.cacheFood(food)
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                            detailFood = FoodDetail(from: cached)
+                        }
+                    },
                     onManualEntry: { code in
                         scannedBarcode = code
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
@@ -88,6 +107,11 @@ struct FoodLibraryView: View {
                         }
                     }
                 )
+            }
+            // Claude  Date 07/14/2026
+            // The food detail page — pops for a tapped recent or a freshly scanned item.
+            .sheet(item: $detailFood) { detail in
+                FoodDetailView(food: detail)
             }
         }
     }

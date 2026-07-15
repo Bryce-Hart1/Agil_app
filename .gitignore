@@ -37,3 +37,6 @@ GymApp 2.xcodeproj
 
 #assets (not public)
 assets
+
+#for future, new workouts 
+new_workouts
