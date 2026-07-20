@@ -90,8 +90,19 @@ struct FoodPickerView: View {
             .navigationTitle("Add to \(meal.title)")
             .navigationBarTitleDisplayMode(.inline)
             .themed(theme.current)
+            // Claude  Date 07/16/2026
+            // The confirm step is the full food detail page now (same one the Foods tab
+            // and barcode scans use) — one polished flow instead of the old bare
+            // LogFoodView form. It's pushed, pre-seeded with this sheet's target meal,
+            // and hands back the dialed-in nutrients; we write the diary entry onto
+            // `date` and drop the whole picker sheet.
             .navigationDestination(for: FoodItem.self) { food in
-                LogFoodView(food: food, meal: meal, date: date) { dismiss() }
+                let detail = FoodDetail(from: food)
+                FoodDetailView(food: detail, initialMeal: meal) { chosenMeal, consumed in
+                    store.logFoodDetail(detail, consumed: consumed,
+                                        meal: chosenMeal, on: date)
+                    dismiss()
+                }
             }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -105,10 +116,11 @@ struct FoodPickerView: View {
                     path.append(created)
                 }
             }
-            // Claude  Date 06/18/2026
+            // Claude  Date 06/18/2026 last changed: 07/16/2026 by: Claude
             // Scan-to-log: a found product goes straight to the serving/confirm step
-            // (LogFoodView via the path). A miss hands the barcode to "Create custom
-            // food", presented just after the scanner closes (avoids a sheet-swap race).
+            // (the food detail page, via the path). A miss hands the barcode to "Create
+            // custom food", presented just after the scanner closes (avoids a
+            // sheet-swap race).
             .sheet(isPresented: $showingScanner) {
                 BarcodeScanSheet(
                     onResolved: { food in path.append(store.cacheFood(food)) },
@@ -253,69 +265,6 @@ private struct FoodPickRow: View {
     }
 }
 
-// Claude  Date 06/16/2026
-// The confirm step after picking a food: choose how many servings (and optionally
-// re-pick the meal), see the live totals, then log it onto the diary day. Logging
-// snapshots the food (see FoodEntry), so it's safe even for one-off foods.
-private struct LogFoodView: View {
-    @EnvironmentObject private var store: AppStore
-    @EnvironmentObject private var theme: ThemeManager
-
-    let food: FoodItem
-    let date: Date
-    let onLogged: () -> Void
-
-    @State private var servings: Double
-    @State private var meal: MealType
-
-    init(food: FoodItem, meal: MealType, date: Date, onLogged: @escaping () -> Void) {
-        self.food = food
-        self.date = date
-        self.onLogged = onLogged
-        _servings = State(initialValue: 1)
-        _meal = State(initialValue: meal)
-    }
-
-    private var consumed: Nutrients { food.nutrients.scaled(by: servings) }
-
-    var body: some View {
-        Form {
-            Section("Food") {
-                Text(food.displayLabel).font(.headline)
-                Text("Per \(food.servingLabel): \(Int(food.nutrients.calories.rounded())) kcal")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-
-            Section("Amount") {
-                Stepper(value: $servings, in: 0.25...50, step: 0.25) {
-                    Text("Servings: \(servingsText)")
-                }
-                Picker("Meal", selection: $meal) {
-                    ForEach(MealType.allCases) { Text($0.title).tag($0) }
-                }
-            }
-
-            Section("This logs") {
-                LabeledContent("Calories", value: "\(Int(consumed.calories.rounded())) kcal")
-                LabeledContent("Protein", value: "\(Int(consumed.protein.rounded())) g")
-                LabeledContent("Carbs", value: "\(Int(consumed.carbs.rounded())) g")
-                LabeledContent("Fat", value: "\(Int(consumed.fat.rounded())) g")
-            }
-        }
-        .navigationTitle("Log Food")
-        .navigationBarTitleDisplayMode(.inline)
-        .themed(theme.current)
-        .toolbar {
-            ToolbarItem(placement: .confirmationAction) {
-                Button("Add") {
-                    store.logFood(food, servings: servings, meal: meal, on: date)
-                    onLogged()
-                }
-            }
-        }
-    }
-
-    private var servingsText: String {
-        servings.rounded() == servings ? String(Int(servings)) : String(format: "%.2f", servings)
-    }
-}
+// Claude  Date 07/16/2026
+// (LogFoodView, the old bare confirm form, is gone — FoodDetailView is the single
+// serving/confirm step for every path: diary picker, Foods tab, and barcode scans.)

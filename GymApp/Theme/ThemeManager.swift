@@ -1,5 +1,9 @@
 import Foundation
 import SwiftUI
+// Claude  Date 07/16/2026
+// WidgetKit: the home-screen widget is tinted with the active theme, so theme
+// changes push the new palette into the shared snapshot and reload the widget.
+import WidgetKit
 
 /// Owns the available themes (built-in presets + user-created custom ones) and
 /// the current selection. Persists custom themes and the selected id to
@@ -200,5 +204,16 @@ final class ThemeManager: ObservableObject {
                    unlockedAvatarIDs: unlockedAvatarIDs),
             to: Self.file
         )
+        syncWidgetSnapshot()
+    }
+
+    // Claude  Date 07/16/2026
+    // Push the active theme into the widget's shared snapshot (App Group) so the
+    // home-screen widget re-tints itself. Called from save() (any selection /
+    // custom-theme edit lands there) and once at launch from GymAppApp — didSets
+    // don't fire during init, so a launch call is needed for the first write.
+    func syncWidgetSnapshot() {
+        WidgetSnapshot.update { $0.theme = current }
+        WidgetCenter.shared.reloadAllTimelines()
     }
 }

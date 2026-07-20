@@ -70,6 +70,10 @@ struct ProgressDashboardView: View {
                     Text(exercise.displayLabel).tag(Optional(exercise.id))
                 }
             }
+            // Claude  Date 07/16/2026
+            // Rebuild on theme swap so the menu picker's value label re-reads the
+            // accent (it's UIKit-backed and resolves its tint only at creation).
+            .retintOnThemeChange(theme.current, salt: "oneRM-exercise")
             if oneRepMaxPoints.count >= 1 {
                 TrendChart(points: oneRepMaxPoints, color: theme.current.accent, unit: "lb")
             } else {

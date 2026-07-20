@@ -39,8 +39,17 @@ struct RootTabView: View {
 
     var body: some View {
         TabView(selection: $selection) {
+            // Claude  Date 07/16/2026
+            // Every tab hosts the workout mini-bar as a bottom safe-area inset
+            // (.workoutMiniBar) instead of the old TabView-wide floating overlay.
+            // The overlay painted the bar on top of each page, so the last ~55pt
+            // of every scroll view was hidden underneath it and untappable while
+            // a workout was active (e.g. the Settings row at the bottom of
+            // Profile). The inset keeps the bar just above the tab bar but lets
+            // scroll content end above it; it collapses when no bar is shown.
             if mode == .lifting {
                 WorkoutsListView()
+                    .workoutMiniBar(onOpen: openActiveWorkout)
                     .tabItem { Label("Workouts", systemImage: "dumbbell") }
                     .tag(1)
 
@@ -49,12 +58,14 @@ struct RootTabView: View {
                 // library reachable from its top-left link. (Icon: custom template
                 // asset "hammer" via Label(_:image:), replacing plus.square.on.square.)
                 PresetsListView()
+                    .workoutMiniBar(onOpen: openActiveWorkout)
                     .tabItem { Label("Build", image: "hammer") }
                     .tag(2)
 
                 // Claude  Date 07/13/2026
                 // Icon: custom template asset "chart-scatter" (was chart.bar.xaxis).
                 ProgressDashboardView()
+                    .workoutMiniBar(onOpen: openActiveWorkout)
                     .tabItem { Label("Progress", image: "chart-scatter") }
                     .tag(3)
 
@@ -62,6 +73,7 @@ struct RootTabView: View {
                 // Icon: custom template asset "user-circle-dashed" (was
                 // person.crop.circle). Shared by both worlds' Profile tab.
                 ProfileView()
+                    .workoutMiniBar(onOpen: openActiveWorkout)
                     .tabItem { Label("Profile", image: "user-circle-dashed") }
                     .tag(4)
             } else {
@@ -71,10 +83,12 @@ struct RootTabView: View {
                 // (Icons: custom template assets "notepad"/"orange", replacing
                 // fork.knife/carrot.)
                 NutritionJournalView()
+                    .workoutMiniBar(onOpen: openActiveWorkout)
                     .tabItem { Label("Journal", image: "notepad") }
                     .tag(1)
 
                 FoodLibraryView()
+                    .workoutMiniBar(onOpen: openActiveWorkout)
                     .tabItem { Label("Foods", image: "orange") }
                     .tag(2)
 
@@ -82,6 +96,7 @@ struct RootTabView: View {
                 // Icon: custom template asset "user-circle-dashed" (was
                 // person.crop.circle). Shared by both worlds' Profile tab.
                 ProfileView()
+                    .workoutMiniBar(onOpen: openActiveWorkout)
                     .tabItem { Label("Profile", image: "user-circle-dashed") }
                     .tag(3)
             }
@@ -112,14 +127,11 @@ struct RootTabView: View {
         .fullScreenCover(isPresented: $session.showFullScreenTimer) {
             RestTimerFullScreenView()
         }
-        // Claude  Date 06/16/2026
-        // Global "now playing"-style bar for an in-progress workout, floating just
-        // above the tab bar in every tab/mode. Renders nothing when no workout is
-        // active. Applied BEFORE the celebration overlay so badge pop-ups sit on top.
-        .overlay(alignment: .bottom) {
-            WorkoutMiniBar(onOpen: openActiveWorkout)
-                .padding(.bottom, 49)
-        }
+        // Claude  Date 06/16/2026 last changed: 07/16/2026 by: Claude
+        // The global workout mini-bar used to be a floating overlay here (with a
+        // hardcoded 49pt tab-bar offset); it's now a per-tab safe-area inset —
+        // see .workoutMiniBar above — so pages scroll clear of it. Celebration
+        // overlays below still sit on top of it, same as before.
         // Claude  Date 06/13/2026
         // Achievement-unlock celebration, shown over the whole app. Keyed by id so
         // each queued unlock gets a fresh pop-in animation as you tap through.

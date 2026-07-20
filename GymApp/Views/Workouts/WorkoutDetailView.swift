@@ -73,7 +73,19 @@ private struct WorkoutEditor: View {
 
             ForEach($workout.exercises) { $logged in
                 Section {
-                    ExerciseLogSection(logged: $logged, accent: theme.current.accent) {
+                    // Claude  Date 07/19/2026
+                    // onSwap: point this entry at a different lift, in place. The logged
+                    // sets, note and adaptive suggestion all describe the OLD lift, so
+                    // they're cleared; the rep range is re-derived from the new lift's
+                    // history (same rule the picker uses when adding). Rest timer stays —
+                    // it's a property of how you're training, not of the lift.
+                    ExerciseLogSection(logged: $logged, accent: theme.current.accent) { exercise in
+                        logged.exerciseId = exercise.id
+                        logged.targetRepRange = store.defaultRepRange(for: exercise.id)
+                        logged.sets.removeAll()
+                        logged.note = nil
+                        logged.adaptive = nil
+                    } onRemove: {
                         workout.exercises.removeAll { $0.id == logged.id }
                     }
                 } header: {
@@ -290,9 +302,18 @@ private struct WorkoutEditor: View {
 /// and a "remove exercise" button.
 private struct ExerciseLogSection: View {
     @EnvironmentObject private var store: AppStore
+    // Claude  Date 07/16/2026
+    // For retintOnThemeChange below — the menu picker needs the active theme's
+    // identity, not just the resolved accent Color passed in by the parent.
+    @EnvironmentObject private var theme: ThemeManager
     @Binding var logged: LoggedExercise
     let accent: Color
+    let onSwap: (Exercise) -> Void
     let onRemove: () -> Void
+
+    // Claude  Date 07/19/2026
+    // Drives the exercise picker opened by the row's "Swap" button.
+    @State private var showingSwapPicker = false
 
     var body: some View {
         RepRangeRow(targetRepRange: $logged.targetRepRange)
@@ -302,10 +323,12 @@ private struct ExerciseLogSection: View {
                   axis: .vertical)
             .lineLimit(1...4)
 
-        // Claude  Date 06/12/2026 last changed: 06/16/2026 by: Claude
+        // Claude  Date 06/12/2026 last changed: 07/16/2026 by: Claude
         // Optional rest timer for ANY exercise — preset items arrive with a duration,
         // but ad-hoc exercises in a non-preset workout can now opt in here too (mirrors
         // the preset editor's picker). Pick a duration and the live countdown appears.
+        // (retintOnThemeChange: rebuild on theme swap so the value label — which is
+        // UIKit-backed and resolves its tint only at creation — picks up the new accent.)
         Picker(selection: $logged.restSeconds) {
             Text("None").tag(Int?.none)
             ForEach(RestDuration.options, id: \.self) { seconds in
@@ -314,6 +337,7 @@ private struct ExerciseLogSection: View {
         } label: {
             Label("Rest timer", systemImage: "timer")
         }
+        .retintOnThemeChange(theme.current, salt: "rest-\(logged.id)")
 
         // Live countdown (drives the shared session timer + mini-bar), once set.
         if let rest = logged.restSeconds {
@@ -331,6 +355,7 @@ private struct ExerciseLogSection: View {
             SetRow(number: setNumber(at: index),
                    sideLabel: logged.sets[index].side?.title,
                    lagsBehind: lagsBehind(at: index),
+                   isBodyweight: isBodyweight,
                    set: $logged.sets[index],
                    targetRange: logged.targetRepRange, accent: accent)
         }
@@ -342,11 +367,14 @@ private struct ExerciseLogSection: View {
             Label("Add Set", systemImage: "plus.circle")
         }
 
-        Button(role: .destructive) {
-            onRemove()
-        } label: {
-            Label("Remove Exercise", systemImage: "trash")
-        }
+        // Claude  Date 07/19/2026
+        // Swap sits beside Remove (see ExerciseActionsRow). Swap re-opens the exercise
+        // picker and replaces this entry's lift in place, keeping its position in the
+        // workout; Remove drops it entirely.
+        ExerciseActionsRow(onSwap: { showingSwapPicker = true }, onRemove: onRemove)
+            .sheet(isPresented: $showingSwapPicker) {
+                ExercisePickerView { onSwap($0) }
+            }
     }
 
     // Claude  Date 06/14/2026
@@ -354,6 +382,13 @@ private struct ExerciseLogSection: View {
     // set as a Left/Right pair so both sides are tracked and mismatches surfaced.
     private var isUnilateral: Bool {
         store.exercise(for: logged.exerciseId)?.isUnilateral ?? false
+    }
+
+    // Claude  Date 07/20/2026
+    // Whether the underlying exercise is a bodyweight lift. When true, each set's
+    // weight is ADDED weight, so SetRow prefixes it with a "+".
+    private var isBodyweight: Bool {
+        store.exercise(for: logged.exerciseId)?.isBodyweight ?? false
     }
 
     /// Adds a set, defaulting to the previous set's reps/weight (or the low end of
@@ -496,6 +531,10 @@ private struct SetRow: View {
     // is true when this side trails its pair and should be flagged to even it out.
     var sideLabel: String? = nil
     var lagsBehind: Bool = false
+    // Claude  Date 07/20/2026
+    // When true this is a bodyweight lift, so the weight field is ADDED weight and gets
+    // a leading "+" (e.g. "+25 lb", or a bare "+" when 0 added).
+    var isBodyweight: Bool = false
     @Binding var set: ExerciseSet
     let targetRange: RepRange?
     let accent: Color
@@ -552,6 +591,13 @@ private struct SetRow: View {
 
             Spacer()
 
+            // Claude  Date 07/20/2026
+            // Bodyweight lifts show a "+" ahead of the weight to read the value as ADDED
+            // load on top of bodyweight (e.g. "+ 25 lb"). Normal lifts omit it.
+            if isBodyweight {
+                Text("+")
+                    .foregroundStyle(.secondary)
+            }
             TextField("Weight", value: $set.weight, format: .number)
                 .keyboardType(.decimalPad)
                 .multilineTextAlignment(.trailing)

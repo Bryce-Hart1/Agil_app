@@ -34,6 +34,10 @@ struct NewExerciseView: View {
     // The muscle this lift primarily drives — mirrors the curated library's primaryMover.
     @State private var primaryMover: String
     @State private var isUnilateral: Bool
+    // Claude  Date 07/20/2026
+    // Bodyweight lift flag (pull-up, dip…). When on, logged sets record ADDED weight
+    // and the workout editor shows it as "+N lb" rather than a raw load.
+    @State private var isBodyweight: Bool
     @State private var showingMoverHelp = false
 
     // Claude  Date 07/09/2026
@@ -58,6 +62,7 @@ struct NewExerciseView: View {
         _category = State(initialValue: editing?.category ?? "")
         _primaryMover = State(initialValue: editing?.primaryMover ?? "")
         _isUnilateral = State(initialValue: editing?.isUnilateral ?? false)
+        _isBodyweight = State(initialValue: editing?.isBodyweight ?? false)
     }
 
     private var trimmedName: String { name.trimmingCharacters(in: .whitespaces) }
@@ -172,6 +177,15 @@ struct NewExerciseView: View {
                     Toggle("Unilateral", isOn: $isUnilateral)
                 } footer: {
                     Text("Turn on for movements done one side at a time (e.g. single-arm row, lunges) so they can be tracked separately on graphs. Leave off for two-sided lifts like bench press.")
+                }
+
+                // Claude  Date 07/20/2026
+                // Bodyweight lift toggle: when on, a set's weight is treated as ADDED load
+                // on top of bodyweight, shown as "+N lb" in the workout editor.
+                Section {
+                    Toggle("Bodyweight", isOn: $isBodyweight)
+                } footer: {
+                    Text("Turn on for movements loaded by your own bodyweight (e.g. pull-up, dip, chin-up). Weights you log then count as added weight — shown with a “+”, like +25 lb — with just “+” for no added weight.")
                 }
 
                 // Claude  Date 07/13/2026
@@ -355,6 +369,7 @@ struct NewExerciseView: View {
         existing.category = fields.category
         existing.isUnilateral = isUnilateral
         existing.primaryMover = fields.mover
+        existing.isBodyweight = isBodyweight
         store.updateExercise(existing)
         onCreate(existing)
         dismiss()
@@ -371,7 +386,8 @@ struct NewExerciseView: View {
             region: region,
             category: fields.category,
             isUnilateral: isUnilateral,
-            primaryMover: fields.mover
+            primaryMover: fields.mover,
+            isBodyweight: isBodyweight
         )
         onCreate(created)
         dismiss()

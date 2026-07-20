@@ -30,6 +30,12 @@ struct WorkoutMiniBar: View {
                 )
                 .shadow(color: .black.opacity(0.18), radius: 6, y: 2)
                 .padding(.horizontal, 10)
+                // Claude  Date 07/16/2026
+                // Small breathing room above the tab bar now that the bar is hosted
+                // as a safe-area inset (it used to float via an overlay with a
+                // hardcoded 49pt tab-bar offset). Inside the `if` so a hidden bar
+                // contributes zero inset.
+                .padding(.bottom, 4)
                 // Claude  Date 07/11/2026
                 // Tap anywhere on the bar (except Skip): while resting, expand to the
                 // full-screen timer; otherwise reopen the workout as before.
@@ -127,5 +133,22 @@ struct WorkoutMiniBar: View {
         let exPart = "\(exercises) exercise\(exercises == 1 ? "" : "s")"
         let setPart = "\(done) set\(done == 1 ? "" : "s") done"
         return "\(exPart) · \(setPart)"
+    }
+}
+
+// Claude  Date 07/16/2026
+// Hosts the mini-bar as a bottom safe-area inset on a tab's content (applied to
+// each tab in RootTabView). Previously the bar was a floating .overlay on the
+// whole TabView, which painted it ON TOP of every page — the last ~55pt of
+// every scroll view sat underneath it, unreachable and untappable (e.g. the
+// Settings row at the bottom of Profile during an active workout). As a
+// safe-area inset the bar still sits just above the tab bar, but scroll
+// content now ends above it, and the inset collapses to nothing whenever the
+// bar renders empty (no active workout, or already inside its editor).
+extension View {
+    func workoutMiniBar(onOpen: @escaping () -> Void) -> some View {
+        safeAreaInset(edge: .bottom, spacing: 0) {
+            WorkoutMiniBar(onOpen: onOpen)
+        }
     }
 }

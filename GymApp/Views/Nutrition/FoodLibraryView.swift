@@ -108,10 +108,24 @@ struct FoodLibraryView: View {
                     }
                 )
             }
-            // Claude  Date 07/14/2026
+            // Claude  Date 07/14/2026 last changed: 07/16/2026 by: Claude
             // The food detail page — pops for a tapped recent or a freshly scanned item.
+            // (`onLog` writes the dialed-in amount into the diary under the chosen meal,
+            // on today. Cached scans / recents carry a real library id, so the snapshot
+            // links back via foodId. The page no longer owns a NavigationStack — the
+            // diary picker pushes it — so this sheet provides the stack and the Done.)
             .sheet(item: $detailFood) { detail in
-                FoodDetailView(food: detail)
+                NavigationStack {
+                    FoodDetailView(food: detail) { meal, consumed in
+                        store.logFoodDetail(detail, consumed: consumed, meal: meal)
+                    }
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { detailFood = nil }
+                        }
+                    }
+                }
+                .themed(theme.current)
             }
         }
     }

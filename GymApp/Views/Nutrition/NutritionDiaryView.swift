@@ -20,6 +20,11 @@ struct NutritionJournalView: View {
     // Claude  Date 07/12/2026
     // Whether the focus-goals editor sheet is up (top-left toolbar button).
     @State private var showingFocusGoals = false
+    // Claude  Date 07/16/2026
+    // Water display unit (Settings → Water). Logging still writes canonical ml;
+    // only labels and quick-add buttons change with this.
+    @AppStorage(WaterUnit.storageKey) private var waterUnitRaw = WaterUnit.milliliters.rawValue
+    private var waterUnit: WaterUnit { WaterUnit(rawValue: waterUnitRaw) ?? .milliliters }
 
     private var day: NutritionDay { store.nutritionDay(for: selectedDate) }
 
@@ -136,36 +141,59 @@ struct NutritionJournalView: View {
 
     // MARK: - Water
 
+    // Claude  Date 07/16/2026
+    // The water tracker: amount label in the user's display unit (with animated
+    // digits and a checkmark once the goal is met), the animated WaterBarView fill,
+    // and unit-appropriate quick-add buttons. All logging stays canonical ml.
     private var waterSection: some View {
         Section("Water") {
+            let goal = max(store.nutritionGoals.water, 1)
+            let goalMet = day.water >= goal
             VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Label("\(Int(day.water.rounded())) / \(Int(store.nutritionGoals.water)) ml",
+                HStack(spacing: 5) {
+                    Label("\(waterUnit.text(fromMilliliters: day.water)) / \(waterUnit.text(fromMilliliters: store.nutritionGoals.water)) \(waterUnit.abbreviation)",
                           systemImage: "drop.fill")
                         .font(.subheadline).fontWeight(.medium)
                         .foregroundStyle(theme.current.accent)
+                        .monospacedDigit()
+                        .contentTransition(.numericText())
+                    if goalMet {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.caption)
+                            .foregroundStyle(theme.current.accent)
+                            .transition(.scale.combined(with: .opacity))
+                    }
                     Spacer()
                 }
-                GeometryReader { geo in
-                    let goal = max(store.nutritionGoals.water, 1)
-                    let fraction = min(day.water / goal, 1)
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(theme.current.accent.opacity(0.18))
-                        Capsule().fill(theme.current.accent)
-                            .frame(width: geo.size.width * fraction)
-                    }
-                }
-                .frame(height: 8)
+                .animation(.spring(response: 0.4, dampingFraction: 0.8), value: goalMet)
+                .animation(.spring(response: 0.55, dampingFraction: 0.85), value: day.water)
+                WaterBarView(fraction: day.water / goal, accent: theme.current.accent)
                 HStack { //added conversions for cups, bottle (even though a bottle is 500ml)
                 // one cup is approx 236.588 ml rounded up
-                    Button("+250 ml") { store.logWater(milliliters: 250, on: selectedDate) }
-                    Button("+500 ml") { store.logWater(milliliters: 500, on: selectedDate) }
-                    Button("+bottle"){store.logWater(milliliters: 500, on: selectedDate)}
-                    Button("+cup"){store.logWater(milliliters: 237, on: selectedDate)}
+                    ForEach(waterQuickAdds, id: \.label) { add in
+                        Button(add.label) {
+                            store.logWater(milliliters: add.ml, on: selectedDate)
+                        }
+                    }
                 }
                 .buttonStyle(.bordered)
                 .font(.caption)
             }
+        }
+    }
+
+    // Claude  Date 07/16/2026
+    // Quick-add presets in the display unit (cup/bottle stay in both — they're
+    // objects, not numbers). Values are the canonical ml actually logged.
+    private var waterQuickAdds: [(label: String, ml: Double)] {
+        switch waterUnit {
+        case .milliliters:
+            return [("+250 ml", 250), ("+500 ml", 500),
+                    ("+bottle", 500), ("+cup", 237)]
+        case .fluidOunces:
+            return [("+8 oz", 8 * WaterUnit.mlPerFluidOunce),
+                    ("+16 oz", 16 * WaterUnit.mlPerFluidOunce),
+                    ("+bottle", 500), ("+cup", 237)]
         }
     }
 
@@ -197,6 +225,82 @@ struct NutritionJournalView: View {
                 if mealKcal > 0 { Text("\(mealKcal) kcal") }
             }
         }
+    }
+}
+
+// Claude  Date 07/16/2026
+// The water tracker's fill bar. Clean-but-alive treatment: a capsule track with a
+// water fill that grows in with a spring (and springs on every +add), rendered with
+// a top-lit gradient, a soft glow bleeding past its surface, and a gentle ripple on
+// the leading surface (the fill's right edge) driven by TimelineView. The ripple
+// runs only mid-fill — it pauses at empty and at goal, so a settled bar costs no
+// frames. Height 14 so the water reads as water, not a hairline.
+private struct WaterBarView: View {
+    /// Fill fraction; values past 1 render as a full bar.
+    let fraction: Double
+    let accent: Color
+
+    // Grow-in flag, same trick as FocusGoalRow: render 0 on first layout, then
+    // animate up to the real fraction.
+    @State private var shown = false
+
+    private static let wavePeriodSeconds = 2.4
+
+    var body: some View {
+        GeometryReader { geo in
+            let f = shown ? min(max(fraction, 0), 1) : 0
+            let settled = f <= 0 || f >= 1
+            ZStack(alignment: .leading) {
+                Capsule().fill(accent.opacity(0.15))
+                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: settled)) { context in
+                    let cycle = context.date.timeIntervalSinceReferenceDate
+                        .truncatingRemainder(dividingBy: Self.wavePeriodSeconds)
+                    WaterFillShape(fraction: f,
+                                   phase: cycle / Self.wavePeriodSeconds * 2 * .pi,
+                                   amplitude: settled ? 0 : 2.5)
+                        .fill(LinearGradient(colors: [accent.opacity(0.65), accent],
+                                             startPoint: .top, endPoint: .bottom))
+                        .shadow(color: accent.opacity(0.45), radius: 3)
+                }
+            }
+            .clipShape(Capsule())
+            .animation(.spring(response: 0.6, dampingFraction: 0.85), value: f)
+        }
+        .frame(height: 14)
+        .onAppear { shown = true }
+    }
+}
+
+// Claude  Date 07/16/2026
+// The filled portion of WaterBarView: a rectangle whose trailing edge is a small
+// travelling sine ripple (the "surface" of the water). `fraction` is the animatable
+// part so springs interpolate the fill width; phase/amplitude come per-frame from
+// the TimelineView. Points are clamped to x ≥ 0 so a near-empty ripple never pokes
+// out the left end.
+private struct WaterFillShape: Shape {
+    var fraction: Double
+    var phase: Double
+    var amplitude: Double
+
+    var animatableData: Double {
+        get { fraction }
+        set { fraction = newValue }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        guard fraction > 0, rect.width > 0 else { return Path() }
+        let edge = rect.width * min(fraction, 1)
+        var p = Path()
+        p.move(to: CGPoint(x: 0, y: 0))
+        let steps = 16
+        for i in 0...steps {
+            let t = Double(i) / Double(steps)
+            let ripple = sin(phase + t * .pi * 1.6) * amplitude
+            p.addLine(to: CGPoint(x: max(0, edge + ripple), y: rect.height * t))
+        }
+        p.addLine(to: CGPoint(x: 0, y: rect.height))
+        p.closeSubpath()
+        return p
     }
 }
 

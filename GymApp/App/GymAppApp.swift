@@ -19,6 +19,15 @@ struct GymAppApp: App {
                 .environmentObject(theme)
                 .environmentObject(session)
                 .environmentObject(cardSync)
+                // Claude  Date 07/16/2026
+                // Seed the home-screen widget's shared snapshot on launch. The
+                // didSet-driven syncs in AppStore/ThemeManager don't fire during
+                // init, so without this the widget would stay stale (or empty)
+                // until the user next logs food or changes the theme.
+                .task {
+                    store.syncWidgetSnapshot()
+                    theme.syncWidgetSnapshot()
+                }
         }
     }
 }

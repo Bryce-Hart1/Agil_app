@@ -19,6 +19,10 @@ struct SettingsView: View {
     // Rest-timer face style (same key RestTimerFullScreenView reads): false keeps
     // the original progress ring, true swaps in the analog stopwatch face.
     @AppStorage("restTimerAnalogStyle") private var restTimerAnalogStyle = false
+    // Claude  Date 07/16/2026
+    // Water display unit (same key the diary tracker + goals editor read). Display
+    // conversion only — everything stays stored in ml.
+    @AppStorage(WaterUnit.storageKey) private var waterUnitRaw = WaterUnit.milliliters.rawValue
     // Claude  Date 07/14/2026
     // For "Replay app tour": Settings is pushed on the Profile stack, so pop back
     // first — the tour spotlights root-level chrome (ModeNotch, tab bar) that a
@@ -44,6 +48,12 @@ struct SettingsView: View {
                     Text("Female").tag(Gender.female)
                     Text("Prefer not to say").tag(Gender.unspecified)
                 }
+                // Claude  Date 07/16/2026
+                // retintOnThemeChange (here + the Units picker below): Settings sits
+                // directly beneath the Theme screen on the Profile stack, so its menu
+                // pickers are always alive during a theme swap and kept the old accent
+                // baked into their value labels. Rebuilding re-reads the new tint.
+                .retintOnThemeChange(theme.current, salt: "identity")
             } header: {
                 Text("Identity")
             } footer: {
@@ -120,6 +130,23 @@ struct SettingsView: View {
                 Text("Food lookups")
             } footer: {
                 Text("When on, food search and barcode scans only use foods saved on this device. If something isn't found, you'll be asked to enter it yourself or search Open Food Facts online just for that lookup.")
+            }
+
+            // Claude  Date 07/16/2026
+            // Water display unit: ml or US fl oz, applied wherever water amounts show
+            // (diary tracker, water goal). Logged history is canonical ml, so this is
+            // safe to flip back and forth.
+            Section {
+                Picker("Units", selection: $waterUnitRaw) {
+                    ForEach(WaterUnit.allCases) { unit in
+                        Text(unit.label).tag(unit.rawValue)
+                    }
+                }
+                .retintOnThemeChange(theme.current, salt: "waterUnits")
+            } header: {
+                Text("Water")
+            } footer: {
+                Text("Used wherever water amounts appear — the diary tracker and your daily goal. Logged water is stored in milliliters, so switching units never changes your history.")
             }
 
             // Claude  Date 07/14/2026

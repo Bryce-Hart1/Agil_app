@@ -1,5 +1,9 @@
 import Foundation
 import SwiftUI
+// Claude  Date 07/16/2026
+// WidgetKit: to reload the home-screen widget's timeline whenever the nutrition
+// data it displays changes (see syncWidgetSnapshot).
+import WidgetKit
 
 /// The app's single source of truth. Views observe this; it owns the in-memory
 /// data and persists every change to JSON via `PersistenceService`.
@@ -49,19 +53,34 @@ final class AppStore: ObservableObject {
     // Claude  Date 07/11/2026
     // foodLog now also re-evaluates achievements on change (Days Tracked reads it),
     // mirroring the activityLog didSet pattern above.
+    // Claude  Date 07/11/2026 last changed: 07/16/2026 by: Claude
+    // foodLog changes now also refresh the home-screen widget's snapshot (it shows
+    // today's calories), alongside the existing achievements re-evaluation.
     @Published var foodLog: [FoodEntry] {
         didSet {
             persistence.save(foodLog, to: Self.foodLogFile)
             evaluateAchievements()
+            syncWidgetSnapshot()
         }
     }
     @Published var waterLog: [WaterEntry] { didSet { persistence.save(waterLog, to: Self.waterLogFile) } }
-    @Published var nutritionGoals: NutritionGoals { didSet { persistence.save(nutritionGoals, to: Self.nutritionGoalsFile) } }
-    // Claude  Date 07/12/2026
+    @Published var nutritionGoals: NutritionGoals {
+        didSet {
+            persistence.save(nutritionGoals, to: Self.nutritionGoalsFile)
+            syncWidgetSnapshot()
+        }
+    }
+    // Claude  Date 07/12/2026 last changed: 07/16/2026 by: Claude
     // User-created nutrient focus goals (fiber/sugar/sodium floors/ceilings shown
     // as the diary's Focus card). Its own file rather than a NutritionGoals field
-    // because it's an add/remove list, not a fixed set of daily targets.
-    @Published var focusGoals: [NutrientFocusGoal] { didSet { persistence.save(focusGoals, to: Self.focusGoalsFile) } }
+    // because it's an add/remove list, not a fixed set of daily targets. Changes
+    // also refresh the widget snapshot (the widget shows the first focus goal).
+    @Published var focusGoals: [NutrientFocusGoal] {
+        didSet {
+            persistence.save(focusGoals, to: Self.focusGoalsFile)
+            syncWidgetSnapshot()
+        }
+    }
     // Claude  Date 06/13/2026
     // Achievement ids the user has unlocked. Sticky — once earned, never removed
     // (so e.g. a streak badge survives a missed week). Recomputed from history by
@@ -406,10 +425,12 @@ final class AppStore: ObservableObject {
     @discardableResult
     func addExercise(name: String, region: MuscleRegion = .other, category: String,
                      isUnilateral: Bool = false, liftType: LiftType? = nil,
-                     primaryMover: String = "", quality: LiftQuality? = nil) -> Exercise {
+                     primaryMover: String = "", quality: LiftQuality? = nil,
+                     isBodyweight: Bool = false) -> Exercise {
         let exercise = Exercise(name: name, region: region, category: category,
                                 isUnilateral: isUnilateral, liftType: liftType,
-                                primaryMover: primaryMover, quality: quality)
+                                primaryMover: primaryMover, quality: quality,
+                                isBodyweight: isBodyweight)
         exercises.append(exercise)
         return exercise
     }
@@ -639,6 +660,20 @@ final class AppStore: ObservableObject {
                                       loggedAt: Self.stamp(date)))
     }
 
+    // Claude  Date 07/15/2026
+    // Log straight from the food detail page (a scan or a tapped recent). That page is
+    // per-100 and lets the user dial in an exact amount — grams, a serving, cups… — so
+    // it hands back the already-consumed nutrients. We snapshot those as a single
+    // "serving" (servings folded into the nutrients, so `consumed` reads back the same),
+    // linking `foodId` to the library food when there is one. Stamped like logFood so the
+    // entry lands chronologically on `date`.
+    func logFoodDetail(_ food: FoodDetail, consumed: Nutrients, meal: MealType,
+                       on date: Date = Date()) {
+        foodLog.append(FoodEntry(foodId: food.id, name: food.displayLabel,
+                                 nutrients: consumed, servings: 1, mealType: meal,
+                                 loggedAt: Self.stamp(date)))
+    }
+
     func deleteFoodEntry(id: UUID) {
         foodLog.removeAll { $0.id == id }
     }
@@ -667,6 +702,24 @@ final class AppStore: ObservableObject {
     // The derived diary view for one calendar day (totals + per-meal grouping).
     func nutritionDay(for date: Date) -> NutritionDay {
         NutritionDay(date: date, foodLog: foodLog, waterLog: waterLog)
+    }
+
+    // Claude  Date 07/16/2026
+    // Rewrite the home-screen widget's shared snapshot (App Group) and reload its
+    // timeline. Called from the foodLog/nutritionGoals/focusGoals didSets and once
+    // at launch (from GymAppApp, since didSets don't fire during init). Only the
+    // nutrition fields are written here — the theme part belongs to ThemeManager.
+    func syncWidgetSnapshot() {
+        let today = nutritionDay(for: Date())
+        let goal = focusGoals.first
+        WidgetSnapshot.update { snapshot in
+            snapshot.dayStart = today.date
+            snapshot.caloriesToday = today.totals.calories
+            snapshot.calorieGoal = nutritionGoals.calories
+            snapshot.focusGoal = goal
+            snapshot.focusConsumed = goal.map { $0.nutrient.value(from: today.totals) } ?? 0
+        }
+        WidgetCenter.shared.reloadAllTimelines()
     }
 
     // MARK: - Nutrient focus goals

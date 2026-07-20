@@ -11,6 +11,12 @@ struct NutritionGoalsView: View {
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var theme: ThemeManager
 
+    // Claude  Date 07/16/2026
+    // Water display unit (Settings → Water). The goal stays stored in ml; the field
+    // below edits it through a converting binding.
+    @AppStorage(WaterUnit.storageKey) private var waterUnitRaw = WaterUnit.milliliters.rawValue
+    private var waterUnit: WaterUnit { WaterUnit(rawValue: waterUnitRaw) ?? .milliliters }
+
     // Claude  Date 07/12/2026
     // The calculator's split choices. The named presets carry fixed percentages of
     // calories (protein/carbs/fat); .custom reads the slider state instead.
@@ -70,8 +76,11 @@ struct NutritionGoalsView: View {
 
             macroCalculatorSection
 
+            // Claude  Date 07/16/2026
+            // Edited in the user's display unit; stored canonically in ml (the get
+            // rounds to a tenth so "3000 ml" reads "101.4", not "101.44201…").
             Section {
-                goalField("Water (ml)", value: $store.nutritionGoals.water)
+                goalField("Water (\(waterUnit.abbreviation))", value: waterGoalBinding)
             } header: {
                 Text("Water")
             }
@@ -243,6 +252,16 @@ struct NutritionGoalsView: View {
     }
 
     // MARK: - Fields
+
+    // Claude  Date 07/16/2026
+    // The water goal seen through the display unit: reads convert ml → unit (rounded
+    // to a tenth for a sane field value), writes convert back to canonical ml.
+    private var waterGoalBinding: Binding<Double> {
+        Binding(
+            get: { (waterUnit.fromMilliliters(store.nutritionGoals.water) * 10).rounded() / 10 },
+            set: { store.nutritionGoals.water = waterUnit.toMilliliters($0) }
+        )
+    }
 
     private func goalField(_ label: String, value: Binding<Double>) -> some View {
         LabeledContent(label) {

@@ -30,6 +30,11 @@ private struct PresetEditor: View {
     // The library exercise being edited from a section's pencil (nil = none) — same
     // in-place edit affordance the workout editor has.
     @State private var editingExercise: Exercise?
+    // Claude  Date 07/19/2026
+    // The preset item whose "Swap" button was tapped (nil = none). Held at the editor
+    // level rather than per-row because the rows are built inline in this Form's body
+    // and so can't own @State of their own.
+    @State private var swappingItemID: UUID?
 
     var body: some View {
         Form {
@@ -81,6 +86,12 @@ private struct PresetEditor: View {
                     } label: {
                         Label("Sets", systemImage: "number")
                     }
+                    // Claude  Date 07/16/2026
+                    // retintOnThemeChange (here + the two pickers below): menu pickers
+                    // resolve their tint once, at creation — rebuild them on theme swap
+                    // so the value labels pick up the new accent instead of keeping the
+                    // old theme's color.
+                    .retintOnThemeChange(theme.current, salt: "sets-\(item.id)")
                     TextField("Note (form cues…)",
                               text: Binding($item.note, replacingNilWith: ""),
                               axis: .vertical)
@@ -95,6 +106,7 @@ private struct PresetEditor: View {
                     } label: {
                         Label("Rest timer", systemImage: "timer")
                     }
+                    .retintOnThemeChange(theme.current, salt: "rest-\(item.id)")
                     // Claude  Date 07/01/2026
                     // Adaptive only: per-exercise weight-step override. "Default" uses the
                     // smart increment (10 lb for legs/deadlift, else 5 lb) and clears the
@@ -109,11 +121,18 @@ private struct PresetEditor: View {
                         } label: {
                             Label("Weight step", systemImage: "plus.forwardslash.minus")
                         }
+                        .retintOnThemeChange(theme.current, salt: "step-\(item.id)")
                     }
-                    Button(role: .destructive) {
+                    // Claude  Date 07/19/2026
+                    // Swap beside Remove (see ExerciseActionsRow). Swap points this item
+                    // at a different lift while keeping its slot and its planning — rep
+                    // range, set count and rest all carry over, since they describe the
+                    // preset's structure. The note (form cues) and the adaptive weight-step
+                    // override are lift-specific, so they're cleared.
+                    ExerciseActionsRow {
+                        swappingItemID = item.id
+                    } onRemove: {
                         preset.items.removeAll { $0.id == item.id }
-                    } label: {
-                        Label("Remove Exercise", systemImage: "trash")
                     }
                 } header: {
                     HStack {
@@ -193,6 +212,20 @@ private struct PresetEditor: View {
                     PresetItem(exerciseId: exercise.id, targetRepRange: RepRange(min: 8, max: 12),
                                targetSets: PresetItem.defaultTargetSets)
                 )
+            }
+        }
+        // Claude  Date 07/19/2026
+        // Swap picker for the item whose "Swap" button was tapped — replaces that item's
+        // lift in place (see the ExerciseActionsRow above for what carries over).
+        .sheet(isPresented: Binding(get: { swappingItemID != nil },
+                                    set: { if !$0 { swappingItemID = nil } })) {
+            ExercisePickerView { exercise in
+                guard let id = swappingItemID,
+                      let index = preset.items.firstIndex(where: { $0.id == id }) else { return }
+                preset.items[index].exerciseId = exercise.id
+                preset.items[index].note = nil
+                preset.items[index].weightIncrement = nil
+                swappingItemID = nil
             }
         }
         .sheet(isPresented: $showingReorder) {

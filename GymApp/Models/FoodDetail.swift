@@ -70,14 +70,27 @@ struct FoodDetail: Identifiable, Hashable {
     var servingQuantity: Double?
     // "g" or "ml" — what the per-100 basis and serving are measured in.
     var basisUnit: String
-    // Per-100 macros.
+    // Per-100 macros — EXCEPT in count mode (see `servingUnit`), where this holds the
+    // nutrients of ONE serving instead.
     var per100: Nutrients
     // Per-100 micros (sparse; mostly nil).
     var micros: Micros
 
+    // Claude  Date 07/15/2026
+    // Count/opaque serving unit ("cup", "bar", "serving") for a food whose serving is
+    // NOT a weight/volume, so no per-100 g/ml basis can be derived. When non-nil the
+    // detail page runs in "count mode": `per100` holds one serving's nutrients, the only
+    // amount is a servings count, and the per-100/gram options are hidden (they'd be
+    // meaningless). nil = the normal weight/volume food where `per100` really is per 100.
+    var servingUnit: String?
+
+    // True when this food is measured in opaque servings (see `servingUnit`).
+    var isCountBased: Bool { servingUnit != nil }
+
     init(id: UUID = UUID(), name: String, brand: String = "", barcode: String? = nil,
          category: String? = nil, source: FoodTrust, servingQuantity: Double? = nil,
-         basisUnit: String = "g", per100: Nutrients, micros: Micros = .empty) {
+         basisUnit: String = "g", per100: Nutrients, micros: Micros = .empty,
+         servingUnit: String? = nil) {
         self.id = id
         self.name = name
         self.brand = brand
@@ -88,6 +101,7 @@ struct FoodDetail: Identifiable, Hashable {
         self.basisUnit = basisUnit
         self.per100 = per100
         self.micros = micros
+        self.servingUnit = servingUnit
     }
 
     // Claude  Date 07/14/2026
@@ -125,28 +139,37 @@ struct FoodDetail: Identifiable, Hashable {
         return "fork.knife"
     }
 
-    // Claude  Date 07/14/2026
+    // Claude  Date 07/14/2026 last changed: 07/15/2026 by: Claude
     // Stopgap adapter so the existing Foods tab (which only has FoodItem) can open the
-    // detail page today. FoodItem stores nutrients PER its own serving; normalize to
-    // per-100 when the serving is a weight/volume (g/ml) so the per-100 header is honest,
-    // and carry the serving size through so the "1 serving" toggle works. Micros are
-    // empty (FoodItem doesn't carry them), which correctly renders as "not available".
+    // detail page today. FoodItem stores nutrients PER its own serving. Two cases:
+    //  • Weight/volume serving (g/ml): normalize to per-100 so the per-100 header is
+    //    honest, and carry the serving size so the "1 serving" toggle works.
+    //  • Count/opaque serving ("cup", "bar", "serving", …): there's no gram weight to
+    //    derive per-100 from, so DON'T fabricate one — hand the per-serving nutrients
+    //    through as-is and flag the food as count-based (via `servingUnit`) so the page
+    //    shows a per-serving view instead of a bogus "per 100 g".
+    // Micros are empty (FoodItem doesn't carry them), which renders as "not available".
     init(from item: FoodItem) {
         let unit = item.servingUnit.lowercased()
         let weightBased = (unit == "g" || unit == "ml") && item.servingSize > 0
-        let per100 = weightBased ? item.nutrients.scaled(by: 100 / item.servingSize)
-                                 : item.nutrients
-        self.init(
-            id: item.id,
-            name: item.name,
-            brand: item.brand,
-            barcode: item.barcode,
-            category: nil,
-            source: FoodTrust(item.source),
-            servingQuantity: weightBased ? item.servingSize : nil,
-            basisUnit: (unit == "ml") ? "ml" : "g",
-            per100: per100,
-            micros: .empty
-        )
+        if weightBased {
+            self.init(
+                id: item.id, name: item.name, brand: item.brand, barcode: item.barcode,
+                category: nil, source: FoodTrust(item.source),
+                servingQuantity: item.servingSize,
+                basisUnit: (unit == "ml") ? "ml" : "g",
+                per100: item.nutrients.scaled(by: 100 / item.servingSize),
+                micros: .empty
+            )
+        } else {
+            self.init(
+                id: item.id, name: item.name, brand: item.brand, barcode: item.barcode,
+                category: nil, source: FoodTrust(item.source),
+                servingQuantity: nil, basisUnit: "g",
+                per100: item.nutrients,           // per one serving in count mode
+                micros: .empty,
+                servingUnit: item.servingUnit
+            )
+        }
     }
 }
