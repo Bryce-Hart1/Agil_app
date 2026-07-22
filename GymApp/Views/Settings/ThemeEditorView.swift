@@ -13,6 +13,9 @@ struct ThemeEditorView: View {
     @State private var accent: Color
     @State private var background: Color
     @State private var surface: Color
+    // Claude  Date 07/21/2026
+    // A theme carries its typeface as well as its colors (see AppFontDesign).
+    @State private var fontDesign: AppFontDesign
 
     init(base: AppTheme) {
         self.base = base
@@ -21,6 +24,7 @@ struct ThemeEditorView: View {
         _accent = State(initialValue: base.accent)
         _background = State(initialValue: base.background)
         _surface = State(initialValue: base.surface)
+        _fontDesign = State(initialValue: base.fontDesign)
     }
 
     private var trimmedName: String { name.trimmingCharacters(in: .whitespaces) }
@@ -36,9 +40,18 @@ struct ThemeEditorView: View {
                     ColorPicker("Accent", selection: $accent, supportsOpacity: false)
                     ColorPicker("Background", selection: $background, supportsOpacity: false)
                     ColorPicker("Cards", selection: $surface, supportsOpacity: false)
+                    // Claude  Date 07/21/2026
+                    // The theme's typeface — the app's system font rendered in this
+                    // design (see AppFontDesign). Each row previews itself.
+                    Picker("Font", selection: $fontDesign) {
+                        ForEach(AppFontDesign.allCases) { design in
+                            Text(design.label).fontDesign(design.design).tag(design)
+                        }
+                    }
                 }
                 Section("Preview") {
-                    PreviewCard(accent: accent, background: background, surface: surface, isDark: isDark)
+                    PreviewCard(accent: accent, background: background, surface: surface,
+                                isDark: isDark, fontDesign: fontDesign)
                         .listRowInsets(EdgeInsets())
                 }
             }
@@ -63,7 +76,8 @@ struct ThemeEditorView: View {
             isDark: isDark,
             accentHex: accent.toHex(),
             backgroundHex: background.toHex(),
-            surfaceHex: surface.toHex()
+            surfaceHex: surface.toHex(),
+            fontDesign: fontDesign
         )
         themeManager.addOrUpdate(theme)
         themeManager.select(theme)
@@ -72,11 +86,13 @@ struct ThemeEditorView: View {
 }
 
 /// A small mock of the app's UI so color choices can be judged at a glance.
+// Claude  Date 07/21/2026 — now also previews the theme's typeface.
 private struct PreviewCard: View {
     let accent: Color
     let background: Color
     let surface: Color
     let isDark: Bool
+    let fontDesign: AppFontDesign
 
     private var textColor: Color { isDark ? .white : .black }
 
@@ -100,6 +116,7 @@ private struct PreviewCard: View {
         .padding()
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(background)
+        .fontDesign(fontDesign.design)
     }
 }
 

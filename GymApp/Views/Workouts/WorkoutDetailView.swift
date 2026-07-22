@@ -188,6 +188,14 @@ private struct WorkoutEditor: View {
         }
         .navigationTitle(workout.date.formatted(.dateTime.month().day()))
         .navigationBarTitleDisplayMode(.inline)
+        // Claude  Date 07/21/2026
+        // This screen opts out of the theme's typeface and stays on the system face.
+        // Its set rows are a fixed-width numeric layout ("Set N" in a 54pt column,
+        // then reps/weight fields), and monospaced glyphs are wide enough to wrap the
+        // labels out of their columns. Everything else — the exercise headers, the
+        // notes, the buttons — follows along so the page reads as one piece rather
+        // than a patchwork of two faces.
+        .systemTypeface()
         .themed(theme.current)
         // Claude  Date 06/16/2026
         // While this editor is on screen, tell the session so the global mini-bar
@@ -567,6 +575,10 @@ private struct SetRow: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text("Set \(number)")
                     .foregroundStyle(.secondary)
+                    // Claude  Date 07/21/2026 — the 54pt column below is fixed, so a
+                    // label that outgrows it (a wide face, a big Dynamic Type size,
+                    // "Set 10"+) must truncate rather than wrap the row open.
+                    .lineLimit(1)
                 if let sideLabel {
                     Text(sideLabel)
                         .font(.caption2.weight(.semibold))

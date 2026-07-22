@@ -58,6 +58,7 @@ struct WorkoutsListView: View {
                              ? "No workouts yet. Tap + to log one."
                              : "Finish your active workout to see it here.")
                             .foregroundStyle(.secondary)
+                            .supportingTextFont()
                     } else {
                         ForEach(visibleHistory) { workout in
                             NavigationLink(value: WorkoutRoute(id: workout.id, isNew: false)) {
@@ -186,6 +187,7 @@ private struct ActiveWorkoutRow: View {
                 Text(summary)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
+                    .supportingTextFont()
             }
             Spacer()
             Circle()
@@ -213,6 +215,7 @@ private struct WorkoutRow: View {
             Text(summary)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
+                .supportingTextFont()
         }
     }
 

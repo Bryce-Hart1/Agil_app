@@ -5,11 +5,12 @@ import SwiftUI
 // opts a view in, and the tour script itself. The overlay that consumes all of
 // this is TourOverlay (rendered by RootTabView while store.tourActive).
 
-// Claude  Date 07/14/2026
+// Claude  Date 07/14/2026 last changed: 07/21/2026 by: Claude
 // Everything the tour can point at. In-content views (the profile card) report
-// exact frames via .tourTarget + TourAnchorKey. UIKit-hosted chrome — native
-// TabView items and the ModeNotch toolbar principal item — can't carry SwiftUI
-// preferences, so those targets synthesize an approximate frame instead (see
+// exact frames via .tourTarget + TourAnchorKey — and so do the tab targets now
+// that the bottom bar is our own AgilTabBar rather than the native, UIKit-hosted
+// tab items. The ModeNotch (a toolbar principal item) is still UIKit-hosted and
+// can't carry a SwiftUI preference, so it synthesizes an approximate frame (see
 // fallbackFrame). The overlay resolves preference-first, fallback second.
 enum TourTarget: String, Hashable {
     case modeNotch
@@ -17,32 +18,34 @@ enum TourTarget: String, Hashable {
     case tabJournal                                       // nutrition world
     case profileCard
 
-    // Claude  Date 07/14/2026 last changed: 07/14/2026 by: Claude
+    // Claude  Date 07/14/2026 last changed: 07/21/2026 by: Claude
     // Approximate frame for chrome targets, in FULL-SCREEN coordinates. `insets`
     // are the REAL device safe-area insets (read from the key window by
     // RootTabView — the overlay's own GeometryReader ignores safe area, which
     // zeroes proxy.safeAreaInsets; that zeroing is what mis-placed the first cut
-    // of these frames). Geometry facts, measured against the iOS 26 floating tab
-    // bar on an iPhone 16 Pro:
-    //  - Tab items sit as a group CENTERED on the screen's midline with a fixed
-    //    ~86pt center-to-center pitch (both the 4-tab lifting bar and the 3-tab
-    //    nutrition bar measure the same pitch — the floating bar hugs its content
-    //    rather than dividing the full width). The item row (icon + label) spans
-    //    roughly the 40pt band just above the bottom safe inset.
+    // of these frames). Geometry facts:
+    //  - The tab targets are now BACKSTOPS ONLY: since the bottom bar became our
+    //    own AgilTabBar, its buttons report exact frames via .tourTarget, and the
+    //    overlay prefers those. The synthesized rects match that bar's layout —
+    //    cells split the full width evenly, in a AgilTabBar.contentHeight band
+    //    sitting directly on top of the bottom safe inset. (They used to model
+    //    the iOS 26 floating pill, which hugged its content on the midline with a
+    //    fixed ~86pt pitch; that geometry no longer exists in the app.)
     //  - The ModeNotch pill is the nav bar's centered principal item, starting
-    //    ~8pt below the top safe inset, ~36pt tall and ~210pt wide.
+    //    ~8pt below the top safe inset, ~36pt tall and ~210pt wide. This one has
+    //    no anchor (UIKit-hosted toolbar item), so it is still the live path.
     // Still approximations — the cutout padding in TourOverlay absorbs the last
     // few points of device-to-device drift.
     func fallbackFrame(size: CGSize, insets: EdgeInsets, mode: AppMode) -> CGRect? {
-        let pitch: CGFloat = 86
-        let itemWidth: CGFloat = 76
+        let barHeight = AgilTabBar.contentHeight
         let itemHeight: CGFloat = 44
 
         func tabRect(index: Int, of count: Int) -> CGRect {
-            let centerX = size.width / 2
-                + (CGFloat(index) - CGFloat(count - 1) / 2) * pitch
+            let cellWidth = size.width / CGFloat(count)
+            let itemWidth = min(76, cellWidth)
+            let centerX = cellWidth * (CGFloat(index) + 0.5)
             return CGRect(x: centerX - itemWidth / 2,
-                          y: size.height - insets.bottom - 40,
+                          y: size.height - insets.bottom - barHeight + (barHeight - itemHeight) / 2,
                           width: itemWidth, height: itemHeight)
         }
 

@@ -25,7 +25,17 @@ struct ModeNotch: View {
                 modeRaw = mode.toggled.rawValue
             }
         } label: {
-            HStack(spacing: 8) {
+            // Claude  Date 07/13/2026 last changed: 07/21/2026 by: Claude
+            // Tightened to fit: the pill is the nav bar's principal item, so its width
+            // is whatever the screen's leading/trailing buttons leave behind, and the
+            // monospaced theme font pushed the lifting-side content ("Lifting · 1,850
+            // / 2,200 cal") past that — it clipped. Savings, in order: the "·"
+            // separator and its two gaps are gone, the gaps went 8 → 6, the stat
+            // dropped to caption2, and the stat string itself is compact (see `stat`).
+            // The lineLimit/minimumScaleFactor pair is the backstop that guarantees it
+            // scales instead of clipping on a narrower phone or at a larger Dynamic
+            // Type size.
+            HStack(spacing: 6) {
                 // Claude  Date 07/13/2026
                 // Food's icon is a custom template asset (bowl-food), lifting is an
                 // SF Symbol. Frame the custom image to sit alongside the subheadline
@@ -46,12 +56,13 @@ struct ModeNotch: View {
                 Text(mode.label)
                     .font(.subheadline)
                     .fontWeight(.semibold)
-                Text("·")
-                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
                 Text(stat)
-                    .font(.caption)
+                    .font(.caption2)
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
                 Image(systemName: "arrow.left.arrow.right")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
@@ -69,7 +80,7 @@ struct ModeNotch: View {
         .accessibilityLabel("Switch to \(mode.toggled.label)")
     }
 
-    // Claude  Date 07/13/2026
+    // Claude  Date 07/13/2026 last changed: 07/21/2026 by: Claude
     // Cross-mode stat, recomputed in body: nutritionDay(for:) is the same O(n)
     // filter the Journal already runs per render, and the streak helper only
     // buckets workout dates into week-starts. Alpha-scale data makes memoization
@@ -78,9 +89,11 @@ struct ModeNotch: View {
     private var stat: String {
         switch mode {
         case .lifting:
+            // No thousands separators and no spaces around the slash: at four digits
+            // a comma buys nothing and the grouped form is what overflowed the pill.
             let eaten = Int(store.nutritionDay(for: Date()).totals.calories)
             let goal = Int(store.nutritionGoals.calories)
-            return "\(eaten.formatted()) / \(goal.formatted()) cal"
+            return "\(eaten)/\(goal) cal"
         case .nutrition:
             let streak = ProfileStats.weekStreak(of: store.workouts.map(\.date))
             return "\(streak)-wk streak"

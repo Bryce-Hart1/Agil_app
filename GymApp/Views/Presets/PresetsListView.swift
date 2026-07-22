@@ -13,6 +13,7 @@ struct PresetsListView: View {
                 if store.presets.isEmpty {
                     Text("No presets yet. Tap + to create a reusable workout template, then start workouts from it.")
                         .foregroundStyle(.secondary)
+                        .supportingTextFont()
                 } else {
                     ForEach(store.presets) { preset in
                         NavigationLink(value: preset.id) {
@@ -91,6 +92,7 @@ private struct PresetRow: View {
                 Text(summary)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
+                    .supportingTextFont()
             }
         }
     }

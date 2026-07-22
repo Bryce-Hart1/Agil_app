@@ -11,6 +11,25 @@ extension View {
             .listRowBackground(theme.surface)
     }
 
+    // Claude  Date 07/21/2026
+    // Opts a view OUT of the theme's typeface and back to the plain system face.
+    // Two reasons to reach for it, hence the two names:
+    //  - systemTypeface(): a whole screen that the theme font actively breaks. The
+    //    workout editor is the case in point — its set rows lay numbers out in fixed
+    //    width columns, and monospaced glyphs are wide enough to wrap them.
+    //  - supportingTextFont(): secondary copy under a heading (set/exercise counts,
+    //    the exercise names under a preset), where mono reads cramped and eats the
+    //    horizontal room long strings need. The heading above stays in the theme
+    //    face, so the pairing is the contrast, not an accident.
+    // Both set the face only; the caller keeps owning size and color.
+    func systemTypeface() -> some View {
+        fontDesign(nil)
+    }
+
+    func supportingTextFont() -> some View {
+        systemTypeface()
+    }
+
     // Claude  Date 07/16/2026
     // Menu-style Pickers are UIKit-backed and resolve the .tint in effect when
     // they're first created — after a theme swap, any picker that was already

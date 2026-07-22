@@ -3,6 +3,53 @@ import SwiftUI
 import UIKit
 #endif
 
+// Claude  Date 07/21/2026
+// The typeface a theme renders in. We stay on Apple's system font and only change
+// its DESIGN — that's what lets one .fontDesign() at the root re-skin the whole app
+// (SwiftUI cascades it over every explicitly-set system font), while Dynamic Type,
+// weights and SF Symbol alignment all keep working for free. A bundled typeface
+// would have no such cascade: every .font() call site in the app would have to be
+// rewritten onto Font.custom(_:size:relativeTo:).
+// Stored as a String so AppTheme stays Codable/JSON-persistable, same as the colors.
+enum AppFontDesign: String, Codable, CaseIterable, Identifiable {
+    case system, rounded, serif, monospaced
+
+    var id: String { rawValue }
+
+    var design: Font.Design {
+        switch self {
+        case .system:     return .default
+        case .rounded:    return .rounded
+        case .serif:      return .serif
+        case .monospaced: return .monospaced
+        }
+    }
+
+    #if canImport(UIKit)
+    // Claude  Date 07/21/2026
+    // The UIKit twin of `design`, for the chrome SwiftUI doesn't draw itself —
+    // navigation-bar titles and bar-button labels. See ChromeFontAppearance.
+    var uiDesign: UIFontDescriptor.SystemDesign {
+        switch self {
+        case .system:     return .default
+        case .rounded:    return .rounded
+        case .serif:      return .serif
+        case .monospaced: return .monospaced
+        }
+    }
+    #endif
+
+    /// Shown in the theme editor's font picker.
+    var label: String {
+        switch self {
+        case .system:     return "System"
+        case .rounded:    return "Rounded"
+        case .serif:      return "Serif"
+        case .monospaced: return "Monospaced"
+        }
+    }
+}
+
 /// A visual theme. Colors are stored as hex strings so the whole thing is
 /// Codable and can be persisted to JSON alongside the rest of the app's data.
 ///
@@ -28,11 +75,18 @@ struct AppTheme: Identifiable, Codable, Hashable {
     // Coin cost to unlock this theme in the Shop. 0 = free (Classic + any custom
     // theme you make yourself); paid built-ins cost 500.
     var price: Int
+    // Claude  Date 07/21/2026
+    // Typography, carried by the theme so picking a theme picks a typeface too.
+    // Stored raw (String) to keep the JSON persistence simple; read through
+    // `fontDesign` below. Every built-in is monospaced today — they simply take the
+    // init default — but the field is per-theme so individual themes can differ
+    // later without another refactor.
+    var fontDesignRaw: String
 
     init(id: UUID = UUID(), name: String, isBuiltIn: Bool = false, isDark: Bool,
          accentHex: String, backgroundHex: String, surfaceHex: String,
          darkAccentHex: String? = nil, darkBackgroundHex: String? = nil, darkSurfaceHex: String? = nil,
-         price: Int = 0) {
+         price: Int = 0, fontDesign: AppFontDesign = .monospaced) {
         self.id = id
         self.name = name
         self.isBuiltIn = isBuiltIn
@@ -44,15 +98,16 @@ struct AppTheme: Identifiable, Codable, Hashable {
         self.darkBackgroundHex = darkBackgroundHex
         self.darkSurfaceHex = darkSurfaceHex
         self.price = price
+        self.fontDesignRaw = fontDesign.rawValue
     }
 
-    // Claude  Date 06/13/2026
+    // Claude  Date 06/13/2026 last changed: 07/21/2026 by: Claude
     // Explicit CodingKeys + decoder so custom themes saved before `price` existed
     // still load (absent price → 0). Declaring the keys keeps the synthesized
-    // encoder in sync (it now writes `price` too).
+    // encoder in sync (it now writes `price` and `fontDesignRaw` too).
     enum CodingKeys: String, CodingKey {
         case id, name, isBuiltIn, isDark, accentHex, backgroundHex, surfaceHex
-        case darkAccentHex, darkBackgroundHex, darkSurfaceHex, price
+        case darkAccentHex, darkBackgroundHex, darkSurfaceHex, price, fontDesignRaw
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -67,6 +122,16 @@ struct AppTheme: Identifiable, Codable, Hashable {
         darkBackgroundHex = try c.decodeIfPresent(String.self, forKey: .darkBackgroundHex)
         darkSurfaceHex = try c.decodeIfPresent(String.self, forKey: .darkSurfaceHex)
         price = try c.decodeIfPresent(Int.self, forKey: .price) ?? 0
+        // Themes saved before typography existed fall in with everything else: mono.
+        fontDesignRaw = try c.decodeIfPresent(String.self, forKey: .fontDesignRaw)
+            ?? AppFontDesign.monospaced.rawValue
+    }
+
+    // Claude  Date 07/21/2026
+    // The theme's typeface, applied app-wide by RootTabView (.fontDesign) and by
+    // ChromeFontAppearance for the UIKit-drawn navigation chrome.
+    var fontDesign: AppFontDesign {
+        AppFontDesign(rawValue: fontDesignRaw) ?? .monospaced
     }
 
     // Claude  Date 06/09/2026
@@ -103,9 +168,11 @@ struct AppTheme: Identifiable, Codable, Hashable {
 
     /// A fresh, editable copy seeded from this theme's colors (used to start a
     /// new custom theme from the currently selected one).
+    // Claude  Date 07/21/2026 — carries the typeface across too, not just the colors.
     func asNewTemplate() -> AppTheme {
         AppTheme(id: UUID(), name: "My Theme", isBuiltIn: false, isDark: isDark,
-                 accentHex: accentHex, backgroundHex: backgroundHex, surfaceHex: surfaceHex)
+                 accentHex: accentHex, backgroundHex: backgroundHex, surfaceHex: surfaceHex,
+                 fontDesign: fontDesign)
     }
 }
 
@@ -116,6 +183,12 @@ struct AppTheme: Identifiable, Codable, Hashable {
  */
 
 extension AppTheme {
+    // Claude  Date 07/21/2026
+    // None of the built-ins names a `fontDesign`, so they all take the init default
+    // (.monospaced) — the whole app is mono for now. Give an individual theme its own
+    // design here (e.g. `fontDesign: .rounded` on sunset) when we want typography to
+    // vary by theme; nothing else needs to change.
+
     // Claude  Date 06/09/2026 last changed: 06/10/2026 by: Claude
     // Classic: built around the logo pink (#EA0F8B). Adaptive — light mode is a
     // soft pink-tinted white; dark mode is a deep near-black magenta with a

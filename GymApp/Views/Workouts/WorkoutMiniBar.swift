@@ -136,19 +136,18 @@ struct WorkoutMiniBar: View {
     }
 }
 
-// Claude  Date 07/16/2026
-// Hosts the mini-bar as a bottom safe-area inset on a tab's content (applied to
-// each tab in RootTabView). Previously the bar was a floating .overlay on the
-// whole TabView, which painted it ON TOP of every page — the last ~55pt of
-// every scroll view sat underneath it, unreachable and untappable (e.g. the
-// Settings row at the bottom of Profile during an active workout). As a
-// safe-area inset the bar still sits just above the tab bar, but scroll
-// content now ends above it, and the inset collapses to nothing whenever the
-// bar renders empty (no active workout, or already inside its editor).
-extension View {
-    func workoutMiniBar(onOpen: @escaping () -> Void) -> some View {
-        safeAreaInset(edge: .bottom, spacing: 0) {
-            WorkoutMiniBar(onOpen: onOpen)
-        }
-    }
-}
+// Claude  Date 07/16/2026 last changed: 07/21/2026 by: Claude
+// Where this bar lives, and why it keeps moving:
+//  - It began as a floating .overlay on the whole TabView, which painted it ON TOP
+//    of every page — the last ~55pt of every scroll view sat underneath it,
+//    unreachable and untappable (e.g. the Settings row at the bottom of Profile
+//    during an active workout).
+//  - 07/16 it became a bottom safe-area inset per tab, which fixed that for a tab's
+//    root page but not for anything the tab pushed: a safe-area inset applied
+//    outside a NavigationStack doesn't reach its destinations. Nobody caught it
+//    because this bar hides itself inside the one pushed page it would have covered
+//    (the editor for the active workout).
+//  - 07/21 it moved into RootTabView's VStack, stacked directly above the tab bar.
+//    It's plain layout now: when there's nothing to show the view is empty and
+//    contributes zero height, and when there is, the pages above simply get shorter.
+// So there's no modifier to apply — RootTabView places WorkoutMiniBar itself.

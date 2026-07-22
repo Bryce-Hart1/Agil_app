@@ -38,85 +38,36 @@ struct RootTabView: View {
     }
 
     var body: some View {
-        TabView(selection: $selection) {
-            // Claude  Date 07/16/2026
-            // Every tab hosts the workout mini-bar as a bottom safe-area inset
-            // (.workoutMiniBar) instead of the old TabView-wide floating overlay.
-            // The overlay painted the bar on top of each page, so the last ~55pt
-            // of every scroll view was hidden underneath it and untappable while
-            // a workout was active (e.g. the Settings row at the bottom of
-            // Profile). The inset keeps the bar just above the tab bar but lets
-            // scroll content end above it; it collapses when no bar is shown.
-            if mode == .lifting {
-                WorkoutsListView()
-                    .workoutMiniBar(onOpen: openActiveWorkout)
-                    .tabItem { Label("Workouts", systemImage: "dumbbell") }
-                    .tag(1)
-
-                // Claude  Date 06/16/2026 last changed: 07/13/2026 by: Claude
-                // The "Build" hub: workout presets (templates), with the exercise
-                // library reachable from its top-left link. (Icon: custom template
-                // asset "hammer" via Label(_:image:), replacing plus.square.on.square.)
-                PresetsListView()
-                    .workoutMiniBar(onOpen: openActiveWorkout)
-                    .tabItem { Label("Build", image: "hammer") }
-                    .tag(2)
-
-                // Claude  Date 07/13/2026
-                // Icon: custom template asset "chart-scatter" (was chart.bar.xaxis).
-                ProgressDashboardView()
-                    .workoutMiniBar(onOpen: openActiveWorkout)
-                    .tabItem { Label("Progress", image: "chart-scatter") }
-                    .tag(3)
-
-                // Claude  Date 07/13/2026
-                // Icon: custom template asset "user-circle-dashed" (was
-                // person.crop.circle). Shared by both worlds' Profile tab.
-                ProfileView()
-                    .workoutMiniBar(onOpen: openActiveWorkout)
-                    .tabItem { Label("Profile", image: "user-circle-dashed") }
-                    .tag(4)
-            } else {
-                // Claude  Date 06/16/2026 Edited 6/16/26 Bryce Hart last changed: 07/13/2026 by: Claude
-                // Nutrition world: per-day food Journal, the food library, and the
-                // shared profile. Goals are reached from the Journal's toolbar.
-                // (Icons: custom template assets "notepad"/"orange", replacing
-                // fork.knife/carrot.)
-                NutritionJournalView()
-                    .workoutMiniBar(onOpen: openActiveWorkout)
-                    .tabItem { Label("Journal", image: "notepad") }
-                    .tag(1)
-
-                FoodLibraryView()
-                    .workoutMiniBar(onOpen: openActiveWorkout)
-                    .tabItem { Label("Foods", image: "orange") }
-                    .tag(2)
-
-                // Claude  Date 07/13/2026
-                // Icon: custom template asset "user-circle-dashed" (was
-                // person.crop.circle). Shared by both worlds' Profile tab.
-                ProfileView()
-                    .workoutMiniBar(onOpen: openActiveWorkout)
-                    .tabItem { Label("Profile", image: "user-circle-dashed") }
-                    .tag(3)
-            }
-        }
-        // Claude  Date 07/13/2026
-        // World flips come from the ModeNotch pill (mounted in each root screen's
-        // nav bar), which writes the shared "appMode" key. React here: bank the
-        // outgoing world's tab and restore the incoming world's last-selected one.
-        // With only two modes, the outgoing mode is always the new one's toggle.
-        .onChange(of: modeRaw) { newRaw in
-            let next = AppMode(rawValue: newRaw) ?? .lifting
-            if next == .lifting {
-                nutritionTab = selection
-                selection = liftingTab
-            } else {
-                liftingTab = selection
-                selection = nutritionTab
-            }
+        // Claude  Date 07/21/2026
+        // The bottom chrome is LAYOUT, not a safe-area inset. Both earlier attempts
+        // — one inset around the TabView, then one per tab — drew the bar in the
+        // right place but left pages believing they owned the full screen, so the
+        // last ~54pt of a scroll view sat under the bar and couldn't be reached (the
+        // workout editor's "Complete Workout" button, half-swallowed). Safe-area
+        // insets applied outside a NavigationStack don't reach what it pushes, and
+        // hiding the native tab bar took away the UIKit inset that used to cover
+        // every page for us.
+        //
+        // A VStack removes the question: the TabView is physically shorter than the
+        // screen, so nothing it hosts — root or pushed, scroll view or not — can
+        // extend under the bars. The mini-bar moves up here for the same reason
+        // (it collapses to zero height when it has nothing to show, so it costs
+        // nothing when idle). The bar's own fill still bleeds through the home
+        // indicator, so it reads as flush with the bottom edge.
+        VStack(spacing: 0) {
+            tabContent
+            WorkoutMiniBar(onOpen: openActiveWorkout)
+            AgilTabBar(items: AgilTabItem.items(for: mode), selection: $selection)
         }
         .tint(theme.current.accent)
+        // Claude  Date 07/21/2026
+        // The app's typeface, carried by the theme (all built-ins are monospaced
+        // today). One modifier is enough: SwiftUI cascades a font design over every
+        // system font in the subtree, including views that set their own .font(...),
+        // and presentations inherit it — so the sheets and fullScreenCovers below come
+        // along too, as do both bottom bars. The UIKit-drawn navigation chrome can't
+        // be reached this way; ChromeFontAppearance handles that (below).
+        .fontDesign(theme.current.fontDesign.design)
         .preferredColorScheme(theme.current.preferredColorScheme)
         .fullScreenCover(isPresented: showOnboarding) {
             OnboardingView()
@@ -127,11 +78,6 @@ struct RootTabView: View {
         .fullScreenCover(isPresented: $session.showFullScreenTimer) {
             RestTimerFullScreenView()
         }
-        // Claude  Date 06/16/2026 last changed: 07/16/2026 by: Claude
-        // The global workout mini-bar used to be a floating overlay here (with a
-        // hardcoded 49pt tab-bar offset); it's now a per-tab safe-area inset —
-        // see .workoutMiniBar above — so pages scroll clear of it. Celebration
-        // overlays below still sit on top of it, same as before.
         // Claude  Date 06/13/2026
         // Achievement-unlock celebration, shown over the whole app. Keyed by id so
         // each queued unlock gets a fresh pop-in animation as you tap through.
@@ -238,6 +184,16 @@ struct RootTabView: View {
         // (name / style / rank toggle / pinned badges) and the earned-badge set (which
         // drives the equipped rank). Each call no-ops unless in Friends mode + changed.
         .task { cardSync.sync(from: store) }
+        // Claude  Date 07/21/2026
+        // Mirror the theme's typeface onto the UIKit-drawn navigation chrome (titles
+        // and bar-button labels), which .fontDesign above can't reach. Once at launch,
+        // then on any change to the active theme's font — selecting a different theme
+        // or editing the current custom one both land here, since the raw design of
+        // `theme.current` is what's being watched.
+        .onAppear { ChromeFontAppearance.apply(theme.current.fontDesign) }
+        .onChange(of: theme.current.fontDesignRaw) { _ in
+            ChromeFontAppearance.apply(theme.current.fontDesign)
+        }
         .onChange(of: scenePhase) { phase in
             switch phase {
             case .active:
@@ -261,6 +217,76 @@ struct RootTabView: View {
         }
         .onChange(of: store.profile) { _ in cardSync.sync(from: store) }
         .onChange(of: store.unlockedAchievementIDs) { _ in cardSync.sync(from: store) }
+    }
+
+    // Claude  Date 07/21/2026
+    // The tab pages themselves. Split out of `body` so the VStack above reads as the
+    // three stacked pieces it is (pages, mini-bar, tab bar) — the contents are
+    // unchanged, and world-switch bookkeeping stays with the selection it edits.
+    private var tabContent: some View {
+        TabView(selection: $selection) {
+            // Claude  Date 07/21/2026
+            // Each tab is hosted by .agilTab, which hides the native tab bar and
+            // applies the item's tabItem/tag. Icons + titles live on AgilTabItem (see
+            // AgilTabBar.swift) so our bar and the (hidden) native items can't drift
+            // apart. Neither bottom bar is mounted here — both are siblings of this
+            // TabView in the VStack above, which is what keeps pages from scrolling
+            // underneath them.
+            if mode == .lifting {
+                WorkoutsListView()
+                    .agilTab(.workouts)
+
+                // Claude  Date 06/16/2026 last changed: 07/21/2026 by: Claude
+                // The "Build" hub: workout presets (templates), with the exercise
+                // library reachable from its top-left link. (Icon: custom template
+                // asset "hammer", replacing plus.square.on.square.)
+                PresetsListView()
+                    .agilTab(.build)
+
+                // Claude  Date 07/13/2026
+                // Icon: custom template asset "chart-scatter" (was chart.bar.xaxis).
+                ProgressDashboardView()
+                    .agilTab(.progress)
+
+                // Claude  Date 07/13/2026
+                // Icon: custom template asset "user-circle-dashed" (was
+                // person.crop.circle). Shared by both worlds' Profile tab.
+                ProfileView()
+                    .agilTab(.liftingProfile)
+            } else {
+                // Claude  Date 06/16/2026 Edited 6/16/26 Bryce Hart last changed: 07/21/2026 by: Claude
+                // Nutrition world: per-day food Journal, the food library, and the
+                // shared profile. Goals are reached from the Journal's toolbar.
+                // (Icons: custom template assets "notepad"/"orange", replacing
+                // fork.knife/carrot.)
+                NutritionJournalView()
+                    .agilTab(.journal)
+
+                FoodLibraryView()
+                    .agilTab(.foods)
+
+                // Claude  Date 07/13/2026
+                // Icon: custom template asset "user-circle-dashed" (was
+                // person.crop.circle). Shared by both worlds' Profile tab.
+                ProfileView()
+                    .agilTab(.nutritionProfile)
+            }
+        }
+        // Claude  Date 07/13/2026
+        // World flips come from the ModeNotch pill (mounted in each root screen's
+        // nav bar), which writes the shared "appMode" key. React here: bank the
+        // outgoing world's tab and restore the incoming world's last-selected one.
+        // With only two modes, the outgoing mode is always the new one's toggle.
+        .onChange(of: modeRaw) { newRaw in
+            let next = AppMode(rawValue: newRaw) ?? .lifting
+            if next == .lifting {
+                nutritionTab = selection
+                selection = liftingTab
+            } else {
+                liftingTab = selection
+                selection = nutritionTab
+            }
+        }
     }
 
     // Claude  Date 06/16/2026 last changed: 07/13/2026 by: Claude
