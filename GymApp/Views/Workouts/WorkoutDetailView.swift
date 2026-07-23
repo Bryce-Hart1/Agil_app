@@ -43,6 +43,13 @@ private struct WorkoutEditor: View {
     // current exercises, rep ranges, and set counts back onto its source preset.
     @State private var showingOverrideConfirm = false
     @State private var overridePresetConfirmation = false
+    // Claude  Date 07/21/2026
+    // Which set's reps/weight field the keyboard is on (nil = focus is elsewhere, or
+    // nowhere). Threaded down to each SetRow so the keyboard accessory bar knows which
+    // value its steppers should move. Other fields on this screen — the workout note,
+    // an exercise's form cue, the rep-range fields — deliberately aren't tracked here;
+    // they get the plain Done, which is all they ever had.
+    @FocusState private var focusedField: SetEntryField?
 
     // Claude  Date 07/13/2026
     // The preset this workout was started from, if it still exists (nil for empty/ad-hoc
@@ -79,7 +86,8 @@ private struct WorkoutEditor: View {
                     // they're cleared; the rep range is re-derived from the new lift's
                     // history (same rule the picker uses when adding). Rest timer stays —
                     // it's a property of how you're training, not of the lift.
-                    ExerciseLogSection(logged: $logged, accent: theme.current.accent) { exercise in
+                    ExerciseLogSection(logged: $logged, accent: theme.current.accent,
+                                       focusedField: $focusedField) { exercise in
                         logged.exerciseId = exercise.id
                         logged.targetRepRange = store.defaultRepRange(for: exercise.id)
                         logged.sets.removeAll()
@@ -236,9 +244,15 @@ private struct WorkoutEditor: View {
                 }
                 .disabled(workout.exercises.isEmpty)
             }
+            // Claude  Date 07/21/2026
+            // The bar that rides on top of the keyboard: Done, plus quick steppers for
+            // whichever set field is focused (see SetEntryAccessoryBar).
             ToolbarItemGroup(placement: .keyboard) {
-                Spacer()
-                Button("Done") { hideKeyboard() }
+                SetEntryAccessoryBar(
+                    field: focusedField,
+                    accent: theme.current.accent,
+                    onAdjust: { adjustFocusedField(by: $0) },
+                    onDone: dismissKeyboardBar)
             }
         }
         .sheet(isPresented: $showingExercisePicker) {
@@ -304,6 +318,43 @@ private struct WorkoutEditor: View {
             Text("“\(sourcePresetName)” now matches this workout.")
         }
     }
+
+    // Claude  Date 07/21/2026
+    // Done resigns the first responder app-wide rather than only clearing @FocusState:
+    // the note and rep-range fields on this screen aren't tracked by `focusedField`, so
+    // clearing it alone would leave their keyboards up.
+    private func dismissKeyboardBar() {
+        focusedField = nil
+        hideKeyboard()
+    }
+
+    // Claude  Date 07/21/2026
+    // Move the focused set field by `delta` (the keyboard bar's steppers). Writes through
+    // the same `$workout` binding typing does, so AppStore persists it identically — and
+    // as with typing, adjusting an already-checked-off set is allowed and changes no
+    // earned credit (the ledger is written once, at finish).
+    //
+    // Weight is rounded to 2 places so repeated ±2.5 taps can't accumulate binary-float
+    // dust into "137.50000000000003", and both fields clamp at 0 — negative reps or a
+    // negative load are meaningless.
+    private func adjustFocusedField(by delta: Double) {
+        guard let field = focusedField else { return }
+        for exerciseIndex in workout.exercises.indices {
+            guard let setIndex = workout.exercises[exerciseIndex].sets
+                .firstIndex(where: { $0.id == field.setID }) else { continue }
+
+            switch field {
+            case .reps:
+                let updated = workout.exercises[exerciseIndex].sets[setIndex].reps + Int(delta)
+                workout.exercises[exerciseIndex].sets[setIndex].reps = max(0, updated)
+            case .weight:
+                let updated = workout.exercises[exerciseIndex].sets[setIndex].weight + delta
+                workout.exercises[exerciseIndex].sets[setIndex].weight =
+                    max(0, (updated * 100).rounded() / 100)
+            }
+            return
+        }
+    }
 }
 
 /// The rows for one exercise within a workout: each set, an "add set" button,
@@ -316,6 +367,10 @@ private struct ExerciseLogSection: View {
     @EnvironmentObject private var theme: ThemeManager
     @Binding var logged: LoggedExercise
     let accent: Color
+    // Claude  Date 07/21/2026
+    // The editor's set-field focus, passed straight through to each SetRow so the
+    // keyboard accessory bar knows which value it's stepping.
+    @FocusState.Binding var focusedField: SetEntryField?
     let onSwap: (Exercise) -> Void
     let onRemove: () -> Void
 
@@ -365,7 +420,8 @@ private struct ExerciseLogSection: View {
                    lagsBehind: lagsBehind(at: index),
                    isBodyweight: isBodyweight,
                    set: $logged.sets[index],
-                   targetRange: logged.targetRepRange, accent: accent)
+                   targetRange: logged.targetRepRange, accent: accent,
+                   focusedField: $focusedField)
         }
         .onDelete { deleteSets(at: $0) }
 
@@ -546,6 +602,10 @@ private struct SetRow: View {
     @Binding var set: ExerciseSet
     let targetRange: RepRange?
     let accent: Color
+    // Claude  Date 07/21/2026
+    // Binds this row's two fields into the editor's focus state, so the keyboard bar's
+    // steppers act on whichever one is being edited.
+    @FocusState.Binding var focusedField: SetEntryField?
 
     // Claude  Date 06/14/2026
     // `self.` is required: leading `set` in an accessor body is read as the setter
@@ -598,6 +658,7 @@ private struct SetRow: View {
                 .multilineTextAlignment(.center)
                 .foregroundStyle(lagsBehind ? .red : (markColor ?? .primary))
                 .frame(width: 48)
+                .focused($focusedField, equals: .reps(self.set.id))
             Text("reps")
                 .foregroundStyle(.secondary)
 
@@ -615,6 +676,7 @@ private struct SetRow: View {
                 .multilineTextAlignment(.trailing)
                 .foregroundStyle(lagsBehind ? .red : .primary)
                 .frame(width: 64)
+                .focused($focusedField, equals: .weight(self.set.id))
             Text("lb")
                 .foregroundStyle(.secondary)
         }

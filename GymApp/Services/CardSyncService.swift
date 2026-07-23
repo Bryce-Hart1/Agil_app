@@ -10,7 +10,7 @@ import Security
 //  - Nothing is ever sent unless the user chose Friends mode (UserProfile.dataMode).
 //  - Only a SharedCard (card cosmetics + featured badges) is sent — built from
 //    AppStore in `snapshot(from:)`; no other data is reachable from this type.
-//  - Switching back to Offline deletes the server copy, so opting out really removes it.
+//  - Switching back to Ghost Mode deletes the server copy, so opting out really removes it.
 //
 // It deliberately does NOT hold a reference to AppStore (which would couple two app-wide
 // objects); callers pass `store` into the sync methods. Pushes are debounced + deduped
@@ -81,11 +81,11 @@ final class CardSyncService: ObservableObject {
     // MARK: - Mode changes
 
     // React to the user toggling where their data lives. Friends → push the current
-    // card; Offline → tear the server copy down.
+    // card; Ghost → tear the server copy down.
     func handleModeChange(to mode: DataMode, store: AppStore) {
         switch mode {
         case .friends: sync(from: store)
-        case .offline: deleteMyCard()
+        case .ghost: deleteMyCard()
         }
     }
 

@@ -1,7 +1,11 @@
 import SwiftUI
 import Charts
 
-/// The Progress tab: at-a-glance stat cards, volume & estimated-1RM trends,
+// Claude  Date 07/22/2026
+// The "Volume over time" chart was dropped here — per-workout total volume swings with
+// exercise selection rather than progress, so the line wasn't rewarding to look at. The
+// `volume(of:)` helper stays because `totalVolume` (server-sync stat) still needs it.
+/// The Progress tab: at-a-glance stat cards, estimated-1RM trend,
 /// workouts-per-week, sets-per-muscle-group, and a personal-records list.
 struct ProgressDashboardView: View {
     @EnvironmentObject private var store: AppStore
@@ -17,7 +21,6 @@ struct ProgressDashboardView: View {
                         .foregroundStyle(.secondary)
                 } else {
                     summarySection
-                    volumeSection
                     oneRepMaxSection
                     frequencySection
                     muscleGroupSection
@@ -39,26 +42,25 @@ struct ProgressDashboardView: View {
 
     // MARK: - Sections
 
+    // Claude  Date 07/22/2026
+    // One row of four instead of a 2×2 grid — the summary stats were taking up most of
+    // the first screen and pushing the charts below the fold. Titles are shortened
+    // ("Total workouts" → "Workouts") because the full wording can't hold one line at
+    // quarter width; the section header carries the context that the label drops.
     private var summarySection: some View {
         Section {
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                StatCard(title: "Total workouts", value: "\(store.workouts.count)",
+            HStack(spacing: 8) {
+                StatCard(title: "Workouts", value: "\(store.workouts.count)",
                          systemImage: "calendar", surface: theme.current.surface, accent: theme.current.accent)
-                StatCard(title: "Week streak", value: "\(currentStreak)",
+                StatCard(title: "Streak", value: "\(currentStreak)",
                          systemImage: "flame", surface: theme.current.surface, accent: theme.current.accent)
                 StatCard(title: "This week", value: "\(workoutsThisWeek)",
                          systemImage: "calendar.badge.clock", surface: theme.current.surface, accent: theme.current.accent)
-                StatCard(title: "Last workout", value: lastWorkoutText,
+                StatCard(title: "Last", value: lastWorkoutText,
                          systemImage: "clock.arrow.circlepath", surface: theme.current.surface, accent: theme.current.accent)
             }
             .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
             .listRowBackground(Color.clear)
-        }
-    }
-
-    private var volumeSection: some View {
-        Section("Volume over time") {
-            TrendChart(points: volumePoints, color: theme.current.accent, unit: "lb")
         }
     }
 
@@ -99,12 +101,21 @@ struct ProgressDashboardView: View {
         }
     }
 
+    // Claude  Date 07/22/2026 last changed: 07/23/2026 by: Claude
+    // Only the 5 most recently achieved records show here; the rest stay tracked and are
+    // reachable via "See all". `personalRecords` is already sorted most-recent-first.
     @ViewBuilder
     private var personalRecordsSection: some View {
         if !personalRecords.isEmpty {
             Section("Personal records") {
-                ForEach(personalRecords) { pr in
+                ForEach(personalRecords.prefix(5)) { pr in
                     PRRow(record: pr)
+                }
+                if personalRecords.count > 5 {
+                    NavigationLink("See all") {
+                        AllPersonalRecordsView(records: personalRecords)
+                            .themed(theme.current)
+                    }
                 }
             }
         }
@@ -158,12 +169,6 @@ struct ProgressDashboardView: View {
         return formatter.localizedString(for: date, relativeTo: Date())
     }
 
-    private var volumePoints: [DatedValue] {
-        store.workouts
-            .map { DatedValue(date: $0.date, value: volume(of: $0)) }
-            .sorted { $0.date < $1.date }
-    }
-
     /// Exercises that appear in at least one workout, sorted by name.
     private var loggedExercises: [Exercise] {
         let usedIDs = Set(store.workouts.flatMap { $0.exercises.map(\.exerciseId) })
@@ -176,7 +181,10 @@ struct ProgressDashboardView: View {
         var points: [DatedValue] = []
         for workout in store.workouts.sorted(by: { $0.date < $1.date }) {
             let sets = workout.exercises.filter { $0.exerciseId == id }.flatMap { $0.sets }
-            let best = sets.map { $0.weight * (1 + Double($0.reps) / 30.0) }.max()
+            // Claude  Date 07/21/2026
+            // Shared Epley helper (was an inline copy of the same formula) so the chart
+            // and the performance card's best-set scoring can't drift apart.
+            let best = sets.map { BestSetScoring.e1RM(weight: $0.weight, reps: $0.reps) }.max()
             if let best, best > 0 {
                 points.append(DatedValue(date: workout.date, value: best))
             }
@@ -216,25 +224,35 @@ struct ProgressDashboardView: View {
             .sorted { $0.sets > $1.sets }
     }
 
+    // Claude  Date 07/22/2026 last changed: 07/23/2026 by: Claude
+    // Personal records now derive from the append-only activity ledger, not the editable
+    // workouts, so they're tamper-resistant like achievements and the best-set tile — and
+    // only count sets from FINISHED workouts. For each weighted exercise the winning set is
+    // the single event with the highest Epley e1RM; its reps/weight/time travel together as
+    // one coherent "best set". Bodyweight lifts are excluded (their `weight` is added load,
+    // so a 1RM is meaningless). Sorted most-recently-achieved first to feed the "last 5".
     private var personalRecords: [PersonalRecord] {
-        var best: [UUID: (weight: Double, oneRepMax: Double)] = [:]
-        for workout in store.workouts {
-            for logged in workout.exercises {
-                for set in logged.sets where set.weight > 0 {
-                    let oneRepMax = set.weight * (1 + Double(set.reps) / 30.0)
-                    var record = best[logged.exerciseId] ?? (0, 0)
-                    record.weight = max(record.weight, set.weight)
-                    record.oneRepMax = max(record.oneRepMax, oneRepMax)
-                    best[logged.exerciseId] = record
-                }
+        var best: [UUID: ActivityEvent] = [:]
+        for event in store.activityLog {
+            guard let exercise = store.exercise(for: event.exerciseId),
+                  !exercise.isBodyweight, event.weight > 0 else { continue }
+            // Shared Epley helper — the app's single 1RM curve (see oneRepMaxPoints above).
+            let e1RM = BestSetScoring.e1RM(weight: event.weight, reps: event.reps)
+            if let current = best[event.exerciseId],
+               BestSetScoring.e1RM(weight: current.weight, reps: current.reps) >= e1RM {
+                continue
             }
+            best[event.exerciseId] = event
         }
-        return best.compactMap { id, value in
+        return best.compactMap { id, event in
             guard let exercise = store.exercise(for: id) else { return nil }
-            return PersonalRecord(id: id, name: exercise.name, isUnilateral: exercise.isUnilateral,
-                                  bestWeight: value.weight, estOneRepMax: value.oneRepMax)
+            return PersonalRecord(
+                id: id, name: exercise.name, isUnilateral: exercise.isUnilateral,
+                reps: event.reps, weight: event.weight,
+                estOneRepMax: BestSetScoring.e1RM(weight: event.weight, reps: event.reps),
+                achievedAt: event.loggedAt)
         }
-        .sorted { $0.estOneRepMax > $1.estOneRepMax }
+        .sorted { $0.achievedAt > $1.achievedAt }
     }
 }
 
@@ -259,12 +277,18 @@ private struct CategoryBar: Identifiable {
     var id: String { category }
 }
 
+// Claude  Date 07/22/2026 last changed: 07/23/2026 by: Claude
+// A personal record is now one COHERENT best set — the winning set's reps and weight
+// travel together (previously bestWeight and est 1RM could come from different sets).
+// `achievedAt` (the ledger's real completion time) is what lets us surface the "last 5".
 private struct PersonalRecord: Identifiable {
-    let id: UUID
+    let id: UUID            // exercise id
     let name: String
     let isUnilateral: Bool
-    let bestWeight: Double
+    let reps: Int           // reps of the winning set
+    let weight: Double      // weight of the winning set (lb)
     let estOneRepMax: Double
+    let achievedAt: Date    // loggedAt of the winning set — drives "last 5"
 }
 
 // MARK: - Cards & charts
@@ -328,24 +352,45 @@ private struct MuscleGroupChart: View {
     }
 }
 
+// Claude  Date 07/22/2026 last changed: 07/23/2026 by: Claude
+// The best set is now the primary stat ("4 reps @ 135 lb"), with the estimated 1RM
+// demoted to a small caption underneath. Unilateral lifts append "/ side" so the
+// per-side load isn't mistaken for a two-sided one (this replaces the old name tag).
 private struct PRRow: View {
     let record: PersonalRecord
+
+    private var bestSetText: String {
+        let base = "\(record.reps) reps @ \(Int(record.weight.rounded())) lb"
+        return record.isUnilateral ? base + " / side" : base
+    }
 
     var body: some View {
         HStack {
             Text(record.name)
-            if record.isUnilateral {
-                Text("(unilateral)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
             Spacer()
             VStack(alignment: .trailing, spacing: 2) {
-                Text("\(Int(record.bestWeight.rounded())) lb").font(.subheadline)
+                Text(bestSetText).font(.subheadline)
                 Text("est 1RM \(Int(record.estOneRepMax.rounded())) lb")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
+    }
+}
+
+// Claude  Date 07/23/2026
+// The full personal-records list behind the Progress tab's "See all" link. Every
+// weighted exercise's best set, most recently achieved first — the same rows as the
+// capped preview, just uncapped.
+private struct AllPersonalRecordsView: View {
+    let records: [PersonalRecord]
+
+    var body: some View {
+        List {
+            ForEach(records) { pr in
+                PRRow(record: pr)
+            }
+        }
+        .navigationTitle("Personal records")
     }
 }
 

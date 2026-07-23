@@ -171,7 +171,7 @@ struct FoodPickerView: View {
         } header: {
             Text("Not in your foods")
         } footer: {
-            Text("You're in Offline mode. Add this food yourself, or search Open Food Facts online just for this one.")
+            Text("Food lookups are set to local-only. Add this food yourself, or search Open Food Facts online just for this one.")
         }
     }
 

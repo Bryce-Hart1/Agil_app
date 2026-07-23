@@ -9,7 +9,7 @@ struct GymAppApp: App {
     @StateObject private var session = WorkoutSession()
     // Claude  Date 06/18/2026
     // Shared profile-card sync (Friends mode). Owns the device identity + push/fetch;
-    // no-ops entirely while the user is Offline. See CardSyncService.
+    // no-ops entirely while the user is in Ghost Mode. See CardSyncService.
     @StateObject private var cardSync = CardSyncService()
 
     var body: some Scene {

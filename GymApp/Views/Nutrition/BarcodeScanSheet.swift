@@ -103,7 +103,7 @@ struct BarcodeScanSheet: View {
         case .notFound(let code, let canGoOnline):
             pill {
                 VStack(spacing: 12) {
-                    Text(canGoOnline ? "Not in your offline foods" : "No product found")
+                    Text(canGoOnline ? "Not in your saved foods" : "No product found")
                         .font(.headline).foregroundStyle(.white)
                     Text(code).font(.caption.monospaced()).foregroundStyle(.white.opacity(0.75))
                     if canGoOnline {

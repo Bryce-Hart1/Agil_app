@@ -59,6 +59,16 @@ struct RootTabView: View {
             WorkoutMiniBar(onOpen: openActiveWorkout)
             AgilTabBar(items: AgilTabItem.items(for: mode), selection: $selection)
         }
+        // Claude  Date 07/21/2026
+        // The counterpart to the VStack above. Keyboard avoidance arrives as a bottom
+        // safe-area inset on the ROOT, so without this the VStack lays out inside the
+        // shortened area and drags the mini-bar and tab bar up with the keyboard —
+        // landing them right on top of the keyboard's own accessory view, which is what
+        // buried the workout editor's "Done" bar. Opting out pins both bars to the
+        // bottom of the screen and lets the keyboard cover them. The pages keep their
+        // own keyboard handling: Form/List is UIScrollView-backed, so UIKit still
+        // scrolls the focused field into view.
+        .ignoresSafeArea(.keyboard, edges: .bottom)
         .tint(theme.current.accent)
         // Claude  Date 07/21/2026
         // The app's typeface, carried by the theme (all built-ins are monospaced

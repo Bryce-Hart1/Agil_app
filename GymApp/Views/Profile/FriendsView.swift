@@ -47,14 +47,14 @@ struct FriendsView: View {
         .refreshable { await reloadAll() }
     }
 
-    // MARK: - Enable prompt (Offline mode)
+    // MARK: - Enable prompt (Ghost Mode)
 
     private var enableSection: some View {
         Section {
             VStack(alignment: .leading, spacing: 12) {
-                Text("Friends mode is off")
+                Text("Ghost Mode is on")
                     .font(.headline)
-                Text("Turn on Friends mode to get a friend code, add friends, and see their profile cards. Only your profile card is ever shared — your workouts, nutrition, and everything else stay on this device.")
+                Text("While Ghost Mode is on, everything stays on this device — you can't add friends, share, or see other people's cards. Turn on Friends mode to get a friend code, add friends, and see their profile cards. Only your profile card is ever shared — your workouts, nutrition, and everything else stay on this device.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                 Button {

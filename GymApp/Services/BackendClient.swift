@@ -40,7 +40,7 @@ protocol CardBackend {
     func fetchCard(id: String) async throws -> SharedCard?
     /// Create or update the caller's own card; `key` authorizes the write.
     func putCard(_ card: SharedCard, key: String) async throws
-    /// Remove the caller's own card (e.g. when switching back to Offline).
+    /// Remove the caller's own card (e.g. when switching back to Ghost Mode).
     func deleteCard(id: String, key: String) async throws
 
     // Friends

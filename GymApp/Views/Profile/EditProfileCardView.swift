@@ -1,148 +1,204 @@
 import SwiftUI
 
-// Claude  Date 06/12/2026 last changed: 06/13/2026 by: Claude
-// Customize the profile card. Name + a pick of card *styles* with a live preview.
-// Styles can be solid colors or PNG-backed designs (see CardStyle); free ones
-// apply on tap, paid ones prompt a coin purchase first. Trait selection later.
+// Claude  Date 06/12/2026 last changed: 07/22/2026 by: Claude
+// (07/22) Rebuilt as a tap-to-edit screen: the live profile card fills the view and each
+// part of it is tappable — tap the avatar/rank, name, badges, or the header palette chip
+// and the matching editor slides up as a bottom sheet. The old Form of stacked sections is
+// gone; every control now lives behind the element it changes. The pickers themselves
+// (card styles, avatars, coin/buy flow) are unchanged — just relocated into the sheets.
 struct EditProfileCardView: View {
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var theme: ThemeManager
 
-    // The style awaiting a buy-confirmation, if any.
-    @State private var pendingPurchase: CardStyle?
-    // Claude  Date 06/30/2026 — the avatar awaiting a buy-confirmation, if any.
-    @State private var pendingAvatarPurchase: Avatar?
+    // Which element's editor is currently presented (nil = none).
+    @State private var target: EditTarget?
 
     private var stats: ProfileStats {
         ProfileStats(workouts: store.workouts, exercises: store.exercises)
     }
 
-    // Spendable coin balance (shared pool with the Shop).
-    private var balance: Int { theme.balance(earned: store.totalCoinsEarned) }
+    // Claude  Date 07/22/2026
+    // The tappable regions of the card, each mapped to a bottom sheet. `.rank` shares the
+    // avatar sheet (the rank ring frames the avatar, so they're edited together). Name is
+    // deliberately absent — renaming lives in Settings › Change Name, not on the card.
+    private enum EditTarget: String, Identifiable {
+        case style, avatar, badges
+        var id: String { rawValue }
+    }
 
     var body: some View {
-        Form {
-            Section("Name") {
-                TextField("First name", text: $store.profile.displayName)
-                    .textInputAutocapitalization(.words)
-            }
-
-            // Claude  Date 06/30/2026
-            // Avatar picker — same equip/buy flow as card styles. A horizontal strip so
-            // the small set reads at a glance.
-            Section {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 14) {
-                        ForEach(Avatar.all) { avatar in
-                            AvatarPickCell(
-                                avatar: avatar,
-                                accent: theme.current.accent,
-                                isSelected: store.profile.avatarID == avatar.id,
-                                isUnlocked: theme.isAvatarUnlocked(avatar),
-                                canAfford: balance >= avatar.price,
-                                onSelect: { store.profile.avatarID = avatar.id },
-                                onBuy: { pendingAvatarPurchase = avatar }
-                            )
-                        }
-                    }
-                    .padding(.vertical, 4)
-                }
-                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
-            } header: {
-                Text("Avatar")
-            }
-
-            Section {
-                // Claude  Date 07/12/2026
-                // Founders cards aren't purchasable, so an unowned one shouldn't show
-                // up here with a misleading "Buy" button — only list it once granted
-                // (see ThemeManager.isCardStyleUnlocked / grantFoundersCards).
-                ForEach(CardStyle.all.filter { !$0.isFounders || theme.isCardStyleUnlocked($0) }) { style in
-                    CardStyleRow(
-                        style: style,
-                        isSelected: store.profile.cardStyleID == style.id,
-                        isUnlocked: theme.isCardStyleUnlocked(style),
-                        canAfford: balance >= style.price,
-                        onSelect: { store.profile.cardStyleID = style.id },
-                        onBuy: { pendingPurchase = style }
+        GeometryReader { geo in
+            ScrollView {
+                VStack(spacing: 12) {
+                    ProfileShowcaseCard(
+                        name: store.profile.resolvedName,
+                        style: CardStyle.style(for: store.profile.cardStyleID),
+                        unlockedIDs: store.unlockedAchievementIDs,
+                        pinnedIDs: store.profile.showcasedAchievementIDs,
+                        memberSince: stats.memberSince,
+                        rank: store.profile.showsRankOnCard ? store.strategistRank : nil,
+                        rankProgress: store.strategistProgress,
+                        avatarID: store.profile.avatarID,
+                        ringFillMode: .rankProgress,
+                        catalog: store.achievementCatalog,
+                        edit: ProfileCardEditActions(
+                            background: { target = .style },
+                            avatar: { target = .avatar },
+                            rank: { target = .avatar },
+                            badges: { target = .badges }
+                        )
                     )
-                }
-            } header: {
-                Text("Card style")
-            } footer: {
-                Text("Coins: \(balance)")
-            }
+                    .frame(height: max(380, geo.size.height - 64))
 
-            Section {
-                Toggle("Show rank on card", isOn: $store.profile.showsRankOnCard)
-                // Claude  Date 07/01/2026 — pick the (up to 4) badges shown on the card.
-                NavigationLink {
-                    FeaturedBadgesView()
-                } label: {
-                    HStack {
-                        Label("Featured Badges", systemImage: "rosette")
-                        Spacer()
-                        Text("\(store.profile.showcasedAchievementIDs.count)/\(AchievementShowcase.maxFeatured)")
-                            .foregroundStyle(.secondary)
-                            .monospacedDigit()
-                    }
+                    Text("Tap any part of your card to edit it.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .padding(.bottom, 8)
                 }
-            } header: {
-                Text("Card elements")
-            } footer: {
-                Text("Equip your Strategist rank emblem, and choose which badges to feature.")
+                .padding(16)
             }
-
-            Section("Preview") {
-                ProfileShowcaseCard(
-                    name: store.profile.resolvedName,
-                    style: CardStyle.style(for: store.profile.cardStyleID),
-                    unlockedIDs: store.unlockedAchievementIDs,
-                    pinnedIDs: store.profile.showcasedAchievementIDs,
-                    memberSince: stats.memberSince,
-                    rank: store.profile.showsRankOnCard ? store.strategistRank : nil,
-                    rankProgress: store.strategistProgress,
-                    avatarID: store.profile.avatarID,
-                    ringFillMode: .rankProgress,
-                    catalog: store.achievementCatalog
-                )
-                .frame(height: 420)
-                .listRowInsets(EdgeInsets())
-                .listRowBackground(Color.clear)
-            }
+            .background(theme.current.background.ignoresSafeArea())
         }
         .navigationTitle("Edit Profile Card")
         .navigationBarTitleDisplayMode(.inline)
         .themed(theme.current)
-        .alert("Buy Card Style", isPresented: purchaseAlertBinding, presenting: pendingPurchase) { style in
-            Button("Buy for \(style.price)") { confirmPurchase(style) }
-            Button("Cancel", role: .cancel) {}
-        } message: { style in
-            Text("Unlock the \(style.name) card for \(style.price) coins?")
-        }
-        .alert("Buy Avatar", isPresented: avatarPurchaseAlertBinding, presenting: pendingAvatarPurchase) { avatar in
-            Button("Buy for \(avatar.price)") { confirmAvatarPurchase(avatar) }
-            Button("Cancel", role: .cancel) {}
-        } message: { avatar in
-            Text("Unlock the \(avatar.name) avatar for \(avatar.price) coins?")
+        .sheet(item: $target) { target in
+            switch target {
+            case .style:
+                CardStylePickerSheet()
+                    .environmentObject(store)
+                    .environmentObject(theme)
+                    .presentationDetents([.medium, .large])
+            case .avatar:
+                AvatarPickerSheet()
+                    .environmentObject(store)
+                    .environmentObject(theme)
+                    .presentationDetents([.medium, .large])
+            case .badges:
+                NavigationStack { FeaturedBadgesView() }
+                    .environmentObject(store)
+                    .environmentObject(theme)
+            }
         }
     }
+}
 
-    // Drives the confirmation alert; clearing it dismisses.
-    private var purchaseAlertBinding: Binding<Bool> {
-        Binding(get: { pendingPurchase != nil }, set: { if !$0 { pendingPurchase = nil } })
+// MARK: - Card style picker
+
+// Claude  Date 07/22/2026
+// The card-style chooser, raised by the header palette chip. Shows ONLY styles the user
+// already owns — buying happens in the Shop, so this stays a clean "equip what you have"
+// list with no coin/buy clutter. Applying a style updates the live card underneath
+// immediately (store.profile is the shared source of truth).
+private struct CardStylePickerSheet: View {
+    @EnvironmentObject private var store: AppStore
+    @EnvironmentObject private var theme: ThemeManager
+    @Environment(\.dismiss) private var dismiss
+
+    // Owned styles only, in catalog order.
+    private var ownedStyles: [CardStyle] {
+        CardStyle.all.filter { theme.isCardStyleUnlocked($0) }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    ForEach(ownedStyles) { style in
+                        CardStyleRow(
+                            style: style,
+                            isSelected: store.profile.cardStyleID == style.id,
+                            isUnlocked: true,
+                            canAfford: false,
+                            onSelect: { store.profile.cardStyleID = style.id },
+                            onBuy: {}
+                        )
+                    }
+                } footer: {
+                    Text("Unlock more styles in the Shop.")
+                }
+            }
+            .navigationTitle("Card Style")
+            .navigationBarTitleDisplayMode(.inline)
+            .themed(theme.current)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Avatar + rank picker
+
+// Claude  Date 07/22/2026
+// Raised by tapping the avatar or the rank title. Groups the whole avatar/ring cluster: the
+// avatar strip (equip/buy) plus the "Show rank on card" toggle — putting the rank control
+// here means it's reachable even when the ring is currently off (nothing to tap on the card
+// in that case).
+private struct AvatarPickerSheet: View {
+    @EnvironmentObject private var store: AppStore
+    @EnvironmentObject private var theme: ThemeManager
+    @Environment(\.dismiss) private var dismiss
+
+    // The avatar awaiting a buy-confirmation, if any.
+    @State private var pendingAvatarPurchase: Avatar?
+
+    private var balance: Int { theme.balance(earned: store.totalCoinsEarned) }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 14) {
+                            ForEach(Avatar.all) { avatar in
+                                AvatarPickCell(
+                                    avatar: avatar,
+                                    accent: theme.current.accent,
+                                    isSelected: store.profile.avatarID == avatar.id,
+                                    isUnlocked: theme.isAvatarUnlocked(avatar),
+                                    canAfford: balance >= avatar.price,
+                                    onSelect: { store.profile.avatarID = avatar.id },
+                                    onBuy: { pendingAvatarPurchase = avatar }
+                                )
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                } header: {
+                    Text("Avatar")
+                } footer: {
+                    Text("Coins: \(balance)")
+                }
+
+                Section {
+                    Toggle("Show rank on card", isOn: $store.profile.showsRankOnCard)
+                } footer: {
+                    Text("Frames your avatar with your Strategist rank emblem.")
+                }
+            }
+            .navigationTitle("Avatar & Rank")
+            .navigationBarTitleDisplayMode(.inline)
+            .themed(theme.current)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+            .alert("Buy Avatar", isPresented: avatarPurchaseAlertBinding, presenting: pendingAvatarPurchase) { avatar in
+                Button("Buy for \(avatar.price)") { confirmAvatarPurchase(avatar) }
+                Button("Cancel", role: .cancel) {}
+            } message: { avatar in
+                Text("Unlock the \(avatar.name) avatar for \(avatar.price) coins?")
+            }
+        }
     }
 
     private var avatarPurchaseAlertBinding: Binding<Bool> {
         Binding(get: { pendingAvatarPurchase != nil }, set: { if !$0 { pendingAvatarPurchase = nil } })
-    }
-
-    // Buy, then apply the newly unlocked style to the card.
-    private func confirmPurchase(_ style: CardStyle) {
-        if theme.purchaseCardStyle(style, balance: balance) {
-            store.profile.cardStyleID = style.id
-        }
-        pendingPurchase = nil
     }
 
     // Buy, then equip the newly unlocked avatar.
@@ -153,6 +209,8 @@ struct EditProfileCardView: View {
         pendingAvatarPurchase = nil
     }
 }
+
+// MARK: - Rows (shared by the sheets above)
 
 // Claude  Date 06/13/2026 last changed: 06/13/2026 by: Claude
 // One card-style row: a swatch (color fill or image thumbnail) + name, with a

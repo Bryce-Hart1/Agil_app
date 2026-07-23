@@ -10,8 +10,9 @@ import UIKit
 // type — so it feels like "their" card. Tap anywhere to dismiss, which then lets
 // any queued achievement celebrations play.
 //
-// First pass: a handful of session stats. Designed to grow (more stats, a smarter
-// "best set"); the layout just adds tiles.
+// A handful of session stats in a single condensed row, plus a full-width "Best Set" tile below it.
+// The best set is picked by relative effort against the user's own history and can show a
+// personal-record treatment — see WorkoutSummary / BestSetScoring for the scoring.
 struct PerformanceCardView: View {
     let summary: WorkoutSummary
     let style: CardStyle
@@ -40,9 +41,10 @@ struct PerformanceCardView: View {
     }
 
     private var card: some View {
-        // Claude  Date 06/18/2026
-        // Roomier vertically (more inter-section spacing + taller top/bottom padding,
-        // plus taller stat tiles below) so the card reads a little longer on the y-axis.
+        // Claude  Date 06/18/2026 last changed: 07/22/2026 by: Claude
+        // Roomier vertically (more inter-section spacing + taller top/bottom padding)
+        // so the card reads a little longer on the y-axis. (07/22: the stat tiles that
+        // used to carry most of that height collapsed into one row — see statsRow.)
         VStack(spacing: 24) {
             header
 
@@ -57,7 +59,7 @@ struct PerformanceCardView: View {
                     .foregroundStyle(.white.opacity(0.8))
             }
 
-            statsGrid
+            statsRow
 
             if let best = summary.bestSet {
                 bestSetTile(best)
@@ -91,49 +93,96 @@ struct PerformanceCardView: View {
         }
     }
 
-    private var statsGrid: some View {
-        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-            statTile("Duration", summary.durationText, systemImage: "clock")
-            statTile("Sets", "\(summary.completedSets)", systemImage: "checklist")
-            statTile("Volume", "\(Int(summary.totalVolume.rounded())) lb", systemImage: "scalemass")
-            statTile("Exercises", "\(summary.exerciseCount)", systemImage: "dumbbell")
+    // Claude  Date 06/16/2026 last changed: 07/22/2026 by: Claude
+    // (07/22) Was a 2×2 grid of chunky tiles that dominated the card; now a single
+    // strip — four equal columns in one shared pill, separated by hairlines — so the
+    // session stats read as a caption under the title instead of the main event. The
+    // per-tile icons are gone (they cost the width the numbers need at 4-up) and the
+    // volume figure is abbreviated past 10k so nothing has to shrink to stay on one line.
+    private var statsRow: some View {
+        HStack(spacing: 0) {
+            statCell("Duration", summary.durationText)
+            statDivider
+            statCell("Sets", "\(summary.completedSets)")
+            statDivider
+            statCell("Volume", volumeText)
+            statDivider
+            statCell("Exercises", "\(summary.exerciseCount)")
         }
-    }
-
-    private func statTile(_ title: String, _ value: String, systemImage: String) -> some View {
-        VStack(spacing: 4) {
-            Image(systemName: systemImage)
-                .font(.subheadline)
-                .foregroundStyle(.white.opacity(0.85))
-            Text(value)
-                .font(.title3.weight(.bold))
-                .foregroundStyle(.white)
-                .minimumScaleFactor(0.6).lineLimit(1)
-            Text(title)
-                .font(.caption2)
-                .foregroundStyle(.white.opacity(0.75))
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 18)
+        .padding(.vertical, 12)
         .background(.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
     }
 
+    private func statCell(_ title: String, _ value: String) -> some View {
+        VStack(spacing: 3) {
+            Text(value)
+                .font(.subheadline.weight(.bold))
+                .foregroundStyle(.white)
+                .minimumScaleFactor(0.7).lineLimit(1)
+            Text(title)
+                .font(.caption2)
+                .foregroundStyle(.white.opacity(0.75))
+                .minimumScaleFactor(0.8).lineLimit(1)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 4)
+    }
+
+    private var statDivider: some View {
+        Rectangle()
+            .fill(.white.opacity(0.18))
+            .frame(width: 1, height: 26)
+    }
+
+    /// Volume in pounds, abbreviated once it stops fitting a quarter-width column
+    /// (12,480 → "12.5k lb").
+    private var volumeText: String {
+        let pounds = summary.totalVolume.rounded()
+        if pounds >= 10_000 {
+            return String(format: "%.1fk lb", pounds / 1_000)
+        }
+        return "\(Int(pounds)) lb"
+    }
+
+    // Claude  Date 06/16/2026 last changed: 07/21/2026 by: Claude
+    // (07/21) Same single full-width tile, but it now explains WHY the set won. A set
+    // that beat the user's all-time best for that lift gets the gold personal-record
+    // treatment (trophy, brighter fill, gold hairline); anything else keeps the familiar
+    // yellow star. All the wording lives on BestSet (loadText / oneRepMaxText /
+    // contextText) so this stays presentation-only.
     private func bestSetTile(_ best: WorkoutSummary.BestSet) -> some View {
-        VStack(spacing: 4) {
-            Label("Best Set", systemImage: "star.fill")
+        let isPR = best.isPersonalRecord
+        let accent = isPR ? Color(red: 1.0, green: 0.84, blue: 0.35) : .yellow
+
+        return VStack(spacing: 4) {
+            Label(isPR ? "Personal Record" : "Best Set",
+                  systemImage: isPR ? "trophy.fill" : "star.fill")
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.yellow)
+                .foregroundStyle(accent)
             Text(best.exerciseName)
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.white)
                 .lineLimit(1).minimumScaleFactor(0.7)
-            Text("\(Int(best.weight)) lb × \(best.reps)  ·  ~\(Int(best.estimatedOneRepMax)) lb 1RM")
+            Text([best.loadText, best.oneRepMaxText].compactMap { $0 }.joined(separator: "  ·  "))
                 .font(.caption)
                 .foregroundStyle(.white.opacity(0.85))
+                .lineLimit(1).minimumScaleFactor(0.7)
+            if let context = best.contextText {
+                Text(context)
+                    .font(.caption2)
+                    .foregroundStyle(isPR ? accent : .white.opacity(0.75))
+                    .lineLimit(1).minimumScaleFactor(0.7)
+            }
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 18)
-        .background(.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+        .padding(.horizontal, 12)
+        .background(.white.opacity(isPR ? 0.18 : 0.12), in: RoundedRectangle(cornerRadius: 12))
+        .overlay {
+            if isPR {
+                RoundedRectangle(cornerRadius: 12).stroke(accent.opacity(0.5), lineWidth: 1)
+            }
+        }
     }
 
     private var shadowColor: Color {
@@ -142,16 +191,44 @@ struct PerformanceCardView: View {
     }
 }
 
+// Claude  Date 06/16/2026 last changed: 07/21/2026 by: Claude
+// (07/21) Builds its own lifts instead of borrowing the seed library, so the tile's new
+// wordings are all reachable: the bench set beats three weeks of 225×5 history (gold PR
+// path), while the pull-up and single-arm row cover the bodyweight and "per side" load
+// text. Drop the `history` argument to see the no-history fallback instead.
 #Preview {
-    let store = AppStore()
-    let workout = Workout(exercises: [
-        LoggedExercise(exerciseId: store.exercises[0].id, sets: [
-            ExerciseSet(reps: 8, weight: 185, completedAt: Date().addingTimeInterval(-1800)),
-            ExerciseSet(reps: 5, weight: 225, completedAt: Date())
-        ])
-    ])
+    let bench = Exercise(name: "Barbell Bench Press", region: .chest,
+                         category: "Chest", liftType: .bench)
+    let pullUp = Exercise(name: "Pull-Up", region: .back,
+                          category: "Lats", isBodyweight: true)
+    let row = Exercise(name: "Single-Arm Row", region: .back,
+                       category: "Lats", isUnilateral: true)
+
+    let workout = Workout(
+        exercises: [
+            LoggedExercise(exerciseId: bench.id, sets: [
+                ExerciseSet(reps: 8, weight: 185, completedAt: Date().addingTimeInterval(-1800)),
+                ExerciseSet(reps: 5, weight: 245, completedAt: Date())
+            ]),
+            LoggedExercise(exerciseId: pullUp.id, sets: [
+                ExerciseSet(reps: 12, weight: 0, completedAt: Date())
+            ]),
+            LoggedExercise(exerciseId: row.id, sets: [
+                ExerciseSet(reps: 10, weight: 70, completedAt: Date())
+            ])
+        ],
+        startedAt: Date().addingTimeInterval(-3900),
+        finishedAt: Date())
+
+    let history = (1...3).map { week in
+        ActivityEvent(setId: UUID(), exerciseId: bench.id, reps: 5, weight: 225,
+                      loggedAt: Date().addingTimeInterval(-Double(week) * 7 * 86_400))
+    }
+
     return PerformanceCardView(
-        summary: WorkoutSummary(workout: workout, exercises: store.exercises),
+        summary: WorkoutSummary(workout: workout,
+                                exercises: [bench, pullUp, row],
+                                history: history),
         style: CardStyle.defaultStyle,
         onDismiss: {}
     )

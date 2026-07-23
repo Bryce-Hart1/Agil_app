@@ -543,10 +543,17 @@ final class AppStore: ObservableObject {
         workouts[index].finishedAt = Date()
         workouts[index].isFinished = true
 
-        // Claude  Date 06/16/2026
+        // Claude  Date 06/16/2026 last changed: 07/21/2026 by: Claude
         // Queue the performance card from the now-finished workout. RootTabView shows
         // it first; dismissing it lets the badge celebrations (queued above) play.
-        pendingWorkoutSummary = WorkoutSummary(workout: workouts[index], exercises: exercises)
+        // (07/21) The card's "Best Set" is now scored against the user's history, so it
+        // gets the ledger — MINUS this session's own events, which were appended a few
+        // lines up. Without that filter every workout would set a record against itself.
+        let ownSetIds = Set(workouts[index].exercises.flatMap { $0.sets.map(\.id) })
+        pendingWorkoutSummary = WorkoutSummary(
+            workout: workouts[index],
+            exercises: exercises,
+            history: activityLog.filter { !ownSetIds.contains($0.setId) })
     }
 
     // Claude  Date 06/16/2026

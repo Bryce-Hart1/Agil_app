@@ -6,7 +6,7 @@ import UIKit
 // Claude  Date 06/12/2026 last changed: 07/14/2026 by: Claude
 // First-run welcome shown over everything until onboarding is completed. A
 // short multi-step flow: (1) name, (2) what you identify as (on-device only,
-// calibrates strength-badge thresholds), (3) where your data lives (offline vs
+// calibrates strength-badge thresholds), (3) where your data lives (Ghost Mode vs
 // friends), (4) how coins work — then into the app. (This pass added the
 // identity step and generalized the choice cards it shares with the data step.)
 struct OnboardingView: View {
@@ -19,7 +19,7 @@ struct OnboardingView: View {
 
     @State private var step: Step = .welcome
     @State private var name = ""
-    @State private var dataMode: DataMode = .offline
+    @State private var dataMode: DataMode = .ghost
     // Claude  Date 07/14/2026
     // The identity choice. Defaults to "prefer not to say" so the step never
     // blocks Continue; persisted to profile.gender in finish().
@@ -119,27 +119,31 @@ struct OnboardingView: View {
         }
     }
 
+    // Claude  Date 06/13/2026 last changed: 07/23/2026 by: Claude
+    // The data step: Ghost Mode (private, on-device) vs Friends. This is the user's
+    // first-open explanation of what Ghost Mode actually does — the description
+    // spells out everything it turns off, so the trade-off is clear before they pick.
     private var dataStep: some View {
         VStack(spacing: 18) {
             Spacer()
 
             stepHeader(
                 icon: "externaldrive.badge.icloud",
-                title: "Where should your data live?",
+                title: "Ghost Mode or Friends?",
                 subtitle: "You can change this anytime in Settings."
             )
 
             choiceCard(
-                isSelected: dataMode == .offline,
-                systemImage: "iphone",
-                title: "Offline",
-                description: "Everything stays on this device. Private, fast, and yours alone."
-            ) { dataMode = .offline }
+                isSelected: dataMode == .ghost,
+                assetImage: "ghost",
+                title: "Ghost Mode",
+                description: "Everything stays on this device. You won't be able to add friends, share recipes or workouts (coming soon), or save foods to the shared database — private, fast, and yours alone."
+            ) { dataMode = .ghost }
             choiceCard(
                 isSelected: dataMode == .friends,
                 systemImage: "person.2.fill",
-                title: "Friends only",
-                description: "Add people with a friend code to see their profile card and stats. (Coming soon.)"
+                title: "Friends",
+                description: "Add people with a friend code to see their profile card and stats, and share what you choose. (Coming soon.)"
             ) { dataMode = .friends }
             Spacer()
         }
@@ -213,13 +217,44 @@ struct OnboardingView: View {
         }
     }
 
-    // Claude  Date 07/12/2026 last changed: 07/14/2026 by: Claude
+    // Claude  Date 07/12/2026 last changed: 07/23/2026 by: Claude
     // A selectable option card. (Generalized from the DataMode-only version so the
     // identity and data steps share one card style: selection state and the action
     // are now passed in instead of being hardwired to `dataMode`.)
+    // (Split the icon out into a ViewBuilder core so cards can use either an SF Symbol
+    // or a custom asset-catalog glyph — e.g. ghost.svg for the Ghost Mode card.)
     private func choiceCard(isSelected: Bool, systemImage: String,
                             title: String, description: String,
                             action: @escaping () -> Void) -> some View {
+        choiceCard(isSelected: isSelected, title: title, description: description, action: action) {
+            Image(systemName: systemImage)
+                .font(.title3)
+                .foregroundStyle(isSelected ? accent : .secondary)
+        }
+    }
+
+    // Claude  Date 07/23/2026
+    // Variant taking a custom asset-catalog glyph (template-tinted to match the
+    // SF-Symbol cards) instead of an SF Symbol — used by the Ghost Mode card (ghost).
+    private func choiceCard(isSelected: Bool, assetImage: String,
+                            title: String, description: String,
+                            action: @escaping () -> Void) -> some View {
+        choiceCard(isSelected: isSelected, title: title, description: description, action: action) {
+            Image(assetImage)
+                .renderingMode(.template)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 26, height: 26)
+                .foregroundStyle(isSelected ? accent : .secondary)
+        }
+    }
+
+    // Claude  Date 07/23/2026
+    // Shared card body — accepts any icon view so both the SF-Symbol and custom-asset
+    // variants above can reuse it.
+    private func choiceCard<Icon: View>(isSelected: Bool, title: String, description: String,
+                                        action: @escaping () -> Void,
+                                        @ViewBuilder icon: () -> Icon) -> some View {
         Button {
             withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) { action() }
             tapHaptic()
@@ -231,9 +266,7 @@ struct OnboardingView: View {
                     RoundedRectangle(cornerRadius: 12)
                         .fill(isSelected ? accent.opacity(0.18) : Color.secondary.opacity(0.1))
                         .frame(width: 46, height: 46)
-                    Image(systemName: systemImage)
-                        .font(.title3)
-                        .foregroundStyle(isSelected ? accent : .secondary)
+                    icon()
                 }
                 VStack(alignment: .leading, spacing: 3) {
                     Text(title).font(.headline)

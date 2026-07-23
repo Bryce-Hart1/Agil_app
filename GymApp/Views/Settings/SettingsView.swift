@@ -31,11 +31,24 @@ struct SettingsView: View {
 
     var body: some View {
         List {
-            // Claude  Date 06/09/2026
-            // Editable display name, saved locally. Shown on the Profile card.
+            // Claude  Date 06/09/2026 last changed: 07/22/2026 by: Claude
+            // (07/22) The display name is no longer freely editable from the profile
+            // card — renaming carries backend/identity weight, so it's a deliberate
+            // action here: a "Change Name" screen with an explicit Save (the commit
+            // point where the backend rename request will be wired in).
             Section("Profile") {
-                TextField("Display name", text: $store.profile.displayName)
-                    .textInputAutocapitalization(.words)
+                NavigationLink {
+                    ChangeNameView()
+                } label: {
+                    HStack {
+                        Label("Change Name", systemImage: "person.text.rectangle")
+                        Spacer()
+                        Text(store.profile.resolvedName)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                }
             }
             // Claude  Date 07/14/2026
             // Identity (from onboarding, editable here). On-device only; its sole
@@ -81,11 +94,14 @@ struct SettingsView: View {
                 Text("Shows the full-screen rest timer as an analog stopwatch face instead of the progress ring.")
             }
 
-            // Claude  Date 06/18/2026
-            // Friends: opt into sharing just your profile card, see your friend code,
-            // and look up a friend's card. The footer states the privacy contract.
+            // Claude  Date 06/18/2026 last changed: 07/23/2026 by: Claude
+            // Ghost Mode: the single switch for where data lives. ON keeps everything
+            // on-device; OFF opts into Friends (share just the profile card, get a
+            // friend code, look up a friend's card). The footer states the privacy
+            // contract. (Reframed from the old "Friends mode" toggle so the control
+            // name matches the Ghost Mode feature used everywhere else.)
             Section {
-                Toggle("Friends mode", isOn: friendsModeBinding)
+                Toggle("Ghost Mode", isOn: ghostModeBinding)
 
                 if store.profile.dataMode == .friends, let code = cardSync.myFriendCode {
                     HStack(spacing: 12) {
@@ -116,16 +132,18 @@ struct SettingsView: View {
                     Label("Manage friends", systemImage: "person.2")
                 }
             } header: {
-                Text("Friends")
+                Text("Ghost Mode")
             } footer: {
-                Text("Friends mode shares only your profile card — display name, card style, equipped rank, and featured badges. Your workouts, nutrition, water, and everything else never leave this device. Turning it off deletes your shared card.")
+                Text("Ghost Mode keeps everything on this device — no friends, no sharing. Turn it off to enable Friends, which shares only your profile card: display name, card style, equipped rank, and featured badges. Your workouts, nutrition, water, and everything else still never leave this device. Turning Ghost Mode back on deletes your shared card.")
             }
 
-            // Claude  Date 06/18/2026
-            // Offline food mode: gate Open Food Facts lookups (search + barcode) behind
-            // an explicit opt-in, so the app stays local-first.
+            // Claude  Date 06/18/2026 last changed: 07/23/2026 by: Claude
+            // Local-only food lookups: gate Open Food Facts lookups (search + barcode)
+            // behind an explicit opt-in, so the app stays local-first. (Relabeled from
+            // "Offline mode" so it doesn't collide with the Ghost Mode privacy feature —
+            // storage key `offlineFoodMode` is unchanged.)
             Section {
-                Toggle("Offline mode", isOn: $offlineFoodMode)
+                Toggle("Local food lookups only", isOn: $offlineFoodMode)
             } header: {
                 Text("Food lookups")
             } footer: {
@@ -260,14 +278,17 @@ struct SettingsView: View {
     }
 
     // Claude  Date 06/18/2026
-    // Drives the Friends-mode toggle: flips UserProfile.dataMode (persisted via the
-    // profile's didSet) and tells the sync service to push (Friends) or tear down the
-    // shared card (Offline). The first flip to Friends also mints the device identity.
-    private var friendsModeBinding: Binding<Bool> {
+    // Claude  Date 06/18/2026 last changed: 07/23/2026 by: Claude
+    // Drives the Ghost Mode toggle: flips UserProfile.dataMode (persisted via the
+    // profile's didSet) and tells the sync service to tear down the shared card (Ghost)
+    // or push it (Friends). Polarity is ghost-first — ON = Ghost Mode — so the switch
+    // matches the feature name everywhere else. Turning it OFF (→ Friends) mints the
+    // device identity on first use.
+    private var ghostModeBinding: Binding<Bool> {
         Binding(
-            get: { store.profile.dataMode == .friends },
+            get: { store.profile.dataMode == .ghost },
             set: { isOn in
-                let mode: DataMode = isOn ? .friends : .offline
+                let mode: DataMode = isOn ? .ghost : .friends
                 store.profile.dataMode = mode
                 cardSync.handleModeChange(to: mode, store: store)
             }
@@ -307,6 +328,60 @@ struct SettingsView: View {
         }
     }
     #endif
+}
+
+// Claude  Date 07/22/2026
+// Deliberate rename screen (pushed from Settings › Profile). Edits a local draft and only
+// writes back on Save — unlike the old always-live card field — so there's exactly one
+// commit point. TODO(Bryce): fire the backend "change name" request from `save()` and gate
+// the local write / navigation on its result.
+private struct ChangeNameView: View {
+    @EnvironmentObject private var store: AppStore
+    @EnvironmentObject private var theme: ThemeManager
+    @Environment(\.dismiss) private var dismiss
+    @FocusState private var focused: Bool
+
+    // The pending edit, seeded from the current name (raw, not the "Your Name" fallback).
+    @State private var draft: String = ""
+
+    // Trimmed, non-empty, and actually different from what's stored.
+    private var trimmed: String { draft.trimmingCharacters(in: .whitespaces) }
+    private var canSave: Bool {
+        !trimmed.isEmpty && trimmed != store.profile.displayName.trimmingCharacters(in: .whitespaces)
+    }
+
+    var body: some View {
+        Form {
+            Section {
+                TextField("Display name", text: $draft)
+                    .textInputAutocapitalization(.words)
+                    .submitLabel(.done)
+                    .focused($focused)
+                    .onSubmit { if canSave { save() } }
+            } footer: {
+                Text("This is the name shown on your profile card.")
+            }
+        }
+        .navigationTitle("Change Name")
+        .navigationBarTitleDisplayMode(.inline)
+        .themed(theme.current)
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Save") { save() }.disabled(!canSave)
+            }
+        }
+        .onAppear {
+            draft = store.profile.displayName
+            focused = true
+        }
+    }
+
+    private func save() {
+        guard canSave else { return }
+        // TODO(Bryce): send the rename to the backend here; on success apply locally.
+        store.profile.displayName = trimmed
+        dismiss()
+    }
 }
 
 #Preview {

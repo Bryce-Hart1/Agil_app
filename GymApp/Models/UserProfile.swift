@@ -1,11 +1,14 @@
 import Foundation
 
-// Claude  Date 06/13/2026
+// Claude  Date 06/13/2026 last changed: 07/23/2026 by: Claude
 // Where the user wants their data to live (chosen during onboarding). "friends"
 // (add others via a friend code, see their profile card) is a stated direction
 // but not built yet — for now this just records the preference.
+// (Renamed the private on-device mode "offline" → "ghost"; it's now surfaced to
+// users as "Ghost Mode". Alpha build, no users, so the raw value changed too with
+// no migration needed.)
 enum DataMode: String, Codable, Hashable {
-    case offline   // all data stays on device; can't add other users
+    case ghost     // "Ghost Mode": all data stays on device; can't add other users
     case friends   // can add others via a friend code (future)
 }
 
@@ -51,7 +54,7 @@ struct UserProfile: Codable, Hashable {
 
     init(displayName: String = "", hasOnboarded: Bool = false,
          cardStyleID: String = CardStyle.defaultStyle.id, avatarID: String = Avatar.defaultAvatar.id,
-         dataMode: DataMode = .offline,
+         dataMode: DataMode = .ghost,
          showcasedAchievementIDs: [String] = [], showsRankOnCard: Bool = false,
          gender: Gender = .unspecified, hasSeenTour: Bool = false) {
         self.displayName = displayName
@@ -68,7 +71,7 @@ struct UserProfile: Codable, Hashable {
     // Claude  Date 06/12/2026 last changed: 06/13/2026 by: Claude
     // Custom decode so profiles saved before these fields existed still load. If
     // hasOnboarded is absent, treat an already-named user as onboarded so we don't
-    // re-show the welcome prompt. dataMode defaults to .offline. cardStyleID is
+    // re-show the welcome prompt. dataMode defaults to .ghost. cardStyleID is
     // new: if absent, migrate from the legacy cardColorHex (#000000 → "black",
     // anything else → the default style).
     enum CodingKeys: String, CodingKey {
@@ -82,7 +85,7 @@ struct UserProfile: Codable, Hashable {
         hasOnboarded = try c.decodeIfPresent(Bool.self, forKey: .hasOnboarded) ?? !displayName.isEmpty
         // Claude  Date 06/30/2026 — new field; older profiles default to the free avatar.
         avatarID = try c.decodeIfPresent(String.self, forKey: .avatarID) ?? Avatar.defaultAvatar.id
-        dataMode = try c.decodeIfPresent(DataMode.self, forKey: .dataMode) ?? .offline
+        dataMode = try c.decodeIfPresent(DataMode.self, forKey: .dataMode) ?? .ghost
         showcasedAchievementIDs = try c.decodeIfPresent([String].self, forKey: .showcasedAchievementIDs) ?? []
         showsRankOnCard = try c.decodeIfPresent(Bool.self, forKey: .showsRankOnCard) ?? false
         // Claude  Date 07/14/2026 — new fields; older profiles default to baseline
