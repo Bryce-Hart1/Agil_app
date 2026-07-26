@@ -204,11 +204,24 @@ struct SettingsView: View {
                 } label: {
                     Label("Badge gallery", systemImage: "square.grid.3x3.fill")
                 }
+                // Claude  Date 07/25/2026
+                // Per-achievement forcing, for when "unlock everything" is too blunt —
+                // e.g. checking one new badge's art and scoring in isolation.
+                NavigationLink {
+                    AchievementForceView()
+                } label: {
+                    Label("Force achievements", systemImage: "switch.2")
+                }
                 Button("Unlock all achievements") {
                     store.unlockAllAchievements()
                 }
-                Button("Replay achievement unlocks") {
-                    store.replayCelebrations()
+                // Claude  Date 07/24/2026
+                // Was "Replay achievement unlocks", which queued a wall of overlays.
+                // Now that unlocks wait in the Achievement Book, the useful test
+                // action is to make every earned badge NEW again — that refills the
+                // book with sealed slots and lights the Profile tab count.
+                Button("Mark all achievements unopened") {
+                    store.markAllUnopened()
                 }
                 Button("Reset achievements", role: .destructive) {
                     store.resetAchievements()
@@ -224,7 +237,7 @@ struct SettingsView: View {
             } header: {
                 Text("Developer (alpha)")
             } footer: {
-                Text("Gallery previews every badge + rank (tap to play its celebration). Unlock all fills in every badge so the card and lists populate. Replay re-plays earned unlocks; Reset wipes progress and re-earns it from your history. Unlock Founders cards plays the founders unlock celebration (a preview of the future in-app purchase).")
+                Text("Gallery previews every badge + rank (tap to play its celebration). Force achievements toggles any badge on or off individually, bypassing your real progress. Unlock all fills in every badge so the card and book populate. Mark all unopened resets which badges you've watched, so they queue up as new in the Achievement Book; Reset wipes progress and re-earns it from your history. Unlock Founders cards plays the founders unlock celebration (a preview of the future in-app purchase).")
             }
 
             // Claude  Date 06/16/2026

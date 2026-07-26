@@ -29,10 +29,17 @@ enum BadgeTier: String, CaseIterable {
         case .bronze:   return "#C77B30"
         case .silver:   return "#9AA0A6"
         case .gold:     return "#E6B800"
-        case .platinum: return "#3FD0E0"
+        // Claude  Date 06/13/2026 last changed: 07/23/2026 by: Claude
+        // Lighter, pearly platinum (was #3FD0E0) — reads as a paler silvery tier so
+        // it no longer collides with diamond's icy blue.
+        case .platinum: return "#7CE0EC"
         case .diamond:  return "#8FD3EF"   // icy blue (distinct from platinum/silver)
         case .emerald:  return "#10B981"   // rich green
-        case .legend:   return "#5B21B6"   // deep royal purple (gold glimmer on top)
+        // Claude  Date 06/13/2026 last changed: 07/23/2026 by: Claude
+        // Legend recolored from royal purple (#5B21B6) toward the Agil pink — a
+        // pink→purple gem body with a gold facet finish (see gradientHexes +
+        // glimmerColorHex). This drives the glow, confetti, and gradient mid-stop.
+        case .legend:   return "#CE1C9A"   // magenta-pink (gold finish on top)
         }
     }
 
@@ -50,10 +57,13 @@ enum BadgeTier: String, CaseIterable {
         case .bronze:   return ("#F6BE7E", "#6B3A12")
         case .silver:   return ("#F4F7FA", "#4A525B")
         case .gold:     return ("#FFE680", "#8A6200")
-        case .platinum: return ("#CDF7FB", "#137885")
+        case .platinum: return ("#E6FBFD", "#2FA9BA")
         case .diamond:  return ("#EAF7FF", "#4F8FCB")
         case .emerald:  return ("#4BE6A6", "#044F38")
-        case .legend:   return ("#9B6CFF", "#2E0B5E")
+        // Claude  Date 06/15/2026 last changed: 07/23/2026 by: Claude
+        // Legend: bright pink highlight → deep royal purple (was purple #9B6CFF →
+        // #2E0B5E). The gold reads from the facet finish, not the gem body.
+        case .legend:   return ("#FF6FD3", "#3A0B63")
         }
     }
 
@@ -79,6 +89,13 @@ enum BadgeTier: String, CaseIterable {
     // The top tiers get an extra twinkle (on top of the glint) so they stand out as
     // the prestige badges. Tune the set here.
     var hasPremiumShine: Bool { self == .diamond || self == .emerald || self == .legend }
+
+    // Claude  Date 07/23/2026 last changed: 07/23/2026 by: Claude
+    // The gemstone tiers whose medallion/glyph renders as a faceted, cut-gem surface
+    // (the GemFacetOverlay in BadgeView) instead of a plain material gradient. The
+    // facet finish (highlight colour) comes from glimmerColor — white for diamond/
+    // emerald, gold for Legend. Platinum stays a plain material. (Added Legend.)
+    var hasGemFacets: Bool { self == .diamond || self == .emerald || self == .legend }
 }
 
 // Claude  Date 06/13/2026
@@ -93,9 +110,30 @@ struct Achievement: Identifiable {
     let title: String
     let detail: String
     let icon: String
+    // Claude  Date 07/24/2026
+    // Hidden achievement: it exists in the catalog but its title/detail stay
+    // concealed until it's earned, and the Achievement Book collects it on the
+    // Secrets page instead of its category page. Deliberately ORTHOGONAL to
+    // Category, so a future secret can belong to any category and still surface
+    // in the right place. A `var` with a default (not a `let`) so it stays in the
+    // memberwise init with all 56 existing call sites untouched. No secrets are
+    // authored yet — adding one is a single `isSecret: true` append in build().
+    var isSecret: Bool = false
     let isUnlocked: (ProfileStats) -> Bool
 
     var reward: Int { tier.reward }
+
+    // Claude  Date 07/24/2026
+    // Concealment helpers. Every view that shows a name or requirement must go
+    // through these — reading `title`/`detail` directly on a locked secret would
+    // spoil it, which is the whole point of the feature.
+    func displayTitle(unlocked: Bool) -> String {
+        isSecret && !unlocked ? "???" : title
+    }
+
+    func displayDetail(unlocked: Bool) -> String {
+        isSecret && !unlocked ? "A hidden achievement. Keep training." : detail
+    }
 
     // Claude  Date 06/13/2026 last changed: 06/14/2026 by: Claude
     // The big-3 lift is now split into three separate categories (squat / bench /
@@ -311,6 +349,24 @@ struct Achievement: Identifiable {
                 icon: Category.streak.iconName, isUnlocked: { $0.weekStreak >= w }))
         }
 
+        // Claude  Date 07/25/2026
+        // First Step — the welcome badge, and the first secret in the catalog (the
+        // Secrets page needs no change to pick it up; see AchievementSecretsPage).
+        // Fires the moment the user has actually acted on the Workouts tab's
+        // get-started state: one completed set. `totalSets` is the ledger count of
+        // real-time completed sets, so this stays behind the same anti-cheat boundary
+        // as every other badge — note the events-based ProfileStats pins
+        // `totalWorkouts` to 0, so "has a workout" is not an available signal here.
+        // Category is inert for a secret (the Book routes isSecret entries to the
+        // Secrets page and filters them out of the category spreads), so it rides on
+        // .daysLogged, the closest "you showed up" grouping. The glyph is its OWN
+        // asset rather than the category's, which the per-achievement `icon` allows.
+        result.append(Achievement(
+            id: "secret_first_step", category: .daysLogged, tier: .bronze,
+            title: "First Step", detail: "Complete your first set",
+            icon: "badge_firstStep", isSecret: true,
+            isUnlocked: { $0.totalSets >= 1 }))
+
         return result
     }
 
@@ -327,6 +383,14 @@ struct Achievement: Identifiable {
 // and a "shelf" of the rest of their unlocked badges.
 enum AchievementShowcase {
     static let maxFeatured = 4
+
+    // Claude  Date 07/24/2026
+    // How many slots the Achievement Book's Secrets page draws. Real secrets fill
+    // from the front and the remainder are empty "?" mystery slots, so the page
+    // reads like unfilled space in a stamp album rather than an empty screen.
+    // Drop this to `Achievement.all.filter(\.isSecret).count` once enough secrets
+    // are authored that the padding is no longer doing any work.
+    static let secretSlotCount = 6
 
     // Claude  Date 06/13/2026 last changed: 06/15/2026 by: Claude
     // Tier ordering for sorting (low → high). Diamond sits above platinum, then

@@ -153,10 +153,21 @@ final class ThemeManager: ObservableObject {
     // Founders cards are the exception: they're never "free for everyone" just
     // because their price is 0 — they only count as unlocked once explicitly
     // granted (see grantFoundersCards), so they stay exclusive.
+    // Claude  Date 06/13/2026 last changed: 07/23/2026 by: Claude
+    // (Generalised the founders check to isGrantOnly so the achievement-earned gem
+    // cards are gated the same way — exclusive until explicitly granted, never free
+    // at price 0.)
     func isCardStyleUnlocked(_ style: CardStyle) -> Bool {
-        if style.isFounders { return unlockedCardStyleIDs.contains(style.id) }
+        if style.isGrantOnly { return unlockedCardStyleIDs.contains(style.id) }
         return style.price == 0 || unlockedCardStyleIDs.contains(style.id)
     }
+
+    // Claude  Date 07/23/2026
+    // Grant a single card by id (idempotent — returns true only if newly added, so a
+    // caller can decide whether to play a reveal). Used to award the gemstone cards
+    // when an achievement tier is first earned; the didSet persists to theme.json.
+    @discardableResult
+    func grantCardStyle(_ id: String) -> Bool { unlockedCardStyleIDs.insert(id).inserted }
 
     @discardableResult
     func purchaseCardStyle(_ style: CardStyle, balance: Int) -> Bool {

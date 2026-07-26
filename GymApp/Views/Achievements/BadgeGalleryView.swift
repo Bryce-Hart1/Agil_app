@@ -5,7 +5,7 @@ import SwiftUI
 // Shows every category across all 7 tiers (earned medallion or locked, medallion
 // or card style) and the full chess rank ladder. Tap any badge to preview its
 // unlock celebration; tap any rank to preview its promotion — both non-destructive
-// (see AppStore.previewCelebration / previewPromotion).
+// (see AppStore.replayCelebration / previewPromotion).
 struct BadgeGalleryView: View {
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var theme: ThemeManager
@@ -71,7 +71,7 @@ struct BadgeGalleryView: View {
                     .frame(width: 64)
                     .contentShape(Rectangle())
                     .onTapGesture {
-                        if let achievement { store.previewCelebration(achievement) }
+                        if let achievement { store.replayCelebration(achievement) }
                     }
                 }
             }

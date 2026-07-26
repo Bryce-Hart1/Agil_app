@@ -21,6 +21,11 @@ struct FoundersUnlockOverlay: View {
     // Founders gold — matches CardTier.founders.color / the founders accent.
     private let gold = Color(red: 1.0, green: 0.82, blue: 0.25)
 
+    // Bryce (Claude) Date 07/23/2026
+    // Card preview aspect (width:height). The row sizes cards off the available
+    // width and derives height from this so proportions hold as cards shrink.
+    private let cardAspect: CGFloat = 168.0 / 120.0
+
     var body: some View {
         ZStack {
             Color.black.opacity(0.68).ignoresSafeArea()
@@ -55,7 +60,12 @@ struct FoundersUnlockOverlay: View {
                     .foregroundStyle(.white.opacity(0.6))
                     .padding(.top, 6)
             }
-            .padding(36)
+            // Bryce (Claude) 07/12/2026 last changed: 07/23/2026 by: Claude
+            // Vertical padding kept generous; horizontal trimmed to 24 so the
+            // card row has more width to fit on narrow phones (was .padding(36),
+            // which — with fixed 120pt cards — pushed the outer cards off-screen).
+            .padding(.vertical, 36)
+            .padding(.horizontal, 24)
             .scaleEffect(appear ? 1 : 0.9)
             .opacity(appear ? 1 : 0)
         }
@@ -64,33 +74,48 @@ struct FoundersUnlockOverlay: View {
         .onAppear(perform: start)
     }
 
+    // Bryce (Claude) 07/12/2026 last changed: 07/23/2026 by: Claude
     // The founders cards as live mini-previews, side by side, each popping in on a
-    // slight per-card delay so the reveal builds.
+    // slight per-card delay so the reveal builds. Cards now size off the available
+    // width (capped at 120pt) so the row always fits on-screen — the previous
+    // hard-fixed 120pt widths overflowed the bezel on every iPhone and clipped the
+    // outer two cards. The GeometryReader is given a fixed height (the max card
+    // height + caption room) so it doesn't consume the surrounding VStack's space.
     private var cardRow: some View {
-        HStack(spacing: 18) {
-            ForEach(Array(cards.enumerated()), id: \.element.id) { index, style in
-                VStack(spacing: 8) {
-                    CardBackgroundView(background: style.background)
-                        .frame(width: 120, height: 168)
-                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .stroke(gold.opacity(0.8), lineWidth: 1.5)
-                        )
-                        .shadow(color: gold.opacity(0.35), radius: 12, y: 4)
+        GeometryReader { geo in
+            let spacing: CGFloat = 14
+            let n = CGFloat(cards.count)
+            let cardW = min(120, (geo.size.width - spacing * (n - 1)) / n)
+            let cardH = cardW * cardAspect
 
-                    Text(cardShortName(style))
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                        .frame(width: 120)
+            HStack(spacing: spacing) {
+                ForEach(Array(cards.enumerated()), id: \.element.id) { index, style in
+                    VStack(spacing: 8) {
+                        CardBackgroundView(background: style.background)
+                            .frame(width: cardW, height: cardH)
+                            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                    .stroke(gold.opacity(0.8), lineWidth: 1.5)
+                            )
+                            .shadow(color: gold.opacity(0.35), radius: 12, y: 4)
+
+                        Text(cardShortName(style))
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                            .frame(width: cardW)
+                    }
+                    .scaleEffect(appear ? 1 : 0.4)
+                    .opacity(appear ? 1 : 0)
+                    .animation(.spring(response: 0.5, dampingFraction: 0.6)
+                        .delay(0.1 + Double(index) * 0.12), value: appear)
                 }
-                .scaleEffect(appear ? 1 : 0.4)
-                .opacity(appear ? 1 : 0)
-                .animation(.spring(response: 0.5, dampingFraction: 0.6)
-                    .delay(0.1 + Double(index) * 0.12), value: appear)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        // Fixed height: tallest possible card (120 × aspect = 168) + caption row.
+        .frame(height: 120 * cardAspect + 30)
     }
 
     // Drop the " — Founders Edition" suffix for the compact caption under each card.

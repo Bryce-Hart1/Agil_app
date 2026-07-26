@@ -72,11 +72,12 @@ enum ShopItem: Identifiable, Hashable {
             case .rare:      return 1.0
             case .epic:      return 0.5
             case .legendary: return 0.22
-            // Claude  Date 07/12/2026
-            // Unreachable via the Shop — Founders cards are excluded from every pool
-            // (see ShopView.fullCatalog / DailyShop.cardPool). Value is a placeholder
-            // to keep this switch exhaustive.
+            // Claude  Date 07/12/2026 last changed: 07/23/2026 by: Claude
+            // Unreachable via the Shop — Founders and Gem cards are excluded from every
+            // pool (see ShopView.fullCatalog's isGrantOnly filter). Values are
+            // placeholders to keep this switch exhaustive.
             case .founders:  return 0
+            case .gem:       return 0
             }
         }
     }

@@ -86,9 +86,18 @@ final class AppStore: ObservableObject {
     // (so e.g. a streak badge survives a missed week). Recomputed from history by
     // evaluateAchievements(); only AppStore mutates it.
     @Published private(set) var unlockedAchievementIDs: Set<String>
-    // Claude  Date 06/13/2026
+    // Claude  Date 07/24/2026
+    // Achievement ids whose unlock animation the user has actually WATCHED, as
+    // opposed to merely earned. Persisted. This is the counter behind the red
+    // count over the Profile tab: unlocked − opened = "new, waiting in the book".
+    // Published (it wasn't, as celebratedAchievementIDs) because the tab badge and
+    // every book slot re-render off it.
+    @Published private(set) var openedAchievementIDs: Set<String> = []
+    // Claude  Date 06/13/2026 last changed: 07/24/2026 by: Claude
     // Achievements queued for the unlock celebration (transient — not persisted).
-    // RootTabView shows the first one as a full-screen celebration.
+    // RootTabView shows the first one as a full-screen celebration. Nothing fills
+    // this automatically any more: unlocks land silently and the user chooses when
+    // to play them from the Achievement Book (openAchievement / openAllUnopened).
     @Published var pendingCelebrations: [Achievement] = []
     // Claude  Date 06/15/2026
     // Strategist rank promotions queued for celebration (transient, like
@@ -104,6 +113,12 @@ final class AppStore: ObservableObject {
     // later. RootTabView renders FoundersUnlockOverlay from this. The grant of the
     // cards themselves lives in ThemeManager — this only drives the reveal animation.
     @Published var pendingFoundersUnlock: [CardStyle] = []
+    // Claude  Date 07/23/2026
+    // Gemstone cards queued for the "new card unlocked" reveal (transient, empty =
+    // none). Set when the user earns their first diamond/emerald achievement live
+    // (RootTabView.syncRewardCards). Shown one at a time by CardUnlockOverlay; the
+    // grant itself lives in ThemeManager, this only drives the reveal.
+    @Published var pendingCardUnlock: [CardStyle] = []
     // Claude  Date 07/14/2026
     // Whether the spotlight tour overlay is running (transient). Auto-started once
     // after onboarding (RootTabView) and replayable from Settings; the persistent
@@ -118,14 +133,13 @@ final class AppStore: ObservableObject {
     }
 
     private let persistence: PersistenceService
-    // Ids already celebrated, so we never re-show the same unlock. Persisted.
-    private var celebratedAchievementIDs: Set<String> = []
     // Claude  Date 06/15/2026
     // Highest Strategist rank already celebrated, so a promotion fires only once.
     private var celebratedRank: StrategistRank = .initiate
-    // Claude  Date 06/15/2026
-    // Dev-only: ids currently queued as a *preview* (from the badge gallery), so
-    // dismissing them doesn't mark the real badge as celebrated. Transient.
+    // Claude  Date 06/15/2026 last changed: 07/24/2026 by: Claude
+    // Ids currently queued as a *replay* rather than a first opening, so dismissing
+    // them leaves openedAchievementIDs untouched. Transient. Used by the badge
+    // gallery's preview and by re-tapping an already-opened badge in the book.
     private var previewCelebrationIDs: Set<String> = []
 
     private static let exercisesFile = "exercises.json"
@@ -133,7 +147,9 @@ final class AppStore: ObservableObject {
     private static let presetsFile = "presets.json"
     private static let profileFile = "profile.json"
     private static let achievementsFile = "achievements.json"
-    private static let celebratedFile = "celebrated_achievements.json"
+    // Claude  Date 07/24/2026 — was celebrated_achievements.json; renamed with the
+    // "seen" → "opened" concept. Alpha build, no installed users, so no migration.
+    private static let openedFile = "opened_achievements.json"
     private static let activityLogFile = "activity_log.json"
     private static let rankFile = "strategist_rank.json"
     // Claude  Date 06/16/2026 — nutrition data files.
@@ -159,7 +175,7 @@ final class AppStore: ObservableObject {
         self.presets = persistence.load(Self.presetsFile, default: [WorkoutPreset]())
         self.profile = persistence.load(Self.profileFile, default: UserProfile())
         self.unlockedAchievementIDs = persistence.load(Self.achievementsFile, default: Set<String>())
-        self.celebratedAchievementIDs = persistence.load(Self.celebratedFile, default: Set<String>())
+        self.openedAchievementIDs = persistence.load(Self.openedFile, default: Set<String>())
         self.celebratedRank = persistence.load(Self.rankFile, default: StrategistRank.initiate)
         self.activityLog = persistence.load(Self.activityLogFile, default: [ActivityEvent]())
 
@@ -213,11 +229,39 @@ final class AppStore: ObservableObject {
     // Everything user-facing should read this instead of Achievement.all.
     var achievementCatalog: [Achievement] { Achievement.catalog(for: profile.gender) }
 
-    // Claude  Date 06/13/2026
+    // Claude  Date 07/24/2026
+    // Earned but not yet watched — the badges sitting in the Achievement Book with
+    // their reveal still to play. This count is what the red dot over the Profile
+    // tab (and the Achievements row) shows.
+    var unopenedAchievementIDs: Set<String> {
+        unlockedAchievementIDs.subtracting(openedAchievementIDs)
+    }
+
+    var unopenedAchievementCount: Int { unopenedAchievementIDs.count }
+
+    // Claude  Date 07/23/2026 last changed: 07/24/2026 by: Claude
+    // The set of badge tiers the user has OPENED at least one achievement of — used
+    // to grant the matching gemstone card the first time a tier is earned (see
+    // RootTabView.syncRewardCards). This read the sticky *unlocked* set until badges
+    // started waiting in the book to be revealed: keying the card off the unlock
+    // would hand over the diamond card while the diamond badge that earned it was
+    // still sealed. Opened is the honest trigger — the user has seen the badge.
+    var openedTiers: Set<BadgeTier> {
+        Set(achievementCatalog.filter { openedAchievementIDs.contains($0.id) }.map(\.tier))
+    }
+
+    // Claude  Date 06/13/2026 last changed: 07/24/2026 by: Claude
     // Add any achievements whose criteria are currently met to the unlocked set.
     // Never removes (unlocks are permanent); persists + publishes only on change.
-    // When `announce`, newly-unlocked-and-not-yet-celebrated ones are queued for
-    // the celebration overlay (lowest tier first, so it builds to the best).
+    //
+    // Claude  Date 07/24/2026
+    // `announce` no longer means "pop a celebration" — nothing interrupts the user
+    // any more. A live unlock simply stays OUT of openedAchievementIDs, which lights
+    // the Profile-tab count and leaves the badge waiting in the Achievement Book for
+    // the user to open when they want it. `announce: false` is still the first-run
+    // backdating pass: it marks the catch-up unlocks opened so a fresh install
+    // doesn't present a book full of "new" badges the user never actually earned
+    // in-session. Rank promotions are unaffected and still fire immediately.
     func evaluateAchievements(announce: Bool = true) {
         // Claude  Date 06/13/2026 last changed: 07/11/2026 by: Claude
         // Stats come from the activity ledger (completed sets, real timestamps),
@@ -238,14 +282,10 @@ final class AppStore: ObservableObject {
         unlockedAchievementIDs = updated
         persistence.save(updated, to: Self.achievementsFile)
 
-        if announce {
-            queueCelebrations(achievementCatalog.filter {
-                newlyUnlocked.contains($0.id) && !celebratedAchievementIDs.contains($0.id)
-            })
-        } else {
-            // Backdating pass: treat already-satisfied achievements as seen.
-            celebratedAchievementIDs.formUnion(newlyUnlocked)
-            persistence.save(celebratedAchievementIDs, to: Self.celebratedFile)
+        if !announce {
+            // Backdating pass: treat already-satisfied achievements as opened.
+            openedAchievementIDs.formUnion(newlyUnlocked)
+            persistence.save(openedAchievementIDs, to: Self.openedFile)
         }
 
         // Claude  Date 06/15/2026
@@ -282,6 +322,34 @@ final class AppStore: ObservableObject {
         pendingPromotions.removeFirst()
     }
 
+    // Claude  Date 07/24/2026
+    // Open one badge from the Achievement Book: play its reveal now. Dismissing the
+    // overlay is what marks it opened (see dismissCurrentCelebration), so backing
+    // out mid-animation leaves it "new" and it can be opened again later.
+    func openAchievement(_ achievement: Achievement) {
+        queueCelebrations([achievement])
+    }
+
+    // Claude  Date 07/24/2026
+    // Open everything waiting at once ("Open N new" in the book) — plays lowest
+    // tier → highest so the run builds to the best badge earned.
+    func openAllUnopened() {
+        let waiting = unopenedAchievementIDs
+        queueCelebrations(achievementCatalog.filter { waiting.contains($0.id) })
+    }
+
+    // Claude  Date 06/15/2026 last changed: 07/24/2026 by: Claude
+    // Replay a badge's reveal without touching persisted state — for tapping a badge
+    // you've already opened, and for the dev badge gallery's preview (which can play
+    // one you haven't even earned). Was previewCelebration; renamed now that replay
+    // is a real user-facing action rather than a dev-only affordance.
+    func replayCelebration(_ achievement: Achievement) {
+        previewCelebrationIDs.insert(achievement.id)
+        if !pendingCelebrations.contains(where: { $0.id == achievement.id }) {
+            pendingCelebrations.append(achievement)
+        }
+    }
+
     // Claude  Date 06/13/2026
     // Append achievements to the celebration queue (skipping any already queued),
     // ordered lowest tier → highest.
@@ -294,15 +362,17 @@ final class AppStore: ObservableObject {
         pendingCelebrations.append(contentsOf: additions)
     }
 
-    // Claude  Date 06/13/2026
-    // Dismiss the current celebration: mark it seen and advance the queue.
+    // Claude  Date 06/13/2026 last changed: 07/24/2026 by: Claude
+    // Dismiss the current celebration: mark it opened and advance the queue. This is
+    // the only place openedAchievementIDs grows outside the backdating pass — the
+    // badge counts down only once the user has actually watched the reveal.
     func dismissCurrentCelebration() {
         guard let current = pendingCelebrations.first else { return }
-        // A previewed celebration (dev gallery) leaves the real "celebrated" state
-        // untouched, so earning the badge for real still pops later.
+        // A replay (or a dev-gallery preview) leaves the persisted state untouched,
+        // so a badge you replay stays opened and one you previewed stays new.
         if previewCelebrationIDs.remove(current.id) == nil {
-            celebratedAchievementIDs.insert(current.id)
-            persistence.save(celebratedAchievementIDs, to: Self.celebratedFile)
+            openedAchievementIDs.insert(current.id)
+            persistence.save(openedAchievementIDs, to: Self.openedFile)
         }
         pendingCelebrations.removeFirst()
     }
@@ -321,14 +391,32 @@ final class AppStore: ObservableObject {
         pendingFoundersUnlock = []
     }
 
-    // Claude  Date 06/13/2026
-    // Dev/alpha helper: re-show the celebration for every currently-unlocked
-    // achievement (non-destructive — coins/unlocks are kept).
-    func replayCelebrations() {
-        celebratedAchievementIDs = []
-        persistence.save(celebratedAchievementIDs, to: Self.celebratedFile)
+    // Claude  Date 07/23/2026
+    // Queue the "new card unlocked" reveal for freshly-granted gemstone cards
+    // (skipping any already queued), shown one at a time by CardUnlockOverlay. The
+    // grant is done by the caller (ThemeManager.grantCardStyle); this only reveals.
+    func celebrateCardUnlock(_ styles: [CardStyle]) {
+        let queued = Set(pendingCardUnlock.map(\.id))
+        let additions = styles.filter { !queued.contains($0.id) }
+        guard !additions.isEmpty else { return }
+        pendingCardUnlock.append(contentsOf: additions)
+    }
+
+    // Dismiss the current card-unlock reveal and advance the queue.
+    func dismissCardUnlock() {
+        guard !pendingCardUnlock.isEmpty else { return }
+        pendingCardUnlock.removeFirst()
+    }
+
+    // Claude  Date 06/13/2026 last changed: 07/24/2026 by: Claude
+    // Dev/alpha helper: mark every unlocked achievement as NEW again (non-destructive
+    // — coins/unlocks are kept). Was replayCelebrations, which queued a wall of
+    // overlays; now that reveals are user-initiated, the useful test action is to
+    // refill the book with unopened slots and light the Profile-tab count.
+    func markAllUnopened() {
+        openedAchievementIDs = []
+        persistence.save(openedAchievementIDs, to: Self.openedFile)
         pendingCelebrations = []
-        queueCelebrations(achievementCatalog.filter { unlockedAchievementIDs.contains($0.id) })
     }
 
     // Claude  Date 06/15/2026
@@ -338,23 +426,71 @@ final class AppStore: ObservableObject {
     // overlays. Use "Reset achievements" to return to history-based progress.
     func unlockAllAchievements() {
         unlockedAchievementIDs = Set(achievementCatalog.map(\.id))
-        celebratedAchievementIDs = unlockedAchievementIDs
+        openedAchievementIDs = unlockedAchievementIDs
         celebratedRank = strategistRank
         pendingCelebrations = []
         pendingPromotions = []
         persistence.save(unlockedAchievementIDs, to: Self.achievementsFile)
-        persistence.save(celebratedAchievementIDs, to: Self.celebratedFile)
+        persistence.save(openedAchievementIDs, to: Self.openedFile)
         persistence.save(celebratedRank, to: Self.rankFile)
     }
 
-    // Claude  Date 06/15/2026
-    // Dev/alpha helper: play a single badge's unlock celebration on demand, without
-    // earning it or affecting real progress (see previewCelebrationIDs).
-    func previewCelebration(_ achievement: Achievement) {
-        previewCelebrationIDs.insert(achievement.id)
-        if !pendingCelebrations.contains(where: { $0.id == achievement.id }) {
-            pendingCelebrations.append(achievement)
+    // Claude  Date 07/25/2026
+    // Dev/alpha helper: force an ARBITRARY set of achievements locked or unlocked,
+    // bypassing ProfileStats entirely. The existing helpers are all-or-nothing
+    // (unlockAllAchievements / resetAchievements); this is the surgical one behind
+    // the Achievement forcing screen, so a single badge, a tier, or one category can
+    // be put in any state without manufacturing the workout history to earn it.
+    //
+    // Three things have to be kept coherent by hand, because this deliberately skips
+    // evaluateAchievements:
+    //  - `queueAsNew` decides whether forced unlocks land UNOPENED (waiting in the
+    //    Achievement Book, lighting the Profile-tab count) or pre-opened and silent.
+    //  - Locking a badge also unpins it: the profile card must never feature one the
+    //    user doesn't hold, and nothing else would clean that up.
+    //  - `firePromotions` mirrors evaluateAchievements' rank block. It matters even
+    //    when you don't want an overlay: leaving celebratedRank stale below the new
+    //    rank means the NEXT real evaluation dumps every skipped promotion at once,
+    //    so the else-branch resyncs it silently instead of leaving that landmine.
+    //    Forcing badges DOWN never demotes celebratedRank — same one-way rule the
+    //    real ladder follows.
+    func devSetAchievements(ids: Set<String>, unlocked: Bool,
+                            queueAsNew: Bool = true, firePromotions: Bool = false) {
+        guard !ids.isEmpty else { return }
+        if unlocked {
+            unlockedAchievementIDs.formUnion(ids)
+            if queueAsNew {
+                openedAchievementIDs.subtract(ids)
+            } else {
+                openedAchievementIDs.formUnion(ids)
+            }
+        } else {
+            unlockedAchievementIDs.subtract(ids)
+            openedAchievementIDs.subtract(ids)
+            pendingCelebrations.removeAll { ids.contains($0.id) }
+            profile.showcasedAchievementIDs.removeAll { ids.contains($0) }
         }
+        persistence.save(unlockedAchievementIDs, to: Self.achievementsFile)
+        persistence.save(openedAchievementIDs, to: Self.openedFile)
+
+        let newRank = strategistRank
+        if newRank > celebratedRank {
+            if firePromotions {
+                let queued = Set(pendingPromotions)
+                pendingPromotions.append(contentsOf: StrategistRank.allCases.filter {
+                    $0 > celebratedRank && $0 <= newRank && !queued.contains($0)
+                })
+            }
+            celebratedRank = newRank
+            persistence.save(celebratedRank, to: Self.rankFile)
+        }
+    }
+
+    /// Single-achievement convenience over `devSetAchievements`.
+    func devSetAchievement(id: String, unlocked: Bool,
+                           queueAsNew: Bool = true, firePromotions: Bool = false) {
+        devSetAchievements(ids: [id], unlocked: unlocked,
+                           queueAsNew: queueAsNew, firePromotions: firePromotions)
     }
 
     // Claude  Date 06/15/2026
@@ -364,16 +500,17 @@ final class AppStore: ObservableObject {
         if !pendingPromotions.contains(rank) { pendingPromotions.append(rank) }
     }
 
-    // Claude  Date 06/13/2026
-    // Dev/alpha helper: wipe all achievement progress, then re-earn from history
-    // (this DOES celebrate the re-unlocks). Clears showcased pins too.
+    // Claude  Date 06/13/2026 last changed: 07/24/2026 by: Claude
+    // Dev/alpha helper: wipe all achievement progress, then re-earn from history.
+    // Clears showcased pins too. announce: true means the re-earned badges come back
+    // as UNOPENED (nothing pops) — the book fills with new slots to open.
     func resetAchievements() {
         unlockedAchievementIDs = []
-        celebratedAchievementIDs = []
+        openedAchievementIDs = []
         pendingCelebrations = []
         profile.showcasedAchievementIDs = []
         persistence.save(unlockedAchievementIDs, to: Self.achievementsFile)
-        persistence.save(celebratedAchievementIDs, to: Self.celebratedFile)
+        persistence.save(openedAchievementIDs, to: Self.openedFile)
         evaluateAchievements(announce: true)
     }
 
@@ -768,6 +905,76 @@ final class AppStore: ObservableObject {
 
     func deletePresets(at offsets: IndexSet) {
         presets.remove(atOffsets: offsets)
+    }
+
+    // MARK: - Premade workouts
+
+    // Claude  Date 07/25/2026
+    // Install a shipped template (see PremadeWorkout) as a real preset, under the
+    // name and icon the user chose on the detail screen. Everything else — rep
+    // ranges, planned sets, rest, notes, the adaptive flag — comes from the catalog.
+    //
+    // The catalog names its lifts as STRINGS rather than ids, because seedExercises
+    // mints a fresh UUID per install, so `resolveExerciseID` below does the matching
+    // and creates anything missing. Any exercises it has to create are collected and
+    // appended in one shot: `exercises` persists in its didSet, so appending inside
+    // the loop would rewrite the whole library file once per lift.
+    @discardableResult
+    func installPremade(_ premade: PremadeWorkout, name: String, symbolName: String) -> WorkoutPreset {
+        var created: [Exercise] = []
+        let items: [PresetItem] = premade.items.compactMap { item in
+            guard let exerciseID = resolveExerciseID(for: item, creating: &created) else { return nil }
+            return PresetItem(exerciseId: exerciseID,
+                              targetRepRange: item.reps,
+                              note: item.note,
+                              restSeconds: item.restSeconds,
+                              targetSets: item.sets)
+        }
+        if !created.isEmpty { exercises.append(contentsOf: created) }
+
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let preset = WorkoutPreset(name: trimmed.isEmpty ? premade.name : trimmed,
+                                   symbolName: symbolName,
+                                   items: items,
+                                   isAdaptive: premade.isAdaptive,
+                                   premadeID: premade.id)
+        addPreset(preset)
+        return preset
+    }
+
+    // Claude  Date 07/25/2026
+    // Turn a catalog lift's NAME into a library exercise id, in priority order:
+    //   1. already in the user's library (the normal case) — reuse it;
+    //   2. already staged for creation by an earlier item in this same install;
+    //   3. a seedExercises lift the user deleted — recreate it with its real metadata
+    //      (region, mover, quality…) rather than a bare stub, so graphs and the big-3
+    //      achievements still work;
+    //   4. a lift outside the seed library — build it from the entry's `fallback`.
+    // Anything else is a typo in the catalog: skipped so the preset still installs,
+    // with a debug trap so it's caught here rather than shipped.
+    // New exercises go into `created` instead of `exercises` — see installPremade.
+    private func resolveExerciseID(for item: PremadeExercise, creating created: inout [Exercise]) -> UUID? {
+        let name = item.name
+        func matches(_ exercise: Exercise) -> Bool {
+            exercise.name.caseInsensitiveCompare(name) == .orderedSame
+        }
+
+        if let existing = exercises.first(where: matches) { return existing.id }
+        if let staged = created.first(where: matches) { return staged.id }
+
+        guard let template = AppStore.seedExercises.first(where: matches) ?? item.fallback else {
+            assertionFailure("Premade workout references unknown exercise \"\(name)\" — "
+                             + "add it to seedExercises or give the entry a fallback.")
+            return nil
+        }
+        // Fresh id: the template is a shared static (or catalog literal), so reusing its
+        // id would hand two installs the same identity.
+        let exercise = Exercise(name: template.name, region: template.region,
+                                category: template.category, isUnilateral: template.isUnilateral,
+                                liftType: template.liftType, primaryMover: template.primaryMover,
+                                quality: template.quality, isBodyweight: template.isBodyweight)
+        created.append(exercise)
+        return exercise.id
     }
 
     /// A reorder-safe two-way binding to a preset, mirroring `binding(for:)`.

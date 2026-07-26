@@ -100,8 +100,21 @@ struct ProfileView: View {
                 FriendsView()
             }
             Divider().padding(.leading, 16)
-            profileNavRow("Achievements", systemImage: "rosette") {
-                AchievementsView()
+            // Claude  Date 07/25/2026
+            // Browse the shipped workout templates and install one as a preset. Lives
+            // here (rather than only on the Presets tab) so it's findable as a "things
+            // I can add to my account" destination, alongside the Shop.
+            profileNavRow("Premade Workouts", image: "folder-plus") {
+                PremadeWorkoutsView()
+            }
+            Divider().padding(.leading, 16)
+            // Claude  Date 07/24/2026
+            // The Achievement Book (was the flat AchievementsView list). Carries the
+            // same unopened count as the tab badge, so the reason you came to this
+            // screen is still visible once the tab bar is behind you.
+            profileNavRow("Achievements", systemImage: "rosette",
+                          badgeCount: store.unopenedAchievementCount) {
+                AchievementBookView()
             }
             Divider().padding(.leading, 16)
             profileNavRow("Shop", systemImage: "bag") {
@@ -122,9 +135,10 @@ struct ProfileView: View {
         _ title: String,
         systemImage: String,
         disabledMessage: String? = nil,
+        badgeCount: Int = 0,
         @ViewBuilder destination: () -> Destination
     ) -> some View {
-        profileNavRow(title, disabledMessage: disabledMessage,
+        profileNavRow(title, disabledMessage: disabledMessage, badgeCount: badgeCount,
                       icon: { Image(systemName: systemImage) }, destination: destination)
     }
 
@@ -144,15 +158,18 @@ struct ProfileView: View {
         )
     }
 
-    // Claude  Date 07/13/2026 last changed: 07/23/2026 by: Claude
+    // Claude  Date 07/13/2026 last changed: 07/24/2026 by: Claude
     // Shared row body — accepts any icon view so both the SF-Symbol and custom-asset
     // variants above can reuse it. When `disabledMessage` is set the row is inert:
     // no NavigationLink push, the title/icon are greyed (.plain buttons don't auto-
     // grey, so opacity is applied manually), and the message replaces the chevron.
+    // `badgeCount` (07/24/2026) draws a red count before the chevron — zero draws
+    // nothing, so every other row is untouched.
     @ViewBuilder
     private func profileNavRow<Icon: View, Destination: View>(
         _ title: String,
         disabledMessage: String? = nil,
+        badgeCount: Int = 0,
         @ViewBuilder icon: () -> Icon,
         @ViewBuilder destination: () -> Destination
     ) -> some View {
@@ -174,6 +191,16 @@ struct ProfileView: View {
                 HStack {
                     Label { Text(title) } icon: { icon() }
                     Spacer()
+                    if badgeCount > 0 {
+                        Text(badgeCount > 99 ? "99+" : "\(badgeCount)")
+                            .font(.caption2.weight(.bold))
+                            .monospacedDigit()
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 6)
+                            .frame(minWidth: 20, minHeight: 20)
+                            .background(Color.red, in: Capsule())
+                            .accessibilityLabel("\(badgeCount) new")
+                    }
                     Image(systemName: "chevron.right")
                         .font(.footnote.weight(.semibold))
                         .foregroundStyle(.secondary)

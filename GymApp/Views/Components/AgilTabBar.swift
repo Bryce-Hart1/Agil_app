@@ -94,6 +94,18 @@ extension AgilTabItem {
         case .nutrition: return [.journal, .foods, .nutritionProfile]
         }
     }
+
+    // Claude  Date 07/24/2026
+    // Which tag the Profile tab has in a given world (4 lifting, 3 nutrition).
+    // Exists so the unopened-achievements count can be addressed to "the Profile
+    // tab" without RootTabView hardcoding a number that moves whenever a tab is
+    // added to either set.
+    static func profileTag(for mode: AppMode) -> Int {
+        switch mode {
+        case .lifting:   return liftingProfile.tag
+        case .nutrition: return nutritionProfile.tag
+        }
+    }
 }
 
 struct AgilTabBar: View {
@@ -101,6 +113,12 @@ struct AgilTabBar: View {
 
     let items: [AgilTabItem]
     @Binding var selection: Int
+    // Claude  Date 07/24/2026
+    // Unread counts to draw over tab icons, keyed by AgilTabItem.tag. Kept as a
+    // plain map (rather than baked into AgilTabItem) so the bar stays a dumb
+    // renderer with no opinion about achievements — RootTabView owns the meaning.
+    // Defaulted so existing call sites and the preview compile unchanged.
+    var badgeCounts: [Int: Int] = [:]
 
     // Claude  Date 07/21/2026
     // Height of the item row — everything ABOVE the home-indicator inset, which
@@ -153,7 +171,15 @@ struct AgilTabBar: View {
     private func cell(for item: AgilTabItem) -> some View {
         let isSelected = selection == item.tag
         return VStack(spacing: 3) {
+            // Claude  Date 07/24/2026
+            // The count rides on the ICON's 26pt box, not the whole cell, so it sits
+            // tight to the glyph the way iOS draws tab badges. It's an overlay, so a
+            // zero count (hidden) costs no layout and the row stays on one baseline.
             item.image
+                .overlay(alignment: .topTrailing) {
+                    TabBadge(count: badgeCounts[item.tag] ?? 0)
+                        .offset(x: 9, y: -5)
+                }
             Text(item.title)
                 // Claude  Date 07/21/2026 — 11pt (was 10): the native bar's 10pt
                 // felt undersized once the labels were ours to set. The scale
@@ -167,6 +193,34 @@ struct AgilTabBar: View {
                                     : AnyShapeStyle(Color.secondary))
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .contentShape(Rectangle())
+    }
+}
+
+// Claude  Date 07/24/2026
+// The red count over a tab icon — today only the Profile tab, carrying the number
+// of achievements earned but not yet opened in the Achievement Book. Renders
+// nothing at zero (so it never pushes the icon around), caps at "9+" to keep the
+// pill circular, and rings itself in the bar's own surface colour so it stays
+// legible where it overlaps the glyph. The explicit .foregroundStyle is required:
+// the enclosing cell tints its whole subtree accent/secondary, which would
+// otherwise recolour the count.
+private struct TabBadge: View {
+    @EnvironmentObject private var theme: ThemeManager
+
+    let count: Int
+
+    var body: some View {
+        if count > 0 {
+            Text(count > 9 ? "9+" : "\(count)")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(.white)
+                .monospacedDigit()
+                .padding(.horizontal, 4)
+                .frame(minWidth: 16, minHeight: 16)
+                .background(Color.red, in: Capsule())
+                .overlay(Capsule().stroke(theme.current.surface, lineWidth: 1.5))
+                .accessibilityLabel("\(count) new")
+        }
     }
 }
 

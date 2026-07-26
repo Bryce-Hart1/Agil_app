@@ -30,6 +30,14 @@ enum AnimatedCard: Hashable {
     case foundersShootingStars
     case foundersGalaxy
     case foundersConstellation
+    // Claude  Date 07/23/2026
+    // Gemstone cards — granted when the user earns their first diamond / emerald
+    // achievement (see CardStyle.rewardCardID + RootTabView.syncRewardCards, never
+    // sold). Painted by GemCardBackground, which reuses the badge GemFacetOverlay
+    // full-bleed over the tier's material gradient.
+    case diamondGem
+    case emeraldGem
+    case legendGem
 
     var accent: Color {
         switch self {
@@ -40,6 +48,9 @@ enum AnimatedCard: Hashable {
         case .foundersShootingStars: return Color(red: 1.0,  green: 0.82, blue: 0.25)
         case .foundersGalaxy:        return Color(red: 0.98, green: 0.68, blue: 0.45)
         case .foundersConstellation: return Color(red: 0.98, green: 0.55, blue: 0.75)
+        case .diamondGem:            return Color(red: 0.56, green: 0.83, blue: 0.94)  // icy blue #8FD3EF
+        case .emeraldGem:            return Color(red: 0.06, green: 0.73, blue: 0.51)  // emerald #10B981
+        case .legendGem:             return Color(red: 0.81, green: 0.11, blue: 0.60)  // magenta-pink #CE1C9A
         }
     }
 }
@@ -58,6 +69,12 @@ enum CardTier: Hashable {
     // Above Legendary, but never for sale — granted directly (see
     // CardStyle.isFounders). Price stays 0 since it's never bought with coins.
     case founders
+    // Claude  Date 07/23/2026
+    // Earned, never sold — the gemstone cards granted by an achievement milestone
+    // (first diamond / emerald badge). Like founders, price 0 and excluded from the
+    // Shop, but a distinct rarity so the picker labels them "Gem" (see
+    // CardStyle.isGrantOnly, which gates ownership the same way founders does).
+    case gem
 
     var price: Int {
         switch self {
@@ -66,6 +83,7 @@ enum CardTier: Hashable {
         case .epic:      return 2000
         case .legendary: return 3000
         case .founders:  return 0
+        case .gem:       return 0
         }
     }
 
@@ -77,6 +95,7 @@ enum CardTier: Hashable {
         case .epic:      return "Epic"
         case .legendary: return "Legendary"
         case .founders:  return "Founders"
+        case .gem:       return "Gem"
         }
     }
 
@@ -88,6 +107,7 @@ enum CardTier: Hashable {
         case .epic:      return Color(red: 0.64, green: 0.35, blue: 0.92)   // purple
         case .legendary: return Color(red: 0.98, green: 0.72, blue: 0.20)   // gold
         case .founders:  return Color(red: 1.0,  green: 0.82, blue: 0.25)   // brighter gold
+        case .gem:       return Color(red: 0.36, green: 0.83, blue: 0.86)   // gem cyan
         }
     }
 }
@@ -123,6 +143,14 @@ struct CardStyle: Identifiable, Hashable {
     // Cost to unlock = the tier's price (Common = free).
     var price: Int { tier.price }
 
+    // Claude  Date 07/23/2026
+    // Cards that are only ever obtained by being granted (never sold in the Shop and
+    // never free just because their price is 0): the Founders Edition cards and the
+    // achievement-earned gemstone cards. Ownership for these means "explicitly present
+    // in unlockedCardStyleIDs" — see ThemeManager.isCardStyleUnlocked and the
+    // ShopView.fullCatalog exclusion.
+    var isGrantOnly: Bool { isFounders || tier == .gem }
+
     static let all: [CardStyle] = [
         CardStyle(id: "default", name: "Classic Pink", background: .color(hex: "#EA0F8B"), tier: .common),
         // Rare — solid-colour cards.
@@ -153,7 +181,28 @@ struct CardStyle: Identifiable, Hashable {
         // card to upgrade; it's an original). Same gating as the two above.
         CardStyle(id: "founders_constellation", name: "Constellation — Founders Edition",
                   background: .animated(.foundersConstellation), tier: .founders, isFounders: true),
+        // Claude  Date 07/23/2026
+        // Gemstone cards — earned, not sold. Granted the first time the user unlocks a
+        // diamond / emerald achievement (see rewardCardID + RootTabView). tier == .gem
+        // makes them grant-only (isGrantOnly) without the founders launch-grant, so
+        // they stay locked until actually earned.
+        CardStyle(id: "gem_diamond", name: "Diamond", background: .animated(.diamondGem), tier: .gem),
+        CardStyle(id: "gem_emerald", name: "Emerald", background: .animated(.emeraldGem), tier: .gem),
+        CardStyle(id: "gem_legend",  name: "Legend",  background: .animated(.legendGem),  tier: .gem),
     ]
+
+    // Claude  Date 07/23/2026
+    // The gemstone card a given badge tier awards, or nil for tiers with no card.
+    // Used by RootTabView.syncRewardCards to grant the matching card when the user
+    // earns their first achievement of that tier.
+    static func rewardCardID(for tier: BadgeTier) -> String? {
+        switch tier {
+        case .diamond: return "gem_diamond"
+        case .emerald: return "gem_emerald"
+        case .legend:  return "gem_legend"
+        default:       return nil
+        }
+    }
 
     /// The free default style — its color matches UserProfile's default.
     static var defaultStyle: CardStyle { all[0] }

@@ -71,12 +71,18 @@ enum StrategistRank: Int, CaseIterable, Comparable, Codable {
     }
 }
 
-// Claude  Date 06/15/2026
+// Claude  Date 06/15/2026 last changed: 07/25/2026 by: Claude
 // Pure scoring helpers — no app state, so they're trivially testable. The score
 // rewards depth: each unlocked badge is worth (tierRank + 1), i.e. Bronze 1 …
-// Legend 7, for a ceiling of 6 categories × 28 = 168.
+// Legend 7.
+// (07/25) maxScore is now DERIVED from the catalog instead of hardcoded at 168.
+// That literal was a full 7-tier ladder × 6 categories, and had been wrong since
+// the catalog grew to 8 — StrategistRankView shows it as "your score: X / max", so
+// the ceiling read low. Deriving it means adding a badge (the First Step secret)
+// can't desync it again.
 enum StrategistScoring {
-    static let maxScore = 168
+    static let maxScore = Achievement.all
+        .reduce(0) { $0 + AchievementShowcase.tierRank($1.tier) + 1 }
 
     // Claude  Date 07/14/2026
     // Stays on Achievement.all (not the gender-calibrated catalog): scoring reads

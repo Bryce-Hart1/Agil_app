@@ -57,7 +57,15 @@ struct RootTabView: View {
         VStack(spacing: 0) {
             tabContent
             WorkoutMiniBar(onOpen: openActiveWorkout)
-            AgilTabBar(items: AgilTabItem.items(for: mode), selection: $selection)
+            // Claude  Date 07/24/2026
+            // The Profile tab carries a red count of achievements earned but not yet
+            // opened — the whole point of deferring reveals is that this is the only
+            // thing that interrupts you, and it waits quietly until you tap it.
+            AgilTabBar(
+                items: AgilTabItem.items(for: mode),
+                selection: $selection,
+                badgeCounts: [AgilTabItem.profileTag(for: mode): store.unopenedAchievementCount]
+            )
         }
         // Claude  Date 07/21/2026
         // The counterpart to the VStack above. Keyboard avoidance arrives as a bottom
@@ -88,9 +96,13 @@ struct RootTabView: View {
         .fullScreenCover(isPresented: $session.showFullScreenTimer) {
             RestTimerFullScreenView()
         }
-        // Claude  Date 06/13/2026
+        // Claude  Date 06/13/2026 last changed: 07/24/2026 by: Claude
         // Achievement-unlock celebration, shown over the whole app. Keyed by id so
         // each queued unlock gets a fresh pop-in animation as you tap through.
+        // Earning a badge no longer queues one of these — the user opens badges from
+        // the Achievement Book when they feel like it (AppStore.openAchievement),
+        // which is why this layer lives on the root: it has to draw above the pushed
+        // book screen that triggered it.
         // Claude  Date 06/15/2026
         // Badge celebrations come first; once they drain, any Strategist rank
         // promotion plays — so you watch the badges pop, then get crowned.
@@ -125,6 +137,22 @@ struct RootTabView: View {
                 .id(rank)
                 .transition(.opacity)
                 .zIndex(1)
+            } else if let cardStyle = store.pendingCardUnlock.first {
+                // Claude  Date 07/23/2026
+                // Gemstone card reveal — plays after the badge celebration (which sits
+                // earlier in this chain), so the diamond/emerald badge pops first, then
+                // the card it just earned is revealed.
+                CardUnlockOverlay(
+                    style: cardStyle,
+                    onEquip: {
+                        store.profile.cardStyleID = cardStyle.id
+                        store.dismissCardUnlock()
+                    },
+                    onDismiss: { store.dismissCardUnlock() }
+                )
+                .id(cardStyle.id)
+                .transition(.opacity)
+                .zIndex(1)
             } else if !store.pendingFoundersUnlock.isEmpty {
                 // Claude  Date 07/12/2026
                 // Founders Edition unlock celebration (dev-triggered today; IAP
@@ -141,6 +169,7 @@ struct RootTabView: View {
         .animation(.easeInOut(duration: 0.25), value: store.pendingWorkoutSummary?.id)
         .animation(.easeInOut(duration: 0.25), value: store.pendingCelebrations.first?.id)
         .animation(.easeInOut(duration: 0.25), value: store.pendingPromotions.first)
+        .animation(.easeInOut(duration: 0.25), value: store.pendingCardUnlock.first?.id)
         .animation(.easeInOut(duration: 0.25), value: store.pendingFoundersUnlock.isEmpty)
         // Claude  Date 07/14/2026 last changed: 07/14/2026 by: Claude
         // The first-boot spotlight tour, above everything (its own layer, after the
@@ -193,7 +222,13 @@ struct RootTabView: View {
         // the app returns to the foreground, and react to card-relevant edits: profile
         // (name / style / rank toggle / pinned badges) and the earned-badge set (which
         // drives the equipped rank). Each call no-ops unless in Friends mode + changed.
-        .task { cardSync.sync(from: store) }
+        .task {
+            cardSync.sync(from: store)
+            // Claude  Date 07/23/2026
+            // Silently backfill gemstone-card grants for any tier already earned — no
+            // reveal for history (mirrors evaluateAchievements' announce: false pass).
+            syncRewardCards(reveal: false)
+        }
         // Claude  Date 07/21/2026
         // Mirror the theme's typeface onto the UIKit-drawn navigation chrome (titles
         // and bar-button labels), which .fontDesign above can't reach. Once at launch,
@@ -227,6 +262,32 @@ struct RootTabView: View {
         }
         .onChange(of: store.profile) { _ in cardSync.sync(from: store) }
         .onChange(of: store.unlockedAchievementIDs) { _ in cardSync.sync(from: store) }
+        // Claude  Date 07/23/2026 last changed: 07/24/2026 by: Claude
+        // Gem-card reveals now ride on OPENING a badge, not earning one (this watched
+        // unlockedAchievementIDs before). Since badges wait in the Achievement Book
+        // until the user plays them, keying off the unlock would have popped the
+        // diamond card while the diamond badge that earned it was still sealed —
+        // backwards, and the one full-screen interruption this feature exists to
+        // remove. Opening the badge now runs celebration → card reveal, in order.
+        .onChange(of: store.openedAchievementIDs) { _ in syncRewardCards(reveal: true) }
+    }
+
+    // Claude  Date 07/23/2026 last changed: 07/24/2026 by: Claude
+    // Grant the gemstone profile card for each gem tier the user has OPENED a badge
+    // in, and (when `reveal`) queue the "new card unlocked" reveal for any newly
+    // granted. Lives here because it needs both the achievement state (store) and
+    // card ownership (theme), which AppStore has no reference to. The grant is
+    // idempotent, so the launch backfill (reveal: false) and live opens (reveal:
+    // true) can both call it freely. Reads openedTiers rather than unlockedTiers so
+    // the card can't arrive before the badge that earned it has been revealed.
+    private func syncRewardCards(reveal: Bool) {
+        var granted: [CardStyle] = []
+        for tier in [BadgeTier.diamond, .emerald, .legend] where store.openedTiers.contains(tier) {
+            if let id = CardStyle.rewardCardID(for: tier), theme.grantCardStyle(id) {
+                granted.append(CardStyle.style(for: id))
+            }
+        }
+        if reveal, !granted.isEmpty { store.celebrateCardUnlock(granted) }
     }
 
     // Claude  Date 07/21/2026

@@ -11,6 +11,9 @@ struct WorkoutRoute: Hashable {
 /// Lists workouts — an "In progress" row pinned on top for the active session, then
 /// finished workouts (newest first). Tap a row to open the editor. The + starts a
 /// new workout, or resumes the active one if a session is already in progress.
+///
+/// On a fresh install (no workouts at all) the list is replaced by the `getStarted`
+/// state, which points at the premade-workout catalog or a blank session.
 struct WorkoutsListView: View {
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var theme: ThemeManager
@@ -22,6 +25,11 @@ struct WorkoutsListView: View {
     // Claude  Date 06/18/2026
     // History is collapsed to the last few by default; this expands it to the full log.
     @State private var showAllHistory = false
+    // Claude  Date 07/25/2026
+    // Drives the premade-workout browser raised from the get-started empty state. A
+    // sheet, not a push: `path` is typed [WorkoutRoute], and widening it to an enum
+    // would touch every existing push site for one screen that isn't a workout.
+    @State private var showingPremade = false
 
     // How many recent workouts History shows before "Show all".
     private static let historyPreviewCount = 3
@@ -39,52 +47,16 @@ struct WorkoutsListView: View {
         showAllHistory ? finishedWorkouts : Array(finishedWorkouts.prefix(Self.historyPreviewCount))
     }
 
+    // Claude  Date 07/25/2026
+    // A first-run install: nothing started, nothing finished. Distinct from
+    // `finishedWorkouts.isEmpty`, which is also true mid-session — that case still
+    // wants the normal list with the "In progress" row pinned on top.
+    private var hasNoWorkouts: Bool { store.workouts.isEmpty }
+
     var body: some View {
         NavigationStack(path: $path) {
-            List {
-                // Claude  Date 06/16/2026
-                // The live session, pinned on top so it's always reachable.
-                if let active = store.activeWorkout {
-                    Section("In progress") {
-                        NavigationLink(value: WorkoutRoute(id: active.id, isNew: false)) {
-                            ActiveWorkoutRow(workout: active)
-                        }
-                    }
-                }
-
-                Section {
-                    if finishedWorkouts.isEmpty {
-                        Text(store.activeWorkout == nil
-                             ? "No workouts yet. Tap + to log one."
-                             : "Finish your active workout to see it here.")
-                            .foregroundStyle(.secondary)
-                            .supportingTextFont()
-                    } else {
-                        ForEach(visibleHistory) { workout in
-                            NavigationLink(value: WorkoutRoute(id: workout.id, isNew: false)) {
-                                WorkoutRow(workout: workout)
-                            }
-                        }
-                        .onDelete { offsets in
-                            offsets.map { visibleHistory[$0].id }.forEach(store.deleteWorkout)
-                        }
-
-                        // Claude  Date 06/18/2026
-                        // Keep History compact — the last 3 by default, expandable to the
-                        // whole log (and collapsible again).
-                        if finishedWorkouts.count > Self.historyPreviewCount {
-                            Button {
-                                withAnimation { showAllHistory.toggle() }
-                            } label: {
-                                Label(showAllHistory ? "Show less" : "Show all \(finishedWorkouts.count)",
-                                      systemImage: showAllHistory ? "chevron.up" : "chevron.down")
-                                    .font(.subheadline)
-                            }
-                        }
-                    }
-                } header: {
-                    if !finishedWorkouts.isEmpty { Text("History") }
-                }
+            Group {
+                if hasNoWorkouts { getStarted } else { workoutList }
             }
             .navigationTitle("Workouts")
             .themed(theme.current)
@@ -136,11 +108,114 @@ struct WorkoutsListView: View {
                     }
                 }
             }
+            // Claude  Date 07/25/2026
+            // The premade browser, raised from the get-started state. Adding a template
+            // saves a preset and pops back to its list; closing the sheet returns here,
+            // where the + menu's "From Preset" now offers it.
+            .sheet(isPresented: $showingPremade) {
+                NavigationStack {
+                    PremadeWorkoutsView(isModal: true)
+                }
+            }
             // Claude  Date 06/16/2026
             // Honor a jump-back request from the mini-bar (works whether this view was
             // already alive or freshly created when the tab/mode switched).
             .onAppear { consumeRequestedWorkout() }
             .onChange(of: session.requestedWorkoutID) { _ in consumeRequestedWorkout() }
+        }
+    }
+
+    // Claude  Date 07/25/2026
+    // First-run state, replacing a list that would otherwise hold a single line of
+    // grey text. Two ways forward, in the order we want them tried: lift a proven
+    // split out of the shipped catalog, or start logging from nothing.
+    private var getStarted: some View {
+        VStack(spacing: 16) {
+            Spacer()
+            VStack(spacing: 6) {
+                Text("Get Started lifting with agil")
+                    .font(.title2.weight(.semibold))
+                    .multilineTextAlignment(.center)
+                Text("Pick a proven split to start from, or log a workout from scratch.")
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .supportingTextFont()
+            }
+            VStack(spacing: 10) {
+                Button {
+                    showingPremade = true
+                } label: {
+                    Text("Browse Premade Workouts")
+                        .fontWeight(.semibold)
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+
+                Button {
+                    start(Workout())
+                } label: {
+                    Text("Start an Empty Workout")
+                        .fontWeight(.semibold)
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+            }
+            .padding(.top, 8)
+            Spacer()
+            Spacer()
+        }
+        .padding(.horizontal, 32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(theme.current.background.ignoresSafeArea())
+    }
+
+    private var workoutList: some View {
+        List {
+            // Claude  Date 06/16/2026
+            // The live session, pinned on top so it's always reachable.
+            if let active = store.activeWorkout {
+                Section("In progress") {
+                    NavigationLink(value: WorkoutRoute(id: active.id, isNew: false)) {
+                        ActiveWorkoutRow(workout: active)
+                    }
+                }
+            }
+
+            Section {
+                if finishedWorkouts.isEmpty {
+                    // Claude  Date 06/16/2026 last changed: 07/25/2026 by: Claude
+                    // (07/25) Only the mid-session case reaches this now — a first-run
+                    // install with no workouts at all gets `getStarted` instead, so the
+                    // old "No workouts yet. Tap + to log one." branch is gone.
+                    Text("Finish your active workout to see it here.")
+                        .foregroundStyle(.secondary)
+                        .supportingTextFont()
+                } else {
+                    ForEach(visibleHistory) { workout in
+                        NavigationLink(value: WorkoutRoute(id: workout.id, isNew: false)) {
+                            WorkoutRow(workout: workout)
+                        }
+                    }
+                    .onDelete { offsets in
+                        offsets.map { visibleHistory[$0].id }.forEach(store.deleteWorkout)
+                    }
+
+                    // Claude  Date 06/18/2026
+                    // Keep History compact — the last 3 by default, expandable to the
+                    // whole log (and collapsible again).
+                    if finishedWorkouts.count > Self.historyPreviewCount {
+                        Button {
+                            withAnimation { showAllHistory.toggle() }
+                        } label: {
+                            Label(showAllHistory ? "Show less" : "Show all \(finishedWorkouts.count)",
+                                  systemImage: showAllHistory ? "chevron.up" : "chevron.down")
+                                .font(.subheadline)
+                        }
+                    }
+                }
+            } header: {
+                if !finishedWorkouts.isEmpty { Text("History") }
+            }
         }
     }
 

@@ -55,14 +55,21 @@ struct WorkoutPreset: Identifiable, Codable, Hashable {
     // of the rep range was hit last time, down after repeated misses, else hold. One
     // switch applies to every item. Synthesized Codable defaults it to false for old data.
     var isAdaptive: Bool
+    // Claude  Date 07/25/2026
+    // Provenance: the `PremadeWorkout.id` slug this preset was installed from, or nil
+    // for one the user built themselves. Only used to mark a template "Added" in the
+    // browse list — it survives a rename, which a name match wouldn't. Optional, so
+    // the synthesized Codable decodes presets saved before this field existed as nil.
+    var premadeID: String?
 
     init(id: UUID = UUID(), name: String = "", symbolName: String = "dumbbell.fill",
-         items: [PresetItem] = [], isAdaptive: Bool = false) {
+         items: [PresetItem] = [], isAdaptive: Bool = false, premadeID: String? = nil) {
         self.id = id
         self.name = name
         self.symbolName = symbolName
         self.items = items
         self.isAdaptive = isAdaptive
+        self.premadeID = premadeID
     }
 }
 
