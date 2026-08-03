@@ -1,4 +1,5 @@
 import Foundation
+// Peer reviewed: July 29 26 Bryce Hart
 
 /// One exercise within a preset: which exercise, and the target rep range to
 /// aim for. (No sets — those get filled in when you actually do the workout.)
@@ -7,16 +8,13 @@ struct PresetItem: Identifiable, Codable, Hashable {
     var exerciseId: UUID
     var targetRepRange: RepRange?
     var note: String?               // optional form cue, carried into started workouts
-    // Claude  Date 06/12/2026
     // Optional rest duration (seconds) between sets, carried into started workouts
     // where it drives a live countdown timer. nil = no rest timer for this exercise.
     var restSeconds: Int?
-    // Claude  Date 07/01/2026
     // Per-exercise override of the adaptive weight increment (lb). Only meaningful when
     // the parent preset is adaptive. nil = use AppStore.smartIncrement's default (5 lb,
     // or 10 lb for lower-body / deadlift). Synthesized Codable defaults it to nil.
     var weightIncrement: Double?
-    // Claude  Date 07/13/2026
     // Planned number of working sets for this exercise, chosen up front in the preset.
     // Starting a workout from the preset pre-fills this many (empty, unchecked) sets so
     // you don't tap "Add Set" repeatedly (see AppStore.workout(from:)). nil = don't
@@ -24,7 +22,6 @@ struct PresetItem: Identifiable, Codable, Hashable {
     // no preset, so this never applies to them. Synthesized Codable defaults it to nil.
     var targetSets: Int?
 
-    // Claude  Date 07/13/2026
     // Default set count for a freshly added preset exercise (a typical working-set count
     // for a strength movement). Existing preset items keep whatever they had, incl. nil.
     static let defaultTargetSets = 3
@@ -49,13 +46,11 @@ struct WorkoutPreset: Identifiable, Codable, Hashable {
     var name: String
     var symbolName: String      // an SF Symbol name, see PresetIcons
     var items: [PresetItem]
-    // Claude  Date 07/01/2026
     // Adaptive (double-progression) mode toggle. When true, starting a workout from
     // this preset pre-fills each exercise's working weight from history: up when the top
     // of the rep range was hit last time, down after repeated misses, else hold. One
     // switch applies to every item. Synthesized Codable defaults it to false for old data.
     var isAdaptive: Bool
-    // Claude  Date 07/25/2026
     // Provenance: the `PremadeWorkout.id` slug this preset was installed from, or nil
     // for one the user built themselves. Only used to mark a template "Added" in the
     // browse list — it survives a rename, which a name match wouldn't. Optional, so
@@ -98,7 +93,6 @@ enum PresetIcons {
         "leaf.fill",
     ]
 
-    // Claude  Date 06/30/2026
     // Custom PNG imagesets in Assets.xcassets, selectable alongside the symbols. Marked
     // template-rendering in their Contents.json, so they tint to the accent just like the
     // SF Symbols (the PNG's alpha is the shape).
