@@ -349,23 +349,46 @@ struct Achievement: Identifiable {
                 icon: Category.streak.iconName, isUnlocked: { $0.weekStreak >= w }))
         }
 
-        // Claude  Date 07/25/2026
+        // Claude  Date 07/25/2026 last changed: 07/27/2026 by: Claude
         // First Step — the welcome badge, and the first secret in the catalog (the
         // Secrets page needs no change to pick it up; see AchievementSecretsPage).
-        // Fires the moment the user has actually acted on the Workouts tab's
-        // get-started state: one completed set. `totalSets` is the ledger count of
-        // real-time completed sets, so this stays behind the same anti-cheat boundary
-        // as every other badge — note the events-based ProfileStats pins
-        // `totalWorkouts` to 0, so "has a workout" is not an available signal here.
-        // Category is inert for a secret (the Book routes isSecret entries to the
-        // Secrets page and filters them out of the category spreads), so it rides on
-        // .daysLogged, the closest "you showed up" grouping. The glyph is its OWN
-        // asset rather than the category's, which the per-achievement `icon` allows.
+        // Fires the moment the user has acted on the Workouts tab's get-started
+        // state, whichever of its two ways forward they take: browse the premade
+        // catalog and add a split, or start a workout. Category is inert for a secret
+        // (the Book routes isSecret entries to the Secrets page and filters them out
+        // of the category spreads), so it rides on .daysLogged, the closest "you
+        // showed up" grouping. The glyph is its OWN asset rather than the category's,
+        // which the per-achievement `icon` allows.
+        //
+        // (07/27) Was `totalSets >= 1` — one completed set — which meant picking a
+        // premade split earned nothing and the badge only landed once the user had
+        // logged real work. That's the wrong bar for a welcome badge, and it made the
+        // get-started screen's two buttons behave differently. `tookFirstStep` is a
+        // profile flag set by either path (see AppStore.markFirstStep); it's off the
+        // activity ledger, which is fine here for the same reason as First Plan —
+        // there's nothing to cheat. Anything that competes on progress still reads
+        // ledger-derived stats only.
         result.append(Achievement(
             id: "secret_first_step", category: .daysLogged, tier: .bronze,
-            title: "First Step", detail: "Complete your first set",
+            title: "First Step", detail: "Start your first workout",
             icon: "badge_firstStep", isSecret: true,
-            isUnlocked: { $0.totalSets >= 1 }))
+            isUnlocked: { $0.tookFirstStep }))
+
+        // Claude  Date 07/25/2026
+        // First Plan — the nutrition-side counterpart to First Step. Earned by
+        // finishing the Journal's setup checklist (see NutritionSetupCard): calorie
+        // goal set AND water goal set. The checklist's third item — opening the
+        // focus-goals editor — is a bonus and deliberately doesn't gate this, so the
+        // predicate reads NutritionSetup.isComplete rather than counting rows.
+        // Rides on .daysTracked as the nearest nutrition grouping; category is inert
+        // for a secret. `completedNutritionSetup` is the one non-ledger stat in
+        // ProfileStats — see the note on its events init for why that's acceptable
+        // here and nowhere else.
+        result.append(Achievement(
+            id: "secret_first_plan", category: .daysTracked, tier: .bronze,
+            title: "First Plan", detail: "Set your calorie and water goals",
+            icon: "badge_forkKnife", isSecret: true,
+            isUnlocked: { $0.completedNutritionSetup }))
 
         return result
     }
