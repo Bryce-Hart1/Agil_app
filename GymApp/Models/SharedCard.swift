@@ -1,6 +1,6 @@
 import Foundation
 
-// Claude  Date 06/18/2026 last changed: 07/14/2026 by: Claude
+// Claude  Date 06/18/2026 last changed: 08/02/2026 by: Claude
 // The ENTIRE payload that leaves the device when a user is in Friends mode — the
 // contents of their profile card, nothing else. This is the privacy contract:
 // training history, nutrition, water, the full earned-achievement set, and any
@@ -24,6 +24,19 @@ import Foundation
 // only on cards fetched from the server. `userId` remains the UUID used everywhere
 // as the stable identity — friend requests are sent BY code, but accept/decline/
 // unfriend/unblock all key off the other user's `userId`.
+//
+// Claude  Date 08/02/2026
+// `character` is the user's customizable character (UserCharacter) — layer option ids and
+// colour tokens, nothing else. It belongs here because it IS card cosmetics: it's precisely
+// what a friend's app needs to draw your face next to your name, and it carries no
+// identity, no measurements and nothing derived from training. It's nil when the user has
+// characters switched off, so opting out genuinely REMOVES it from the payload rather than
+// shipping a disabled config. `avatarID` remains deliberately absent — a friend with
+// characters off still renders as initials, exactly as every friend does today; sending the
+// stock avatar is a separate decision, not a consequence of this one.
+//
+// ⚠️ Inert until the backend stores and echoes the field. The client sends and decodes it
+// correctly right now; friends' characters simply arrive nil until then.
 struct SharedCard: Codable, Equatable {
     var userId: String
     var displayName: String
@@ -33,6 +46,10 @@ struct SharedCard: Codable, Equatable {
     var rankProgress: Double
     var showcasedAchievementIDs: [String]
     var memberSince: Date?
+    // Optional + defaulted like `friendCode` below, so payloads written before this field
+    // existed still decode, and so nil can mean "characters off / not echoed yet" — which
+    // is exactly the initials fallback ProfileFaceView already handles.
+    var character: UserCharacter? = nil
     var updatedAt: Date?
     // Server-owned; see note above. Optional + defaulted so local construction and
     // decoding of older/keyless payloads both stay valid.
