@@ -33,6 +33,21 @@ struct ProfileStats: Codable, Hashable {
     // drives the Days Tracked badges. Only populated by init(events:) (see there);
     // init(workouts:exercises:) has no nutrition data to compute it from.
     var daysNutritionOnGoal: Int
+    // Claude  Date 07/25/2026
+    // Whether the nutrition setup checklist's REQUIRED items are done (calorie +
+    // water goals set) — drives the First Plan secret badge. Unlike every other
+    // stat here this is UI-driven rather than derived from the activity ledger or
+    // the food diary, so it arrives through its own `setup:` parameter; see the
+    // note on init(events:). Only populated there — init(workouts:exercises:) is
+    // the display path and has no profile to read.
+    var completedNutritionSetup: Bool
+    // Claude  Date 07/27/2026
+    // Whether the user has left the Workouts tab's get-started state — installing a
+    // premade split or starting a workout. Drives the First Step badge. Same
+    // non-ledger exception as completedNutritionSetup above, and for the same
+    // reason: it's a welcome badge with nothing to cheat. Only init(events:)
+    // populates it; init(workouts:exercises:) is the display path with no profile.
+    var tookFirstStep: Bool
 
 
     init(workouts: [Workout], exercises: [Exercise]) {
@@ -108,6 +123,9 @@ struct ProfileStats: Codable, Hashable {
         totalPoints = Coins.earned(from: workouts)
         // No nutrition data in this init — see init(events:) for the real computation.
         daysNutritionOnGoal = 0
+        // Likewise no profile here, so the profile-driven flags stay neutral.
+        completedNutritionSetup = false
+        tookFirstStep = false
     }
 
     // Claude  Date 06/14/2026
@@ -123,7 +141,20 @@ struct ProfileStats: Codable, Hashable {
     // Added foodLog/nutritionGoals (defaulted, so the one existing call site in
     // AppStore.evaluateAchievements is the only place that needs updating) to
     // drive daysNutritionOnGoal — the Days Tracked badge.
-    init(events: [ActivityEvent], foodLog: [FoodEntry] = [], nutritionGoals: NutritionGoals = NutritionGoals()) {
+    // Claude  Date 07/25/2026 last changed: 07/25/2026 by: Claude
+    // Added `setup` (defaulted, same trick as foodLog/nutritionGoals above so the
+    // one real call site is the only one to update) for the First Plan badge. Note
+    // this is the first input here that is NOT ledger-derived — it's a record of
+    // what the user configured, not of what they did. That's a deliberate exception
+    // for a welcome badge with nothing to cheat; anything that competes on progress
+    // must keep coming from `events`.
+    // Claude  Date 07/27/2026 last changed: 07/27/2026 by: Claude
+    // Added `tookFirstStep` (defaulted, same trick again) for the First Step badge —
+    // the second and, deliberately, last of the non-ledger welcome-badge inputs.
+    init(events: [ActivityEvent], foodLog: [FoodEntry] = [],
+         nutritionGoals: NutritionGoals = NutritionGoals(),
+         setup: NutritionSetup = NutritionSetup(),
+         tookFirstStep: Bool = false) {
         let calendar = Calendar.current
         totalWorkouts = 0
         totalSets = events.count
@@ -195,6 +226,15 @@ struct ProfileStats: Codable, Hashable {
             let dayCalories = dayEntries.reduce(0.0) { $0 + $1.consumed.calories }
             return dayCalories >= lowerBound && dayCalories <= goalCalories
         }.count
+
+        // Claude  Date 07/25/2026
+        // The checklist's two required items (calorie + water goals). The optional
+        // focus-goals item is excluded by NutritionSetup.isComplete on purpose.
+        completedNutritionSetup = setup.isComplete
+
+        // Claude  Date 07/27/2026
+        // Straight passthrough of profile.tookFirstStep — see the property note.
+        self.tookFirstStep = tookFirstStep
     }
 
     // Claude  Date 07/13/2026

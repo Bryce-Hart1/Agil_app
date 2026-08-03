@@ -37,11 +37,14 @@ struct NutrientFocusGoal: Codable, Hashable, Identifiable {
             }
         }
 
+        // Claude  Date 07/26/2026
+        // Resolves through MacroPalette so the focus card, the focus-goals
+        // editor and the widget all pick up a palette change for free.
         var tint: Color {
             switch self {
-            case .fiber:  return .green
-            case .sugar:  return .purple
-            case .sodium: return .cyan
+            case .fiber:  return MacroPalette.fiber
+            case .sugar:  return MacroPalette.sugar
+            case .sodium: return MacroPalette.sodium
             }
         }
 
