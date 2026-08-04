@@ -1,6 +1,10 @@
 import SwiftUI
 
-// Claude  Date 07/24/2026
+// Peer reviewed Jul 29th 26 Bryce Hart
+
+
+// MARK: - Summary
+
 // The Achievement Book — the collection screen that replaced AchievementsView's
 // flat 56-row List. Two things drove the redesign:
 //
@@ -22,11 +26,38 @@ struct AchievementBookView: View {
     @EnvironmentObject private var theme: ThemeManager
 
     @State private var page = 0
+    // Claude  Date 07/25/2026
+    // Latches the open-on-what's-new jump so it happens once per visit. Without it,
+    // .onAppear re-firing (it does on any pop back into this screen) would yank the
+    // user off whatever spread they were reading.
+    @State private var didJumpToNew = false
 
     // The gender-calibrated catalog, minus secrets — those live on their own page
     // and must not leak into the category spreads.
     private var catalog: [Achievement] {
         store.achievementCatalog.filter { !$0.isSecret }
+    }
+
+    // Claude  Date 07/25/2026
+    // The page to open on: the first spread holding something the user hasn't
+    // revealed yet, so earning a badge and coming here lands you on it instead of
+    // making you hunt. "First" is BOOK order — categories left to right, Secrets at
+    // the back — not lowest-tier or most-recent, because that's the one you'd reach
+    // first flipping through, and it's the only ordering the page dots make visible.
+    // nil when nothing is waiting, in which case the book opens at page 0 as before.
+    private var firstUnopenedPage: Int? {
+        let waiting = store.unopenedAchievementIDs
+        guard !waiting.isEmpty else { return nil }
+        for (index, category) in categories.enumerated() {
+            if catalog.contains(where: { $0.category == category && waiting.contains($0.id) }) {
+                return index
+            }
+        }
+        // Secrets sit past the category spreads and can also be the only thing new.
+        if store.achievementCatalog.contains(where: { $0.isSecret && waiting.contains($0.id) }) {
+            return categories.count
+        }
+        return nil
     }
 
     private var unlockedCount: Int {
@@ -61,6 +92,12 @@ struct AchievementBookView: View {
         .navigationTitle("Achievement Book")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
+            // Open straight onto the whats new. Set before the first render settles, so
+            // it reads as the book opened there rather than a visible page flip.
+            if !didJumpToNew {
+                didJumpToNew = true
+                if let target = firstUnopenedPage { page = target }
+            }
             #if canImport(UIKit)
             // The page dots are UIKit-drawn and don't inherit SwiftUI's tint. This is
             // a global appearance proxy, which is safe only because this is the app's
@@ -111,7 +148,7 @@ struct AchievementBookView: View {
 
 // MARK: - Category spread
 
-// Claude  Date 07/24/2026
+// Claude  Date 07/24/2026 
 // One spread: a category's seven tier slots, bronze → legend. Three columns leaves
 // the seventh slot alone on its own row, which reads as album space rather than a
 // layout bug — legend sitting apart is the point. Scrolls because the tallest
@@ -128,13 +165,22 @@ struct AchievementBookPage: View {
     // Powerlifting's three competition lifts; worded to match how we track them.
     // (Carried over verbatim from AchievementsView, which this screen replaced.)
     private let big3Explanation = """
-    In powerlifting the "big three" are the back squat, bench press, and conventional deadlift (traditional stance, not sumo) — the three competition lifts whose one-rep maxes add up to your total.
+    The "Big Three" are the back squat, bench press, and conventional dead-lift (traditional stance, not sumo): the three competition lifts whose one-rep maxes add up to your total.
 
-    Each lift now has its own badges, unlocked from the heaviest weight you've logged on that lift.
+    Each lift has its own badge, unlocked from the heaviest weight you've logged on that lift. Do these lifts to earn special badges!
     """
 
+    // Claude  Date 07/25/2026 last changed: 07/26/2026 by: Claude
+    // Sorted low → high here rather than by walking BadgeTier.allCases and looking up
+    // one achievement per tier, which is how this used to work. That lookup rendered
+    // `first(where: tier)` and silently dropped anything after it, so a category with
+    // two badges at the same tier would hide one — countable in the unopened total,
+    // impossible to open. Driving the grid off the entries themselves means every
+    // achievement in the category gets a slot, whatever the catalog does.
     private var entries: [Achievement] {
-        catalog.filter { $0.category == category }
+        catalog
+            .filter { $0.category == category }
+            .sorted { AchievementShowcase.tierRank($0.tier) < AchievementShowcase.tierRank($1.tier) }
     }
 
     private var earned: Int {
@@ -149,12 +195,10 @@ struct AchievementBookPage: View {
                 pageHeader
 
                 LazyVGrid(columns: columns, spacing: 20) {
-                    // BadgeTier.allCases is declared low → high, so the grid reads
-                    // as a ladder without sorting.
-                    ForEach(BadgeTier.allCases, id: \.self) { tier in
-                        if let achievement = entries.first(where: { $0.tier == tier }) {
-                            AchievementSlotView(achievement: achievement)
-                        }
+                    // `entries` is already tier-ordered, so the grid reads as a
+                    // ladder bronze → legend.
+                    ForEach(entries) { achievement in
+                        AchievementSlotView(achievement: achievement)
                     }
                 }
                 .padding(.horizontal, 20)
@@ -180,7 +224,7 @@ struct AchievementBookPage: View {
                         Image(systemName: "info.circle")
                     }
                     .buttonStyle(.borderless)
-                    .accessibilityLabel("What is a big-3 lift?")
+                    .accessibilityLabel("What is a Big-3 lift?")
                 }
             }
             Text("\(earned) / \(entries.count)")
@@ -275,10 +319,11 @@ struct AchievementSlotView: View {
         }
     }
 
-    // Claude  Date 07/24/2026
+    // Claude  Date 07/24/2026 - Edited Bryce Hart Jul 29 26
     // The sealed state: the tier's own material with a sparkle standing in for the
     // category glyph, so the badge's identity stays a surprise until it's opened.
     // The breathing ring is what draws the eye down the page to what's new.
+    // EDIT (jul 29 26) - rewrote text and fixed formatting.
     private var sealed: some View {
         ZStack {
             Circle()
@@ -333,7 +378,7 @@ struct AchievementSlotView: View {
 
 // MARK: - Secrets
 
-// Claude  Date 07/24/2026
+// Peer review Bryce Hart Jul 29, 26
 // The back of the book. Any catalog entry flagged isSecret lands here instead of
 // its category spread, concealed behind displayTitle/displayDetail until earned;
 // the remaining slots are drawn as empty mystery placeholders so the page reads as
@@ -367,7 +412,7 @@ struct AchievementSecretsPage: View {
                         .foregroundStyle(.secondary)
                 }
 
-                Text("Secret achievements unlock without warning. You won't see what they are until you've earned them.")
+                Text("Secret achievements are unlocked as you use Agil. Keep coming back to unlock more secrets!")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -384,7 +429,7 @@ struct AchievementSecretsPage: View {
                 }
                 .padding(.horizontal, 20)
 
-                Text("Feature up to \(AchievementShowcase.maxFeatured) badges on your profile card — press and hold any badge you've earned.")
+                Text("Feature up to \(AchievementShowcase.maxFeatured) badges on your profile card: press and hold any badge you've earned.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)

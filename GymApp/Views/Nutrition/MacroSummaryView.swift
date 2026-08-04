@@ -1,14 +1,16 @@
 import SwiftUI
 
-// Claude  Date 06/16/2026 last changed: 07/12/2026 by: Claude
+// Claude  Date 06/16/2026 last changed: 07/26/2026 by: Claude
 // The diary's at-a-glance daily summary: a big calorie ring (eaten vs goal, with
 // remaining in the center) beside three macro progress bars, plus an expandable
 // "More nutrients" footer for fiber/sugar/sodium. Pure presentation — it's handed
 // a day's totals and the goals and draws them; no store access.
-// (Flair pass this change: gradient ring with a glowing progress dot and animated
-// entrance, rolling kcal digits, icon chips + gradient fills + staggered grow-in
-// on the macro bars, tinted icons on the extra rows, and a capsule expand toggle
-// with a rotating chevron. All iOS 16-safe; values/goals math untouched.)
+// (Ring redesign this change: the app-wide monospaced font widened every digit
+// and the center text no longer fit the old 104pt ring. The macro bars gave up
+// their icon chips to free horizontal room, the ring grew to 136pt, its filled
+// arc is now split into carbs/protein/fat segments in MacroPalette colors, its
+// unfilled remainder is staged green → light grey → grey, and the center leads
+// with calories *remaining*. All iOS 16-safe; values/goals math untouched.)
 struct MacroSummaryView: View {
     let totals: Nutrients
     let goals: NutritionGoals
@@ -20,17 +22,27 @@ struct MacroSummaryView: View {
     // so the arc sweeps up on first show (same trick as onboarding's CoinLadder).
     @State private var ringShown = false
 
+    // Claude  Date 07/26/2026
+    // Ring geometry in one place. The progress dot used to hardcode `offset(y: -52)`
+    // against a 104pt frame; everything now derives from these two so a resize can't
+    // leave the dot floating off the arc.
+    private let ringSize: CGFloat = 136
+    private let ringLineWidth: CGFloat = 14
+
     var body: some View {
         VStack(spacing: 14) {
+            // Spacing stays at 20 even though the ring grew: the 14pt stroke is
+            // centered on the path, so it renders ~7pt outside the declared frame
+            // on each side and needs that back to keep clear of the bars.
             HStack(spacing: 20) {
                 calorieRing
                 VStack(spacing: 10) {
-                    MacroBar(label: "Protein", icon: "figure.strengthtraining.traditional",
-                             value: totals.protein, goal: goals.protein, tint: .blue, delay: 0)
-                    MacroBar(label: "Carbs", icon: "bolt.fill",
-                             value: totals.carbs, goal: goals.carbs, tint: .orange, delay: 0.08)
-                    MacroBar(label: "Fat", icon: "drop.fill",
-                             value: totals.fat, goal: goals.fat, tint: .pink, delay: 0.16)
+                    MacroBar(label: "Protein", value: totals.protein, goal: goals.protein,
+                             tint: MacroPalette.protein, delay: 0)
+                    MacroBar(label: "Carbs", value: totals.carbs, goal: goals.carbs,
+                             tint: MacroPalette.carbs, delay: 0.08)
+                    MacroBar(label: "Fat", value: totals.fat, goal: goals.fat,
+                             tint: MacroPalette.fat, delay: 0.16)
                 }
             }
 
@@ -41,11 +53,11 @@ struct MacroSummaryView: View {
             if showExtras {
                 VStack(spacing: 8) {
                     extraRow(index: 0, label: "Fiber", icon: "leaf.fill",
-                             tint: .green, value: totals.fiber, unit: "g")
+                             tint: MacroPalette.fiber, value: totals.fiber, unit: "g")
                     extraRow(index: 1, label: "Sugar", icon: "cube.fill",
-                             tint: .purple, value: totals.sugar, unit: "g")
+                             tint: MacroPalette.sugar, value: totals.sugar, unit: "g")
                     extraRow(index: 2, label: "Sodium", icon: "circle.grid.3x3.fill",
-                             tint: .cyan, value: totals.sodium, unit: "mg")
+                             tint: MacroPalette.sodium, value: totals.sodium, unit: "mg")
                 }
             }
 
@@ -79,57 +91,127 @@ struct MacroSummaryView: View {
 
     // MARK: - Calorie ring
 
-    // Claude  Date 06/16/2026 last changed: 07/12/2026 by: Claude
+    // Claude  Date 06/16/2026 last changed: 07/26/2026 by: Claude
     // Calorie ring: fills toward the goal, showing kcal remaining (or "over" when
     // the day exceeds the goal). Clamped so the arc never overshoots a full circle.
-    // (Now drawn with an angular accent gradient + soft glow, a dot riding the
-    // progress tip — rotated, not offset, so it follows the arc when animating —
-    // a flame in the center, and rolling digits via contentTransition.)
+    // (Redesigned this change: the single accent arc became three stacked macro
+    // segments — carbs, protein, fat — sized by each one's share of the calories
+    // eaten, and the flat track became a staged remainder that reads green while
+    // there's room, then greys down as the day fills up. The dot riding the tip is
+    // now stroke-width, so it doubles as the arc's one rounded cap.)
     private var calorieRing: some View {
         let goal = max(goals.calories, 1)
         let progress = min(totals.calories / goal, 1)
-        let shownProgress = ringShown ? progress : 0
+        // Grow-in gate: every arc is scaled by this, so the ring sweeps up from
+        // empty on first show and the remainder shrinks back to meet it.
+        let sweep = ringShown ? progress : 0
         let remaining = goals.calories - totals.calories
+        let segments = macroSegments(scaledTo: sweep)
+        let stage = RemainderStage(remainingFraction: 1 - progress)
+
         return ZStack {
+            // Unfilled remainder — how much room is left in the day.
             Circle()
-                .stroke(accent.opacity(0.12), lineWidth: 12)
-            Circle()
-                .trim(from: 0, to: shownProgress)
-                .stroke(
-                    AngularGradient(colors: [accent.opacity(0.5), accent], center: .center),
-                    style: StrokeStyle(lineWidth: 12, lineCap: .round)
-                )
+                .trim(from: sweep, to: 1)
+                .stroke(stage.color,
+                        style: StrokeStyle(lineWidth: ringLineWidth, lineCap: .butt))
                 .rotationEffect(.degrees(-90))
-                .shadow(color: accent.opacity(0.35), radius: 4)
+                .animation(.easeInOut(duration: 0.35), value: stage)
 
-            // Glowing dot at the tip of the arc (hidden while the ring is empty).
-            Circle()
-                .fill(accent)
-                .frame(width: 8, height: 8)
-                .shadow(color: accent.opacity(0.8), radius: 3)
-                .offset(y: -52)
-                .rotationEffect(.degrees(shownProgress * 360))
-                .opacity(shownProgress > 0.01 ? 1 : 0)
-
-            VStack(spacing: 2) {
-                Image(systemName: "flame.fill")
-                    .font(.caption)
-                    .foregroundStyle(accent)
-                Text("\(Int(totals.calories.rounded()))")
-                    .font(.title2).fontWeight(.bold)
-                    .lineLimit(1).minimumScaleFactor(0.6)
-                    .contentTransition(.numericText())
-                    .animation(.spring(response: 0.5, dampingFraction: 0.9),
-                               value: totals.calories)
-                Text(remaining >= 0 ? "of \(Int(goals.calories)) kcal"
-                                    : "\(Int(-remaining)) over")
-                    .font(.caption2)
-                    .foregroundStyle(remaining >= 0 ? AnyShapeStyle(.secondary)
-                                                    : AnyShapeStyle(Color.orange))
+            // Filled portion, one arc per macro. Butt caps so neighbouring
+            // segments meet cleanly instead of overlapping into mud.
+            ForEach(segments) { segment in
+                Circle()
+                    .trim(from: segment.start, to: segment.end)
+                    .stroke(segment.color,
+                            style: StrokeStyle(lineWidth: ringLineWidth, lineCap: .butt))
+                    .rotationEffect(.degrees(-90))
+                    .shadow(color: segment.color.opacity(0.3), radius: 3)
             }
+
+            // Glowing dot at the tip of the arc, tinted by whichever macro owns
+            // the leading segment. Sized to the stroke so it also rounds the end.
+            if let tip = segments.last, sweep > 0.005 {
+                Circle()
+                    .fill(tip.color)
+                    .frame(width: ringLineWidth, height: ringLineWidth)
+                    .shadow(color: tip.color.opacity(0.8), radius: 3)
+                    .offset(y: -ringSize / 2)
+                    .rotationEffect(.degrees(sweep * 360))
+            }
+
+            centerReadout(remaining: remaining)
         }
-        .frame(width: 104, height: 104)
-        .animation(.spring(response: 0.9, dampingFraction: 0.85), value: shownProgress)
+        .frame(width: ringSize, height: ringSize)
+        .animation(.spring(response: 0.9, dampingFraction: 0.85), value: sweep)
+        // The frame is fixed, so an accessibility text size would otherwise push
+        // the readout straight through the stroke.
+        .dynamicTypeSize(...DynamicTypeSize.accessibility1)
+    }
+
+    // Claude  Date 07/26/2026
+    // The ring's center: calories *remaining* as the headline (that's the number
+    // the user actually acts on), with eaten/goal as a quiet second line. Both
+    // lines shrink to fit and are width-capped inside the stroke — the old
+    // subtitle had neither, which is why the monospaced font overflowed it.
+    private func centerReadout(remaining: Double) -> some View {
+        let over = remaining < 0
+        let overStyle = AnyShapeStyle(MacroPalette.fat)
+        return VStack(spacing: 1) {
+            Image(systemName: "flame.fill")
+                .font(.caption)
+                .foregroundStyle(accent)
+            Text("\(Int(abs(remaining).rounded()))")
+                .font(.title2).fontWeight(.bold)
+                .monospacedDigit()
+                .lineLimit(1).minimumScaleFactor(0.6)
+                .foregroundStyle(over ? overStyle : AnyShapeStyle(Color.primary))
+                .contentTransition(.numericText())
+                .animation(.spring(response: 0.5, dampingFraction: 0.9), value: remaining)
+            Text(over ? "over" : "left")
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(over ? overStyle : AnyShapeStyle(.secondary))
+            Text("\(Int(totals.calories.rounded())) / \(Int(goals.calories))")
+                .font(.caption2)
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+                .lineLimit(1).minimumScaleFactor(0.7)
+        }
+        .frame(maxWidth: ringSize - ringLineWidth * 2 - 12)
+    }
+
+    // Claude  Date 07/26/2026
+    // Splits the filled arc into carbs → protein → fat, proportioned by each
+    // macro's share of the calories eaten (Atwater densities from NutritionGoals).
+    // The three are normalized to `sweep` rather than drawn at their own kcal
+    // length: totals.calories is tracked separately and won't exactly equal the
+    // macro sum (rounding, alcohol, half-filled entries), and the arc's *length*
+    // has to stay honest against the calorie goal even when the proportions come
+    // from the macros. A day with calories but no macros logged falls back to a
+    // single accent arc so the ring doesn't read as empty.
+    private func macroSegments(scaledTo sweep: Double) -> [RingSegment] {
+        guard sweep > 0 else { return [] }
+        let carbKcal    = totals.carbs   * NutritionGoals.kcalPerGramCarbs
+        let proteinKcal = totals.protein * NutritionGoals.kcalPerGramProtein
+        let fatKcal     = totals.fat     * NutritionGoals.kcalPerGramFat
+        let macroKcal = carbKcal + proteinKcal + fatKcal
+        guard macroKcal > 0 else {
+            return [RingSegment(id: 0, color: accent, start: 0, end: sweep)]
+        }
+
+        let parts: [(color: Color, kcal: Double)] = [
+            (MacroPalette.carbs, carbKcal),
+            (MacroPalette.protein, proteinKcal),
+            (MacroPalette.fat, fatKcal)
+        ]
+        var cursor: Double = 0
+        var result: [RingSegment] = []
+        for (index, part) in parts.enumerated() where part.kcal > 0 {
+            let end = cursor + sweep * (part.kcal / macroKcal)
+            result.append(RingSegment(id: index, color: part.color, start: cursor, end: end))
+            cursor = end
+        }
+        return result
     }
 
     // MARK: - Extra nutrients
@@ -156,6 +238,42 @@ struct MacroSummaryView: View {
     }
 }
 
+// Claude  Date 07/26/2026
+// One colored slice of the calorie ring's filled arc. `start`/`end` are fractions
+// of the full circle, already scaled for the grow-in, so the view just trims to them.
+private struct RingSegment: Identifiable {
+    let id: Int
+    let color: Color
+    let start: Double
+    let end: Double
+}
+
+// Claude  Date 07/26/2026
+// How much of the calorie goal is still unspent, as the three bands that color the
+// ring's unfilled remainder. Only `plenty` is a signal — the other two are grey
+// tones of different weight, deliberately, so a new user doesn't read the middle
+// band as a warning. All three sit far below the macro segments in saturation so
+// the remainder never competes with the part that's actually filled in.
+private enum RemainderStage {
+    case plenty     // more than half the day's calories still available
+    case moderate   // 10–50% left
+    case low        // under 10% left
+
+    init(remainingFraction: Double) {
+        if remainingFraction > 0.5 { self = .plenty }
+        else if remainingFraction >= 0.1 { self = .moderate }
+        else { self = .low }
+    }
+
+    var color: Color {
+        switch self {
+        case .plenty:   return MacroPalette.fiber.opacity(0.18)
+        case .moderate: return Color.secondary.opacity(0.12)
+        case .low:      return Color.secondary.opacity(0.25)
+        }
+    }
+}
+
 // Claude  Date 07/12/2026 last changed: 07/12/2026 by: Claude
 // Small tinted rounded-square icon chip shared by the macro bars and extra rows
 // (same treatment as onboarding's choice cards). (Made internal so the diary's
@@ -171,14 +289,15 @@ func iconChip(_ systemImage: String, tint: Color) -> some View {
     }
 }
 
-// Claude  Date 06/16/2026 last changed: 07/12/2026 by: Claude
+// Claude  Date 06/16/2026 last changed: 07/26/2026 by: Claude
 // One labeled macro progress bar (e.g. "Protein 80 / 150 g"). Bar fills toward the
 // goal and turns subtly darker past 100% so going over reads at a glance.
-// (Now with a tinted icon chip, a gradient fill, a goal-met checkmark, and a
-// staggered grow-in on appear — `delay` offsets each bar's entrance.)
+// (Now with a gradient fill, a goal-met checkmark, and a staggered grow-in on
+// appear — `delay` offsets each bar's entrance. The tinted icon chip came off
+// this change: the ring identifies each macro by color now, so the chips were
+// redundant, and dropping them gave the ring the ~36pt it needed to grow.)
 struct MacroBar: View {
     let label: String
-    let icon: String
     let value: Double
     let goal: Double
     let tint: Color
@@ -187,40 +306,37 @@ struct MacroBar: View {
     @State private var shown = false
 
     var body: some View {
-        HStack(spacing: 10) {
-            iconChip(icon, tint: tint)
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 4) {
-                    Text(label).font(.caption).fontWeight(.medium)
-                    Spacer()
-                    if goal > 0 && value >= goal {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.caption2)
-                            .foregroundStyle(tint)
-                            .transition(.scale.combined(with: .opacity))
-                    }
-                    Text("\(Int(value.rounded())) / \(Int(goal)) g")
-                        .font(.caption2).foregroundStyle(.secondary)
-                        .monospacedDigit()
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 4) {
+                Text(label).font(.caption).fontWeight(.medium)
+                Spacer()
+                if goal > 0 && value >= goal {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.caption2)
+                        .foregroundStyle(tint)
+                        .transition(.scale.combined(with: .opacity))
                 }
-                GeometryReader { geo in
-                    let fraction = goal > 0 ? min(value / goal, 1) : 0
-                    let shownFraction = shown ? fraction : 0
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(tint.opacity(0.15))
-                        Capsule()
-                            .fill(LinearGradient(
-                                colors: value > goal
-                                    ? [tint.opacity(0.85), tint.opacity(0.6)]
-                                    : [tint, tint.opacity(0.65)],
-                                startPoint: .leading, endPoint: .trailing))
-                            .frame(width: geo.size.width * shownFraction)
-                    }
-                    .animation(.spring(response: 0.55, dampingFraction: 0.8),
-                               value: shownFraction)
-                }
-                .frame(height: 8)
+                Text("\(Int(value.rounded())) / \(Int(goal)) g")
+                    .font(.caption2).foregroundStyle(.secondary)
+                    .monospacedDigit()
             }
+            GeometryReader { geo in
+                let fraction = goal > 0 ? min(value / goal, 1) : 0
+                let shownFraction = shown ? fraction : 0
+                ZStack(alignment: .leading) {
+                    Capsule().fill(tint.opacity(0.15))
+                    Capsule()
+                        .fill(LinearGradient(
+                            colors: value > goal
+                                ? [tint.opacity(0.85), tint.opacity(0.6)]
+                                : [tint, tint.opacity(0.65)],
+                            startPoint: .leading, endPoint: .trailing))
+                        .frame(width: geo.size.width * shownFraction)
+                }
+                .animation(.spring(response: 0.55, dampingFraction: 0.8),
+                           value: shownFraction)
+            }
+            .frame(height: 8)
         }
         .animation(.spring(response: 0.35, dampingFraction: 0.8), value: value >= goal)
         .onAppear {

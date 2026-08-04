@@ -71,9 +71,11 @@ struct AppTheme: Identifiable, Codable, Hashable {
     var darkAccentHex: String?
     var darkBackgroundHex: String?
     var darkSurfaceHex: String?
-    // Claude  Date 06/13/2026
+    // Claude  Date 06/13/2026 last changed: 08/03/2026 by: Claude
     // Coin cost to unlock this theme in the Shop. 0 = free (Classic + any custom
-    // theme you make yourself); paid built-ins cost 500.
+    // theme you make yourself); paid built-ins cost 3000 — Legendary, the same as
+    // the top card tier (was 500, raised when coins became a paid feature). Keep
+    // this in step with CardTier.legendary.price, which ShopItem.tier maps onto.
     var price: Int
     // Claude  Date 07/21/2026
     // Typography, carried by the theme so picking a theme picks a typeface too.
@@ -199,19 +201,23 @@ extension AppTheme {
         accentHex: "#EA0F8B", backgroundHex: "#FCEEF6", surfaceHex: "#FFFFFF",
         darkAccentHex: "#FF4FB0", darkBackgroundHex: "#130810", darkSurfaceHex: "#211019")
 
-    // Claude  Date 06/13/2026
-    // The non-Classic built-ins cost 500 coins each to unlock in the Shop.
+    // Claude  Date 06/13/2026 last changed: 08/03/2026 by: Claude
+    // The non-Classic built-ins cost 3000 coins each to unlock in the Shop — every
+    // paid theme is Legendary (was 500 across the board). A whole-app re-skin is at
+    // least as valuable as a legendary profile card, and coins are now a paid
+    // feature, so the cheap tier no longer made sense. ShopItem.tier reads the
+    // rarity straight off this price, so changing it here is the only edit needed.
     static let midnight = AppTheme(
         id: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!,
         name: "Midnight", isBuiltIn: true, isDark: true,
         accentHex: "#5E5CE6", backgroundHex: "#0B0B0F", surfaceHex: "#1C1C1E",
-        price: 500)
+        price: 3000)
 
     static let deep_sea = AppTheme(
         id: UUID(uuidString: "00000000-0000-0000-0000-000000000003")!,
         name: "Deep Sea", isBuiltIn: true, isDark: false,
         accentHex: "#17646c", backgroundHex: "#EAF6F8", surfaceHex: "#FFFFFF",
-        price: 500)
+        price: 3000)
 
     // Bryce Hart 6/4/26 last changed: 06/16/2026 by: Claude
     // Burnt-orange background with black cards. Marked isDark so the forced
@@ -221,13 +227,13 @@ extension AppTheme {
         id: UUID(uuidString: "00000000-0000-0000-0000-000000000004")!,
         name: "sunset", isBuiltIn: true, isDark: true,
         accentHex: "#FF7043", backgroundHex: "#bb5f2a", surfaceHex: "#000000",
-        price: 500)
+        price: 3000)
 
     static let leaf = AppTheme(
         id: UUID(uuidString: "00000000-0000-0000-0000-000000000005")!,
         name: "Leaf", isBuiltIn: true, isDark: true,
         accentHex: "#34C759", backgroundHex: "#0E1511", surfaceHex: "#16201A",
-        price: 500)
+        price: 3000)
 
     // Claude  Date 06/16/2026
     // Woods — first-pass outline only. A dark forest palette (bark browns + a
@@ -236,7 +242,7 @@ extension AppTheme {
         id: UUID(uuidString: "00000000-0000-0000-0000-000000000006")!,
         name: "Woods", isBuiltIn: true, isDark: true,
         accentHex: "#8FAE5D", backgroundHex: "#1A140E", surfaceHex: "#241B12",
-        price: 500)
+        price: 3000)
 
     static let builtIns: [AppTheme] = [classic, midnight, deep_sea, sunset, leaf, woods]
 }

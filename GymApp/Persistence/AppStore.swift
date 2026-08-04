@@ -229,12 +229,26 @@ final class AppStore: ObservableObject {
     // Everything user-facing should read this instead of Achievement.all.
     var achievementCatalog: [Achievement] { Achievement.catalog(for: profile.gender) }
 
-    // Claude  Date 07/24/2026
+    // Claude  Date 07/24/2026 last changed: 07/26/2026 by: Claude
     // Earned but not yet watched — the badges sitting in the Achievement Book with
     // their reveal still to play. This count is what the red dot over the Profile
     // tab (and the Achievements row) shows.
+    //
+    // Scoped to the CURRENT catalog, which is the fix for a stuck badge: this used to
+    // be a plain `unlocked − opened`, so any id in the persisted unlocked set with no
+    // matching catalog entry counted forever. Nothing in the Book could render it and
+    // `openAllUnopened` filtered it straight back out, so the dot never cleared and
+    // "Open N new" no-opped. Orphans are easy to accumulate in alpha — every time a
+    // threshold changes, the id derived from it changes with it (`logged_30` →
+    // `logged_25`), stranding the old one in achievements.json. Deriving the count
+    // from the catalog makes "the badge is countable" and "the Book has a slot for
+    // it" the same statement, and self-heals whatever is already on disk.
+    // The unlocked set itself is left untouched — it's the sticky earned record, and
+    // an id that's orphaned today may just be a catalog the user isn't on right now.
     var unopenedAchievementIDs: Set<String> {
-        unlockedAchievementIDs.subtracting(openedAchievementIDs)
+        let waiting = unlockedAchievementIDs.subtracting(openedAchievementIDs)
+        guard !waiting.isEmpty else { return [] }
+        return Set(achievementCatalog.lazy.map(\.id).filter { waiting.contains($0) })
     }
 
     var unopenedAchievementCount: Int { unopenedAchievementIDs.count }
@@ -263,11 +277,15 @@ final class AppStore: ObservableObject {
     // doesn't present a book full of "new" badges the user never actually earned
     // in-session. Rank promotions are unaffected and still fire immediately.
     func evaluateAchievements(announce: Bool = true) {
-        // Claude  Date 06/13/2026 last changed: 07/11/2026 by: Claude
+        // Claude  Date 06/13/2026 last changed: 07/25/2026 by: Claude
         // Stats come from the activity ledger (completed sets, real timestamps),
         // NOT from editable workout numbers — that's the anti-cheat fix. Now also
-        // feeds the food diary + calorie goal for the Days Tracked badges.
-        let stats = ProfileStats(events: activityLog, foodLog: foodLog, nutritionGoals: nutritionGoals)
+        // feeds the food diary + calorie goal for the Days Tracked badges, and the
+        // nutrition setup checklist for First Plan.
+        let stats = ProfileStats(events: activityLog, foodLog: foodLog,
+                                 nutritionGoals: nutritionGoals,
+                                 setup: profile.nutritionSetup,
+                                 tookFirstStep: profile.tookFirstStep)
         // Claude  Date 07/14/2026
         // Evaluate against the gender-calibrated catalog — this is where the
         // identity choice actually changes badge progress. Ids are identical
@@ -304,6 +322,30 @@ final class AppStore: ObservableObject {
             celebratedRank = newRank
             persistence.save(celebratedRank, to: Self.rankFile)
         }
+    }
+
+    // MARK: - Nutrition setup checklist
+
+    // Claude  Date 07/25/2026
+    // Tick off one item on the Journal's setup checklist (see NutritionSetupCard).
+    // The guard makes this idempotent, which is what lets the goal fields call it on
+    // every keystroke: without it, typing "2400" would re-evaluate the whole catalog
+    // four times. The explicit evaluateAchievements() is required — `profile`'s
+    // didSet only persists, it doesn't evaluate (same reason SettingsView calls it by
+    // hand after the gender picker writes), and First Plan reads this state.
+    func markNutritionSetup(_ field: WritableKeyPath<NutritionSetup, Bool>) {
+        guard !profile.nutritionSetup[keyPath: field] else { return }
+        profile.nutritionSetup[keyPath: field] = true
+        evaluateAchievements()
+    }
+
+    // Claude  Date 07/25/2026
+    // Retire the checklist card — auto-called a few seconds after the user finishes,
+    // and by the card's X. Deliberately separate from NutritionSetup.isComplete so
+    // dismissing early never counts as completing (and never grants First Plan).
+    func acknowledgeNutritionSetup() {
+        guard !profile.nutritionSetup.acknowledged else { return }
+        profile.nutritionSetup.acknowledged = true
     }
 
     // MARK: - Strategist rank
@@ -633,6 +675,24 @@ final class AppStore: ObservableObject {
 
     func addWorkout(_ workout: Workout) {
         workouts.append(workout)
+        // Claude  Date 07/27/2026
+        // Starting a workout — empty or from a preset — is one of the two ways out
+        // of the get-started state, so it earns First Step immediately.
+        markFirstStep()
+    }
+
+    // Claude  Date 07/27/2026
+    // Record that the user has acted on the Workouts tab's get-started state and
+    // award First Step. Called from the two ways forward that screen offers:
+    // installPremade (browse the catalog and add a split) and addWorkout (start an
+    // empty one, or one from a preset). The guard makes it idempotent — every
+    // subsequent workout hits this — and the explicit evaluateAchievements() is
+    // required because `profile`'s didSet only persists, it doesn't evaluate (same
+    // as markNutritionSetup above).
+    func markFirstStep() {
+        guard !profile.tookFirstStep else { return }
+        profile.tookFirstStep = true
+        evaluateAchievements()
     }
 
     func deleteWorkout(id: UUID) {
@@ -939,6 +999,11 @@ final class AppStore: ObservableObject {
                                    isAdaptive: premade.isAdaptive,
                                    premadeID: premade.id)
         addPreset(preset)
+        // Claude  Date 07/27/2026
+        // Picking a premade split is the other way out of the get-started state, so
+        // it earns First Step here rather than making the user go start the workout
+        // too — the get-started screen offers this and "empty workout" as equals.
+        markFirstStep()
         return preset
     }
 

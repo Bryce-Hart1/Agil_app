@@ -147,7 +147,7 @@ struct SettingsView: View {
             } header: {
                 Text("Food lookups")
             } footer: {
-                Text("When on, food search and barcode scans only use foods saved on this device. If something isn't found, you'll be asked to enter it yourself or search Open Food Facts online just for that lookup.")
+                Text("When on, food search and barcode scans only use foods saved on this device. If something isn't found, you'll be asked to enter it yourself or search online just for that lookup.")
             }
 
             // Claude  Date 07/16/2026

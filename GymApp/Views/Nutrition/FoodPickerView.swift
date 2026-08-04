@@ -171,7 +171,7 @@ struct FoodPickerView: View {
         } header: {
             Text("Not in your foods")
         } footer: {
-            Text("Food lookups are set to local-only. Add this food yourself, or search Open Food Facts online just for this one.")
+            Text("Food lookups are set to local-only. Add this food yourself, or search online just for this one.")
         }
     }
 
@@ -181,7 +181,12 @@ struct FoodPickerView: View {
     // caches it locally, then logs it.
     @ViewBuilder
     private var openFoodFactsSection: some View {
-        Section("Open Food Facts") {
+        // Claude  Date 06/16/2026 last changed: 08/04/2026 by: Claude
+        // Titled "All foods" rather than "Open Food Facts": the backend's search now
+        // spans the curated vault, OFF, generic (USDA) and restaurant foods, so the
+        // section name would be wrong for most results. Each row's badge says where
+        // that particular food came from.
+        Section("All foods") {
             if isSearching {
                 HStack(spacing: 10) {
                     ProgressView()
@@ -233,7 +238,7 @@ struct FoodPickerView: View {
             } catch {
                 if Task.isCancelled { return }
                 isSearching = false
-                searchError = "Couldn't reach Open Food Facts. Check your connection."
+                searchError = "Couldn't reach the food database. Check your connection."
             }
         }
     }
@@ -249,16 +254,25 @@ struct FoodPickerView: View {
     }
 }
 
-// Claude  Date 06/16/2026
+// Claude  Date 06/16/2026 last changed: 08/04/2026 by: Claude
 // A library row in the picker: name (+ brand) with a per-serving calorie/macro
-// caption so you can choose without opening it.
+// caption so you can choose without opening it. (Now also carries the compact
+// provenance badge, so a curated food is distinguishable from an unreviewed
+// user-submitted one before you tap in.)
 private struct FoodPickRow: View {
     let food: FoodItem
 
     var body: some View {
         let n = food.nutrients
         VStack(alignment: .leading, spacing: 2) {
-            Text(food.displayLabel).font(.subheadline).fontWeight(.medium)
+            HStack(spacing: 6) {
+                Text(food.displayLabel).font(.subheadline).fontWeight(.medium)
+                    .lineLimit(1)
+                FoodSourceBadge(source: FoodTrust(food.source),
+                                verification: food.verification,
+                                style: .row)
+                Spacer(minLength: 0)
+            }
             Text("\(Int(n.calories.rounded())) kcal · \(food.servingLabel)  ·  P \(Int(n.protein.rounded()))g C \(Int(n.carbs.rounded()))g F \(Int(n.fat.rounded()))g")
                 .font(.caption2).foregroundStyle(.secondary)
         }

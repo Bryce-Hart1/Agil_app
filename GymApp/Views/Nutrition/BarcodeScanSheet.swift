@@ -129,7 +129,7 @@ struct BarcodeScanSheet: View {
         case .connectionError(let code):
             pill {
                 VStack(spacing: 12) {
-                    Text("Couldn't reach Open Food Facts").font(.headline).foregroundStyle(.white)
+                    Text("Couldn't reach the food database").font(.headline).foregroundStyle(.white)
                     Text("Check your connection and try again.")
                         .font(.caption).foregroundStyle(.white.opacity(0.75))
                         .multilineTextAlignment(.center)

@@ -23,10 +23,17 @@ import Foundation
 //
 // Depth reasoning: the backdrop fills the disc; hair behind the skull sits under the
 // body so a ponytail tucks behind the shoulder; the top covers the body; the head sits
-// over the neck; the face, beard and front hair paint onto the head in that order; and
+// over the neck; the beard, face and front hair paint onto the head in that order; and
 // accessories (glasses) go over everything.
+//
+// Claude 08/03/2026: facialHair moved BELOW face. A full beard's moustache has to reach the
+// lip line to read as a beard rather than as a stripe floating on the philtrum, and while
+// facial hair drew last that reach cost the near corner of every expression — the mouth was
+// simply painted over. Drawing the mouth on top of the beard instead is also what the
+// reference art does; the trade is that on the very darkest hair the covered corner of the
+// mouth goes low-contrast, which is a far cheaper loss than losing the expression outright.
 enum CharacterLayer: String, CaseIterable, Identifiable, Hashable {
-    case backdrop, hairBack, body, top, head, face, facialHair, hair, accessory
+    case backdrop, hairBack, body, top, head, facialHair, face, hair, accessory
 
     var id: String { rawValue }
 

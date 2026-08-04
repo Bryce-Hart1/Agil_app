@@ -42,6 +42,7 @@ Standalone, keyed by the app's `user_id`. **Do not** couple to the unbuilt `user
 | `rank_progress` | DOUBLE | 0…1 ring fill |
 | `showcased_achievement_ids` | TEXT | JSON array string, ≤4 ids |
 | `member_since` | TEXT NULL | ISO-8601 |
+| `character` | TEXT NULL | JSON object, client-owned & opaque to the server — store and echo verbatim. Null when the user has characters switched off. Added 2026-08-02. |
 | `card_key_hash` | TEXT | `sha256(key)` hex — set on first write (TOFU) |
 | `created_at` | TEXT | ISO-8601 |
 | `updated_at` | TEXT | ISO-8601 |
@@ -78,13 +79,39 @@ to Offline so their shared card is actually removed.
   "rankProgress": 0.42,
   "showcasedAchievementIDs": ["squat_135", "logged_30"],
   "memberSince": "2026-06-09T00:00:00Z",
+  "character": {
+    "isEnabled": true,
+    "optionIDs": { "head": "head_round", "hair": "hair_swoop", "top": "top_tee" },
+    "colorTokens": { "skin": "skin_02", "hair": "hair_03", "top": "#2E7D5B" }
+  },
   "updatedAt": "2026-06-18T21:54:00Z"
 }
 ```
 
 - `rank` is `null` when `showsRankOnCard` is false (or no rank equipped).
+- As of 2026-08-02 the iOS client always sends `showsRankOnCard: true` — the profile picture
+  became a two-sided coin whose front face *is* the rank, so the ring is structural and the
+  old opt-out toggle is gone. The field stays in the contract: readers must still honour
+  `false` (older or future clients may send it), and the server must not assume it's true.
 - `memberSince` and `updatedAt` may be `null`.
 - The server may set/overwrite `updatedAt` server-side; the app also sends its own.
+
+### `character` (added 2026-08-02)
+
+The user's customizable character — what a friend's app needs to draw their face. Same
+privacy stance as the rest of this payload: layer style ids and colour tokens only, no
+identity, no measurements, nothing derived from training. It is **opaque to the server**:
+store the JSON object as given and echo it back untouched. Both maps are sparse (a missing
+key means "that slot/role is on its default"), so the server must not validate or normalise
+the contents — the app adds slots over time without a backend change.
+
+`null` when the user has characters switched off, which is how opting out actually withdraws
+the face rather than shipping a disabled config. `avatarID` is still deliberately **not** in
+this payload; a friend without a character renders as their initials.
+
+⚠️ Until this column ships, the app sends the field and the server drops it, so every
+friend's character arrives `null` and every friend renders as initials. Nothing breaks —
+that's the designed fallback — but characters won't appear between friends until then.
 
 ## Out of scope (future)
 

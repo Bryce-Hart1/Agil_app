@@ -30,6 +30,10 @@ struct WorkoutsListView: View {
     // sheet, not a push: `path` is typed [WorkoutRoute], and widening it to an enum
     // would touch every existing push site for one screen that isn't a workout.
     @State private var showingPremade = false
+    // Claude  Date 07/28/2026
+    // Raised by the preset button when store.presets is empty — a Menu with no
+    // content would just open an empty popover, which reads as a broken button.
+    @State private var showingNoPresets = false
 
     // How many recent workouts History shows before "Show all".
     private static let historyPreviewCount = 3
@@ -62,66 +66,124 @@ struct WorkoutsListView: View {
             .themed(theme.current)
             // Claude  Date 07/13/2026
             // Centered mode-switcher pill in the nav bar (shared by all root tabs).
-            .modeNotchToolbar()
+            .modeNotchToolbar(tab: AgilTabItem.workouts.tag)
             .navigationDestination(for: WorkoutRoute.self) { route in
                 WorkoutDetailView(workoutID: route.id, isNew: route.isNew)
             }
+            // Claude  Date 06/16/2026 last changed: 07/28/2026 by: Claude
+            // The two ways to start a workout, one per side of the ModeNotch pill.
+            // (Was a single trailing + holding a menu — "Empty Workout" plus a
+            // "From Preset" submenu — so either path cost two taps, and the preset
+            // submenu simply wasn't drawn when the user had none, which told a new
+            // user nothing. Splitting them also removed the invisible counterweight
+            // this screen needed to keep the pill centered: two real icons of equal
+            // width do that job now. See navBarBalancer in ModeNotch.swift, still
+            // used by FoodLibraryView.)
             .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    // Claude  Date 06/16/2026
-                    // One active workout at a time: if one's in progress, + resumes it;
-                    // otherwise it offers a new empty workout or one from a preset.
-                    if let active = store.activeWorkout {
-                        Button { open(active.id) } label: { Image(systemName: "plus") }
-                            .accessibilityLabel("Resume workout")
-                    } else {
-                        Menu {
-                            Button {
-                                start(Workout())
-                            } label: {
-                                Label("Empty Workout", systemImage: "square.and.pencil")
-                            }
-
-                            if !store.presets.isEmpty {
-                                Menu {
-                                    ForEach(store.presets) { preset in
-                                        Button {
-                                            start(store.workout(from: preset))
-                                        } label: {
-                                            // Claude  Date 06/30/2026
-                                            // Custom PNG icons use image:, SF Symbols use systemImage:.
-                                            let title = preset.name.isEmpty ? "Untitled Preset" : preset.name
-                                            if PresetIcons.isCustomAsset(preset.symbolName) {
-                                                Label(title, image: preset.symbolName)
-                                            } else {
-                                                Label(title, systemImage: preset.symbolName)
-                                            }
-                                        }
-                                    }
-                                } label: {
-                                    Label("From Preset", systemImage: "square.stack")
-                                }
-                            }
-                        } label: {
-                            Image(systemName: "plus")
+                // Claude  Date 07/28/2026
+                // Both report their frames through the tour's global registry rather
+                // than .tourTarget: they're toolbar items, so they sit inside a UIKit
+                // navigation bar and a SwiftUI preference can't escape it — the same
+                // constraint the ModeNotch has. No tab gating needed here (unlike the
+                // notch, only this screen mounts them, so there's no second writer).
+                ToolbarItem(placement: .topBarLeading) {
+                    Group {
+                        if let active = store.activeWorkout {
+                            Button { open(active.id) } label: { toolbarIcon("note-blank") }
+                                .accessibilityLabel("Resume workout")
+                        } else {
+                            Button { start(Workout()) } label: { toolbarIcon("note-blank") }
+                                .accessibilityLabel("New blank workout")
                         }
                     }
+                    .tourTargetGlobal(.newBlankWorkout, active: store.tourActive)
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    presetButton
+                        .tourTargetGlobal(.newFromPreset, active: store.tourActive)
                 }
             }
-            // Claude  Date 07/25/2026
-            // The premade browser, raised from the get-started state. Adding a template
-            // saves a preset and pops back to its list; closing the sheet returns here,
-            // where the + menu's "From Preset" now offers it.
+            // Claude  Date 07/25/2026 last changed: 07/28/2026 by: Claude
+            // The premade browser, raised from the get-started state and from the
+            // no-presets alert below. Adding a template saves a preset and pops back
+            // to its list; closing the sheet returns here, where the preset button
+            // now offers it.
             .sheet(isPresented: $showingPremade) {
                 NavigationStack {
                     PremadeWorkoutsView(isModal: true)
                 }
+            }
+            // Claude  Date 07/28/2026
+            // What the preset button does when there's nothing to offer. The copy
+            // names both ways to get a preset, and "Browse Premade" actually takes
+            // the user to one of them rather than leaving them to find it — it
+            // raises the same sheet the get-started state uses.
+            .alert("No presets yet", isPresented: $showingNoPresets) {
+                Button("Browse Premade") { showingPremade = true }
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text("You have no presets. Create one in the Builder, or start from a premade workout.")
             }
             // Claude  Date 06/16/2026
             // Honor a jump-back request from the mini-bar (works whether this view was
             // already alive or freshly created when the tab/mode switched).
             .onAppear { consumeRequestedWorkout() }
             .onChange(of: session.requestedWorkoutID) { _ in consumeRequestedWorkout() }
+        }
+    }
+
+    // MARK: - Toolbar
+
+    // Claude  Date 07/28/2026
+    // Custom-asset toolbar glyph, matching the treatment the tab bar gives its own
+    // asset icons (AgilTabItem.Icon.styledImage). .renderingMode(.template) has to
+    // be set here — neither note.svg nor note-blank.svg declares a
+    // template-rendering-intent in its Contents.json, so without it they'd draw as
+    // flat artwork instead of picking up the accent tint. Both buttons go through
+    // this so their widths can't drift apart: the pill between them is centered by
+    // UIKit splitting the space the bar buttons leave, so unequal icons would push
+    // it off the midline.
+    private func toolbarIcon(_ asset: String) -> some View {
+        Image(asset)
+            .renderingMode(.template)
+            .resizable()
+            .scaledToFit()
+            .frame(width: 22, height: 22)
+    }
+
+    // Claude  Date 07/28/2026
+    // Start-from-a-preset. Three states: resume the live session if there is one
+    // (same one-workout-at-a-time rule the blank button follows), a menu of the
+    // user's presets, or — when they have none — a button that explains why the
+    // menu is empty rather than opening an empty one.
+    @ViewBuilder
+    private var presetButton: some View {
+        if let active = store.activeWorkout {
+            Button { open(active.id) } label: { toolbarIcon("note") }
+                .accessibilityLabel("Resume workout")
+        } else if store.presets.isEmpty {
+            Button { showingNoPresets = true } label: { toolbarIcon("note") }
+                .accessibilityLabel("Start from a preset")
+        } else {
+            Menu {
+                ForEach(store.presets) { preset in
+                    Button {
+                        start(store.workout(from: preset))
+                    } label: {
+                        // Claude  Date 06/30/2026
+                        // Custom PNG icons use image:, SF Symbols use systemImage:.
+                        let title = preset.name.isEmpty ? "Untitled Preset" : preset.name
+                        if PresetIcons.isCustomAsset(preset.symbolName) {
+                            Label(title, image: preset.symbolName)
+                        } else {
+                            Label(title, systemImage: preset.symbolName)
+                        }
+                    }
+                }
+            } label: {
+                toolbarIcon("note")
+            }
+            .accessibilityLabel("Start from a preset")
         }
     }
 

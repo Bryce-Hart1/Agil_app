@@ -1,10 +1,10 @@
 import SwiftUI
 
-// Claude  Date 06/16/2026
+// Reviewed 6-26-26 Bryce Hart
 // The Spotify-style "now playing" bar for an in-progress workout. Floats above the
 // tab bar (placed by RootTabView) whenever there's an active workout. Tapping it
 // jumps back into the session (onOpen). While a rest timer runs it becomes a
-// progress bar sweeping left→right with the countdown; when the timer finishes it
+// progress bar sweeping left to right with the countdown; when the timer finishes it
 // briefly reads "Rest complete." Renders nothing when no workout is active.
 struct WorkoutMiniBar: View {
     @EnvironmentObject private var store: AppStore

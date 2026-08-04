@@ -3,29 +3,28 @@ import SwiftUI
 import UIKit
 #endif
 
-// Claude  Date 06/12/2026 last changed: 07/14/2026 by: Claude
+// Claude  Date 06/12/2026 last changed: 07/14/2026 by: Bryce Hart
 // First-run welcome shown over everything until onboarding is completed. A
-// short multi-step flow: (1) name, (2) what you identify as (on-device only,
-// calibrates strength-badge thresholds), (3) where your data lives (Ghost Mode vs
-// friends), (4) how coins work — then into the app. (This pass added the
+// short multi-step flow: 
+// (1) name, 
+// (2) what you identify as (on-device only, calibrates strength-badge thresholds), 
+// (3) where your data lives (Ghost Mode vs friends), 
+// (4) how coins work — then into the app. (This pass added the
 // identity step and generalized the choice cards it shares with the data step.)
 struct OnboardingView: View {
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var theme: ThemeManager
 
-    // Claude  Date 06/13/2026 last changed: 07/14/2026 by: Claude
     // The ordered onboarding steps. (Added identity between welcome and data.)
     private enum Step: Int, CaseIterable { case welcome, identity, data, coins }
 
     @State private var step: Step = .welcome
     @State private var name = ""
     @State private var dataMode: DataMode = .ghost
-    // Claude  Date 07/14/2026
     // The identity choice. Defaults to "prefer not to say" so the step never
     // blocks Continue; persisted to profile.gender in finish().
     @State private var gender: Gender = .unspecified
 
-    // Claude  Date 07/12/2026
     // Tracks which way we're moving through the wizard so the step transition
     // slides in from the correct edge (forward = from the right, back = left).
     @State private var goingForward = true
@@ -63,8 +62,7 @@ struct OnboardingView: View {
         .interactiveDismissDisabled()
     }
 
-    // Claude  Date 07/12/2026
-    // Slide + fade between steps, direction-aware so Back feels like backing up.
+    //Slide and fade between steps, direction-aware so Back feels like backing up.
     private var stepTransition: AnyTransition {
         .asymmetric(
             insertion: .move(edge: goingForward ? .trailing : .leading).combined(with: .opacity),
@@ -74,7 +72,7 @@ struct OnboardingView: View {
 
     // MARK: - Steps
 
-    // Claude  Date 07/14/2026
+    // Bryce Hart  Date 07/26/2026
     // The identity step: what the user identifies as. This is ON-DEVICE ONLY and
     // exists for exactly one reason — calibrating strength-badge thresholds so
     // progression tiers are fair (see Achievement.catalog(for:)). The privacy
@@ -88,7 +86,7 @@ struct OnboardingView: View {
             stepHeader(
                 icon: "person.crop.circle.badge.questionmark",
                 title: "Nice to meet you, \(trimmedName)!",
-                subtitle: "One quick question to calibrate your strength badges."
+                subtitle: "One quick question to calibrate your Agil."
             )
 
             choiceCard(
@@ -96,30 +94,33 @@ struct OnboardingView: View {
                 systemImage: "figure.stand",
                 title: "Male",
                 description: "Strength badges use the standard thresholds."
-            ) { gender = .male }
+            ) { gender = .male}
             choiceCard(
                 isSelected: gender == .female,
                 systemImage: "figure.stand.dress",
                 title: "Female",
                 description: "Strength badges use thresholds calibrated for women."
-            ) { gender = .female }
+            ) { gender = .female}
             choiceCard(
                 isSelected: gender == .unspecified,
                 systemImage: "hand.raised.fill",
                 title: "Prefer not to say",
                 description: "Uses the standard badge thresholds."
-            ) { gender = .unspecified }
+            ) { gender = .unspecified}
 
-            Text("This never leaves your phone — it isn't shared, synced, or sent anywhere. It's used for exactly one thing: strength-badge thresholds that are fair for you. Change it anytime in Settings.")
+            // The privacy caption is the load-bearing copy on this step — it must
+            // never truncate. See the note in stepHeader on why fixedSize is needed.
+            Text("This never leaves your phone. It isn't shared, synced, or sent anywhere. It's used for exactly one thing: strength-badge thresholds that are fair for you. Change it anytime in Settings.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 8)
             Spacer()
         }
     }
 
-    // Claude  Date 06/13/2026 last changed: 07/23/2026 by: Claude
+    // Claude  Date 06/13/2026 last changed: 07/26/2026 by: Bryce Hart
     // The data step: Ghost Mode (private, on-device) vs Friends. This is the user's
     // first-open explanation of what Ghost Mode actually does — the description
     // spells out everything it turns off, so the trade-off is clear before they pick.
@@ -137,13 +138,13 @@ struct OnboardingView: View {
                 isSelected: dataMode == .ghost,
                 assetImage: "ghost",
                 title: "Ghost Mode",
-                description: "Everything stays on this device. You won't be able to add friends, share recipes or workouts (coming soon), or save foods to the shared database — private, fast, and yours alone."
+                description: "Everything stays on this device. You won't be able to add friends, share recipes or workouts, or save foods to the shared database — private, fast, and yours alone."
             ) { dataMode = .ghost }
             choiceCard(
                 isSelected: dataMode == .friends,
                 systemImage: "person.2.fill",
                 title: "Friends",
-                description: "Add people with a friend code to see their profile card and stats, and share what you choose. (Coming soon.)"
+                description: "Add people with a friend code to see their profile card and stats, and share workouts and recipes."
             ) { dataMode = .friends }
             Spacer()
         }
@@ -155,8 +156,8 @@ struct OnboardingView: View {
 
             stepHeader(
                 icon: "circle.hexagongrid.fill",
-                title: "Show up. Stack coins.",
-                subtitle: "Consistency is the whole game — here's how it pays."
+                title: "Show up. Get rewarded.",
+                subtitle: "The more consistent you get, the more it pays."
             )
 
             // Claude  Date 07/12/2026
@@ -165,9 +166,9 @@ struct OnboardingView: View {
             CoinLadder(accent: accent, surface: surface)
 
             VStack(alignment: .leading, spacing: 12) {
-                coinBullet("calendar", "Every day you train in a week climbs the ladder — hit more days, earn bigger coins.")
+                coinBullet("calendar", "Every day you train in a week climbs the ladder, hit more days, earn bigger payouts.")
                 coinBullet("arrow.clockwise", "The ladder resets Sunday night, so streaks of consistent weeks pay off most.")
-                coinBullet("bag.fill", "Spend your coins in the Shop on new themes and profile-card styles.")
+                coinBullet("bag.fill", "Spend your coins in the Shop to customize your Agil.")
             }
             .padding(.horizontal, 4)
             Spacer()
@@ -206,13 +207,22 @@ struct OnboardingView: View {
                     .font(.system(size: 40))
                     .foregroundStyle(accent)
             }
+            // Claude  Date 07/27/2026
+            // fixedSize(vertical:) is load-bearing, not polish: these sit in a VStack
+            // with Spacers, and a Spacer outranks a Text for leftover height. Without
+            // it the VStack hands Text its *minimum* height — one line — and the
+            // headings truncate mid-word ("calibrate your streng…") even when there's
+            // visible empty space above and below. Fixing the size makes the text
+            // inflexible so the Spacers absorb the slack instead.
             Text(title)
                 .font(.system(.title2, design: .rounded).bold())
                 .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
             if let subtitle {
                 Text(subtitle)
                     .font(.subheadline).foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -270,6 +280,7 @@ struct OnboardingView: View {
                 }
                 VStack(alignment: .leading, spacing: 3) {
                     Text(title).font(.headline)
+                        .fixedSize(horizontal: false, vertical: true)
                     Text(description)
                         .font(.caption).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -467,9 +478,12 @@ private struct WelcomeStep: View {
             VStack(spacing: 8) {
                 Text("Welcome to Agil")
                     .font(.system(.largeTitle, design: .rounded).bold())
-                Text("Track your lifts. Build your streak. Level up.")
+                    .fixedSize(horizontal: false, vertical: true)
+                // Same Spacer-vs-Text height fight as stepHeader — see the note there.
+                Text("Track your lifts. Build streaks. Create your own Agil.")
                     .font(.subheadline).foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .opacity(contentShown ? 1 : 0)
             .offset(y: contentShown ? 0 : 16)
@@ -519,24 +533,34 @@ private struct CoinLadder: View {
     private let payouts = [10, 20, 40, 80, 100]
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 12) {
-            ForEach(Array(payouts.enumerated()), id: \.offset) { index, coins in
-                VStack(spacing: 6) {
-                    Text("\(coins)")
-                        .font(.caption.bold())
-                        .foregroundStyle(index == payouts.count - 1 ? accent : .secondary)
-                        .opacity(shown ? 1 : 0)
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(LinearGradient(colors: [accent, accent.opacity(0.5)],
-                                             startPoint: .top, endPoint: .bottom))
-                        .frame(height: shown ? CGFloat(coins) * 0.75 + 14 : 8)
-                    Text(index == payouts.count - 1 ? "5+" : "\(index + 1)")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+        // Claude  Date 07/12/2026 last changed: 07/27/2026 by: Claude
+        // ("days per week" used to be a .bottomTrailing overlay on the card, which
+        // parked it right on top of the "5+" tick and read as a stray caption. It's
+        // now a centered axis title in the stack, below the day numbers.)
+        VStack(spacing: 10) {
+            HStack(alignment: .bottom, spacing: 12) {
+                ForEach(Array(payouts.enumerated()), id: \.offset) { index, coins in
+                    VStack(spacing: 6) {
+                        Text("\(coins)")
+                            .font(.caption.bold())
+                            .foregroundStyle(index == payouts.count - 1 ? accent : .secondary)
+                            .opacity(shown ? 1 : 0)
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(LinearGradient(colors: [accent, accent.opacity(0.5)],
+                                                 startPoint: .top, endPoint: .bottom))
+                            .frame(height: shown ? CGFloat(coins) * 0.75 + 14 : 8)
+                        Text(index == payouts.count - 1 ? "5+" : "\(index + 1)")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    .animation(.spring(response: 0.5, dampingFraction: 0.7)
+                        .delay(Double(index) * 0.08), value: shown)
                 }
-                .animation(.spring(response: 0.5, dampingFraction: 0.7)
-                    .delay(Double(index) * 0.08), value: shown)
             }
+
+            Text("days per week")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 16)
@@ -546,12 +570,6 @@ private struct CoinLadder: View {
             RoundedRectangle(cornerRadius: 16)
                 .stroke(Color.secondary.opacity(0.12), lineWidth: 1)
         )
-        .overlay(alignment: .bottomTrailing) {
-            Text("days per week")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-                .padding(8)
-        }
         .onAppear { shown = true }
     }
 }

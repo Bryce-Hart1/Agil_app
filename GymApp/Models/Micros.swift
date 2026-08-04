@@ -96,55 +96,113 @@ enum MicroGroup: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
-// Claude  Date 07/14/2026
+// Claude  Date 07/14/2026 last changed: 08/04/2026 by: Claude
 // One displayable micro: its human label, its hardcoded unit, which group it lives in,
-// and a getter onto the raw per-100 value. The cryptic keys (vBOne, vBTwelve, …) get
+// and the key path to the raw per-100 value. The cryptic keys (vBOne, vBTwelve, …) get
 // their real names here so the view never has to know the mapping. Order within `all`
 // is the render order.
+//
+// (The read-only getter became a WritableKeyPath so the same table can drive the
+// new-food FORM as well as the detail page's read-out — one list of 32 nutrients, not
+// two that can drift. `offKey`/`offFactor` describe how the field crosses the wire on
+// submission: the backend's MICRO_MAP takes Open Food Facts keys in OFF's own base
+// unit, so the value we display is DIVIDED by `offFactor` on the way out and the
+// server multiplies it back. E.g. vitamin C displays in mg, travels as grams ×1/1000.)
 struct MicroField: Identifiable {
     let label: String
     let unit: String            // "g" | "mg" | "µg" | "ng" — fixed per field, never derived
     let group: MicroGroup
-    let value: (Micros) -> Double?
+    let key: WritableKeyPath<Micros, Double?>
+    let offKey: String          // Open Food Facts nutriment key, e.g. "vitamin-c_100g"
+    let offFactor: Double       // display unit = OFF value × offFactor (mirrors MICRO_MAP)
     var id: String { label }
+
+    /// The per-100 value for this field, in `unit`.
+    func value(_ micros: Micros) -> Double? { micros[keyPath: key] }
 
     static let all: [MicroField] = [
         // Fats & cholesterol
-        .init(label: "Saturated fat",        unit: "g",  group: .fats, value: { $0.saturFat }),
-        .init(label: "Trans fat",            unit: "g",  group: .fats, value: { $0.transFat }),
-        .init(label: "Monounsaturated fat",  unit: "g",  group: .fats, value: { $0.monosatFat }),
-        .init(label: "Cholesterol",          unit: "mg", group: .fats, value: { $0.cholesterolMg }),
+        .init(label: "Saturated fat",        unit: "g",  group: .fats, key: \.saturFat,
+              offKey: "saturated-fat_100g", offFactor: 1),
+        .init(label: "Trans fat",            unit: "g",  group: .fats, key: \.transFat,
+              offKey: "trans-fat_100g", offFactor: 1),
+        .init(label: "Monounsaturated fat",  unit: "g",  group: .fats, key: \.monosatFat,
+              offKey: "monounsaturated-fat_100g", offFactor: 1),
+        .init(label: "Cholesterol",          unit: "mg", group: .fats, key: \.cholesterolMg,
+              offKey: "cholesterol_100g", offFactor: 1_000),
         // Vitamins
-        .init(label: "Vitamin A",            unit: "µg", group: .vitamins, value: { $0.vA }),
-        .init(label: "Vitamin C",            unit: "mg", group: .vitamins, value: { $0.vC }),
-        .init(label: "Vitamin D",            unit: "µg", group: .vitamins, value: { $0.vD }),
-        .init(label: "Vitamin E",            unit: "mg", group: .vitamins, value: { $0.vE }),
-        .init(label: "Vitamin K",            unit: "µg", group: .vitamins, value: { $0.vK }),
-        .init(label: "B1 · Thiamin",         unit: "µg", group: .vitamins, value: { $0.vBOne }),
-        .init(label: "B2 · Riboflavin",      unit: "µg", group: .vitamins, value: { $0.vBTwo }),
-        .init(label: "B3 · Niacin",          unit: "µg", group: .vitamins, value: { $0.vBThree }),
-        .init(label: "B5 · Pantothenic acid", unit: "µg", group: .vitamins, value: { $0.vBFive }),
-        .init(label: "B6",                   unit: "µg", group: .vitamins, value: { $0.vBSix }),
-        .init(label: "B7 · Biotin",          unit: "µg", group: .vitamins, value: { $0.vBSeven }),
-        .init(label: "B9 · Folate",          unit: "µg", group: .vitamins, value: { $0.vBNine }),
-        .init(label: "B12",                  unit: "ng", group: .vitamins, value: { $0.vBTwelve }),
-        .init(label: "Choline",              unit: "mg", group: .vitamins, value: { $0.choline }),
+        .init(label: "Vitamin A",            unit: "µg", group: .vitamins, key: \.vA,
+              offKey: "vitamin-a_100g", offFactor: 1_000_000),
+        .init(label: "Vitamin C",            unit: "mg", group: .vitamins, key: \.vC,
+              offKey: "vitamin-c_100g", offFactor: 1_000),
+        .init(label: "Vitamin D",            unit: "µg", group: .vitamins, key: \.vD,
+              offKey: "vitamin-d_100g", offFactor: 1_000_000),
+        .init(label: "Vitamin E",            unit: "mg", group: .vitamins, key: \.vE,
+              offKey: "vitamin-e_100g", offFactor: 1_000),
+        .init(label: "Vitamin K",            unit: "µg", group: .vitamins, key: \.vK,
+              offKey: "vitamin-k_100g", offFactor: 1_000_000),
+        .init(label: "B1 · Thiamin",         unit: "µg", group: .vitamins, key: \.vBOne,
+              offKey: "vitamin-b1_100g", offFactor: 1_000_000),
+        .init(label: "B2 · Riboflavin",      unit: "µg", group: .vitamins, key: \.vBTwo,
+              offKey: "vitamin-b2_100g", offFactor: 1_000_000),
+        .init(label: "B3 · Niacin",          unit: "µg", group: .vitamins, key: \.vBThree,
+              offKey: "vitamin-pp_100g", offFactor: 1_000_000),
+        .init(label: "B5 · Pantothenic acid", unit: "µg", group: .vitamins, key: \.vBFive,
+              offKey: "pantothenic-acid_100g", offFactor: 1_000_000),
+        .init(label: "B6",                   unit: "µg", group: .vitamins, key: \.vBSix,
+              offKey: "vitamin-b6_100g", offFactor: 1_000_000),
+        .init(label: "B7 · Biotin",          unit: "µg", group: .vitamins, key: \.vBSeven,
+              offKey: "biotin_100g", offFactor: 1_000_000),
+        .init(label: "B9 · Folate",          unit: "µg", group: .vitamins, key: \.vBNine,
+              offKey: "vitamin-b9_100g", offFactor: 1_000_000),
+        .init(label: "B12",                  unit: "ng", group: .vitamins, key: \.vBTwelve,
+              offKey: "vitamin-b12_100g", offFactor: 1_000_000_000),
+        .init(label: "Choline",              unit: "mg", group: .vitamins, key: \.choline,
+              offKey: "choline_100g", offFactor: 1_000),
         // Minerals
-        .init(label: "Calcium",              unit: "mg", group: .minerals, value: { $0.calcium }),
-        .init(label: "Chloride",             unit: "mg", group: .minerals, value: { $0.chloride }),
-        .init(label: "Chromium",             unit: "µg", group: .minerals, value: { $0.chromium }),
-        .init(label: "Copper",               unit: "µg", group: .minerals, value: { $0.copper }),
-        .init(label: "Fluoride",             unit: "mg", group: .minerals, value: { $0.fluoride }),
-        .init(label: "Iodine",               unit: "µg", group: .minerals, value: { $0.iodine }),
-        .init(label: "Iron",                 unit: "µg", group: .minerals, value: { $0.iron }),
-        .init(label: "Magnesium",            unit: "mg", group: .minerals, value: { $0.magnesium }),
-        .init(label: "Manganese",            unit: "µg", group: .minerals, value: { $0.manganese }),
-        .init(label: "Molybdenum",           unit: "µg", group: .minerals, value: { $0.molybdenum }),
-        .init(label: "Phosphorus",           unit: "mg", group: .minerals, value: { $0.phosphorus }),
-        .init(label: "Potassium",            unit: "mg", group: .minerals, value: { $0.potassium }),
-        .init(label: "Selenium",             unit: "µg", group: .minerals, value: { $0.selenium }),
-        .init(label: "Zinc",                 unit: "mg", group: .minerals, value: { $0.zinc }),
+        .init(label: "Calcium",              unit: "mg", group: .minerals, key: \.calcium,
+              offKey: "calcium_100g", offFactor: 1_000),
+        .init(label: "Chloride",             unit: "mg", group: .minerals, key: \.chloride,
+              offKey: "chloride_100g", offFactor: 1_000),
+        .init(label: "Chromium",             unit: "µg", group: .minerals, key: \.chromium,
+              offKey: "chromium_100g", offFactor: 1_000_000),
+        .init(label: "Copper",               unit: "µg", group: .minerals, key: \.copper,
+              offKey: "copper_100g", offFactor: 1_000_000),
+        .init(label: "Fluoride",             unit: "mg", group: .minerals, key: \.fluoride,
+              offKey: "fluoride_100g", offFactor: 1_000),
+        .init(label: "Iodine",               unit: "µg", group: .minerals, key: \.iodine,
+              offKey: "iodine_100g", offFactor: 1_000_000),
+        .init(label: "Iron",                 unit: "µg", group: .minerals, key: \.iron,
+              offKey: "iron_100g", offFactor: 1_000_000),
+        .init(label: "Magnesium",            unit: "mg", group: .minerals, key: \.magnesium,
+              offKey: "magnesium_100g", offFactor: 1_000),
+        .init(label: "Manganese",            unit: "µg", group: .minerals, key: \.manganese,
+              offKey: "manganese_100g", offFactor: 1_000_000),
+        .init(label: "Molybdenum",           unit: "µg", group: .minerals, key: \.molybdenum,
+              offKey: "molybdenum_100g", offFactor: 1_000_000),
+        .init(label: "Phosphorus",           unit: "mg", group: .minerals, key: \.phosphorus,
+              offKey: "phosphorus_100g", offFactor: 1_000),
+        .init(label: "Potassium",            unit: "mg", group: .minerals, key: \.potassium,
+              offKey: "potassium_100g", offFactor: 1_000),
+        .init(label: "Selenium",             unit: "µg", group: .minerals, key: \.selenium,
+              offKey: "selenium_100g", offFactor: 1_000_000),
+        .init(label: "Zinc",                 unit: "mg", group: .minerals, key: \.zinc,
+              offKey: "zinc_100g", offFactor: 1_000),
     ]
+
+    // Claude  Date 08/04/2026
+    // The micros block as the backend's `nutrimentsJson` blob: Open Food Facts keys in
+    // OFF's own base unit (hence ÷ offFactor — the server multiplies it back through
+    // MICRO_MAP). Only fields the user actually filled in are included; an absent key
+    // reads back as "not available", which is meaningfully different from a stored 0.
+    static func nutrimentsJSON(from micros: Micros) -> [String: Double] {
+        var out: [String: Double] = [:]
+        for field in all {
+            guard let value = field.value(micros), field.offFactor > 0 else { continue }
+            out[field.offKey] = value / field.offFactor
+        }
+        return out
+    }
 
     static func fields(in group: MicroGroup) -> [MicroField] {
         all.filter { $0.group == group }

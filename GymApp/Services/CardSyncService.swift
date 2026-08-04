@@ -147,11 +147,22 @@ final class CardSyncService: ObservableObject {
             userId: id,
             displayName: store.profile.resolvedName,
             cardStyleID: store.profile.cardStyleID,
-            showsRankOnCard: store.profile.showsRankOnCard,
-            rank: store.profile.showsRankOnCard ? store.strategistRank : nil,
+            // Claude  Date 08/02/2026
+            // Always true now: the profile picture is a two-sided coin whose heads face IS
+            // the rank (see RankCoinView), so the ring is structural rather than optional
+            // and the old "Show rank on card" toggle is gone. The wire field stays so the
+            // backend contract is unchanged, and so a future client could opt out again.
+            showsRankOnCard: true,
+            rank: store.strategistRank,
             rankProgress: store.strategistProgress,
             showcasedAchievementIDs: store.profile.showcasedAchievementIDs,
             memberSince: stats.memberSince,
+            // Claude  Date 08/02/2026
+            // Characters-off sends nil rather than a disabled config, so turning them off
+            // actually withdraws the face from the payload. Note the first launch after this
+            // shipped re-pushes once for free: the cached last_pushed_card.json decodes with
+            // character == nil and so won't match the new snapshot in the Equatable dedupe.
+            character: store.profile.character.isEnabled ? store.profile.character : nil,
             updatedAt: nil,
             // Server-owned — never sent from the client (ignored on PUT).
             friendCode: nil
@@ -230,12 +241,18 @@ final class CardSyncService: ObservableObject {
 
     // MARK: - Friends plumbing
 
-    // Our credentials for a /friends call, or nil if Friends mode was never enabled
-    // (no identity/secret yet).
-    private func auth() -> BackendAuth? {
+    // Claude  Date 06/18/2026 last changed: 08/04/2026 by: Claude
+    // Our credentials for an authenticated backend call, or nil if Friends mode was
+    // never enabled (no identity/secret yet). Exposed (was private) because food
+    // submission — `POST /foods/submit` — needs the same card auth /friends does, and
+    // this type is the only owner of the Keychain secret. Read-only: callers get the
+    // credentials to make a call, never the ability to mint or change them.
+    var backendAuth: BackendAuth? {
         guard let id = identity?.userID, let key = keychain.get(Self.keychainKey) else { return nil }
         return BackendAuth(userId: id, key: key)
     }
+
+    private func auth() -> BackendAuth? { backendAuth }
 
     // Run a list-returning call, swallowing errors to an empty list (the UI treats
     // "couldn't load" and "nothing here" the same — an empty section).

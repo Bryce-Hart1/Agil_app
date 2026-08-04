@@ -32,6 +32,14 @@ struct NutritionJournalView: View {
         NavigationStack {
             List {
                 dateSection
+                // Claude  Date 07/25/2026
+                // First-run setup checklist, directly under the day picker and above
+                // Summary — the calorie/water goals it points at are exactly what the
+                // Summary card measures against, so it reads in the right order. Once
+                // retired (finished or dismissed) it never renders again.
+                if !store.profile.nutritionSetup.acknowledged {
+                    NutritionSetupCard(onOpenFocus: openFocusGoals)
+                }
                 summarySection
                 if !store.focusGoals.isEmpty {
                     focusSection
@@ -45,14 +53,12 @@ struct NutritionJournalView: View {
             .themed(theme.current)
             // Claude  Date 07/13/2026
             // Centered mode-switcher pill in the nav bar (shared by all root tabs).
-            .modeNotchToolbar()
+            .modeNotchToolbar(tab: AgilTabItem.journal.tag)
             .toolbar {
                 // Claude  Date 07/12/2026
                 // Top-left: nutrient focus goals ("I want to eat more fiber").
                 ToolbarItem(placement: .topBarLeading) {
-                    Button {
-                        showingFocusGoals = true
-                    } label: {
+                    Button(action: openFocusGoals) {
                         Image(systemName: "scope")
                     }
                 }
@@ -74,6 +80,15 @@ struct NutritionJournalView: View {
                 EditFoodEntryView(entry: entry)
             }
         }
+    }
+
+    // Claude  Date 07/25/2026
+    // The one way into the focus-goals sheet, so both entry points — the toolbar's
+    // scope button and the setup checklist's bonus row — tick the checklist item.
+    // markNutritionSetup is guarded, so re-opening the sheet costs nothing.
+    private func openFocusGoals() {
+        showingFocusGoals = true
+        store.markNutritionSetup(\.focusGoalsOpened)
     }
 
     // MARK: - Date stepper

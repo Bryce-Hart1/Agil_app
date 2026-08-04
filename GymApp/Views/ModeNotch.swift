@@ -10,8 +10,15 @@ import SwiftUI
 // safe-area strip, which turned out to cover the nav bars' own buttons. It owns
 // the mode flip directly via @AppStorage; RootTabView reacts to the change.)
 struct ModeNotch: View {
+    // Claude  Date 07/28/2026
+    // The tag of the tab this notch belongs to. Only used to decide whether this
+    // instance is the visible one when reporting its frame to the tour — see
+    // activeTabTag in TourFrames.swift for why that matters.
+    let tab: Int
+
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var theme: ThemeManager
+    @Environment(\.activeTabTag) private var activeTabTag
     // Claude  Date 07/13/2026
     // Same persisted key RootTabView reads — flipping it here swaps the whole
     // tab set there (and its onChange restores that world's last-selected tab).
@@ -78,6 +85,17 @@ struct ModeNotch: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Switch to \(mode.toggled.label)")
+        // Claude  Date 07/27/2026
+        // Report the pill's real frame for the tour's spotlight. This has to go
+        // through the global-frame registry rather than .tourTarget: the notch is a
+        // principal toolbar item, so it's hosted in a UIKit navigation bar and a
+        // SwiftUI preference can't escape it. The synthesized rect that used to
+        // stand in for this assumed a fixed 210×36 dead-centered pill; the real one
+        // hugs its content and UIKit shifts it aside for the screen's own trailing
+        // button, so the spotlight landed on the "+". Inert unless a tour is running,
+        // and only the visible tab's notch reports — every root screen has one, and
+        // their pills don't all sit at the same x.
+        .tourTargetGlobal(.modeNotch, active: store.tourActive && tab == activeTabTag)
     }
 
     // Claude  Date 07/13/2026 last changed: 07/21/2026 by: Claude
@@ -102,25 +120,47 @@ struct ModeNotch: View {
 }
 
 extension View {
-    // Claude  Date 07/13/2026
+    // Claude  Date 07/13/2026 last changed: 07/28/2026 by: Claude
     // Mounts the notch as the nav bar's centered (principal) item. Each root tab
     // view applies this; the screen's own leading/trailing buttons keep their
     // spots on either side. Pushed detail screens have their own toolbars, so the
     // notch naturally disappears there — including the live workout editor.
-    func modeNotchToolbar() -> some View {
+    // (07/28) Takes the screen's tab tag, so the notch can tell whether it's the
+    // visible one — every root screen mounts an instance and they all report to the
+    // tour's single .modeNotch slot.
+    //
+    // IMPORTANT: "centered" is UIKit's centering, which splits the space the bar
+    // BUTTONS leave, not the bar. A screen with only a trailing button pushes the
+    // pill left; one with a wide leading item pushes it right. Screens that would
+    // otherwise be lopsided balance themselves with an invisible counterweight item
+    // — see navBarBalancer below.
+    func modeNotchToolbar(tab: Int) -> some View {
         toolbar {
             ToolbarItem(placement: .principal) {
-                ModeNotch()
+                ModeNotch(tab: tab)
             }
         }
     }
+}
+
+// Claude  Date 07/28/2026
+// An invisible stand-in that reserves exactly as much width as the view it mirrors,
+// so a nav bar with buttons on only one side still centers its principal item.
+// Callers pass a copy of the real button's LABEL (not the Button), which is what
+// makes the widths match by construction rather than by a hand-tuned constant that
+// drifts with the font, the Dynamic Type size, or a glyph swap.
+func navBarBalancer<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+    content()
+        .opacity(0)
+        .accessibilityHidden(true)
+        .allowsHitTesting(false)
 }
 
 #Preview {
     NavigationStack {
         Text("Content")
             .navigationTitle("Preview")
-            .modeNotchToolbar()
+            .modeNotchToolbar(tab: 1)
     }
     .environmentObject(AppStore())
     .environmentObject(ThemeManager())

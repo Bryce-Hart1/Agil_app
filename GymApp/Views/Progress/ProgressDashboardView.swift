@@ -31,7 +31,7 @@ struct ProgressDashboardView: View {
             .themed(theme.current)
             // Claude  Date 07/13/2026
             // Centered mode-switcher pill in the nav bar (shared by all root tabs).
-            .modeNotchToolbar()
+            .modeNotchToolbar(tab: AgilTabItem.progress.tag)
             .onAppear {
                 if selectedExerciseID == nil {
                     selectedExerciseID = loggedExercises.first?.id

@@ -46,7 +46,7 @@ private struct PresetEditor: View {
                 IconGrid(selected: $preset.symbolName, accent: theme.current.accent)
             }
 
-            // Claude  Date 07/01/2026
+            // Bryce Hart Jul 25 26
             // Adaptive-progression toggle for the whole preset, with a "?" explainer
             // (mirrors the info-button pattern in NewExerciseView). When on, each
             // exercise below gains a weight-step picker, and workouts started from this
@@ -66,9 +66,7 @@ private struct PresetEditor: View {
                     }
                 }
             } footer: {
-                if preset.isAdaptive {
-                    Text("Hit the top of the rep range and the weight goes up next time; miss the bottom twice and it eases off.")
-                }
+                
             }
 
             ForEach($preset.items) { $item in
@@ -92,7 +90,7 @@ private struct PresetEditor: View {
                     // so the value labels pick up the new accent instead of keeping the
                     // old theme's color.
                     .retintOnThemeChange(theme.current, salt: "sets-\(item.id)")
-                    TextField("Note (form cues…)",
+                    TextField("Note (Things like form cues, bench height)",
                               text: Binding($item.note, replacingNilWith: ""),
                               axis: .vertical)
                         .lineLimit(1...4)
@@ -246,8 +244,10 @@ private struct PresetEditor: View {
         } message: {
             Text("""
             When this is on, each workout you start from this preset suggests a weight based on last time.
-
-            Hit the top of the rep range on every working set, and the weight goes up next time. Fall below the bottom two sessions in a row, and it eases back down. The jump defaults to 5 lb (10 lb for legs and deadlifts) and can be set per exercise. Suggestions are always editable.
+            Hit the top of the rep range on every working set, and the weight goes up next time. 
+            Fall below the bottom two sessions in a row, and it eases back down. 
+            The jump defaults to 5 lb (10 lb for anything legs, and deadlifts) and can be set per exercise. 
+            Suggestions are always editable.
             """)
         }
     }
@@ -270,8 +270,8 @@ private struct PresetEditor: View {
 #Preview {
     let store = AppStore()
     let preset = WorkoutPreset(name: "Push Day", symbolName: "figure.strengthtraining.traditional",
-                               items: [PresetItem(exerciseId: store.exercises[0].id,
-                                                  targetRepRange: RepRange(min: 8, max: 12))])
+        items: [PresetItem(exerciseId: store.exercises[0].id,
+        targetRepRange: RepRange(min: 8, max: 12))])
     store.addPreset(preset)
     return NavigationStack {
         PresetEditorView(presetID: preset.id)

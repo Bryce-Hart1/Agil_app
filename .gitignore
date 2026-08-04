@@ -34,6 +34,7 @@ Cargo.lock
 #local running (mac)
 Info.plist
 GymApp 2.xcodeproj
+GymApp 3.xcodeproj
 
 #assets (not public)
 assets

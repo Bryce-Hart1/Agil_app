@@ -21,6 +21,12 @@ struct RootTabView: View {
     // Selected tab. Tabs are tagged from 1 (the old tag-0 switcher placeholder is
     // gone — the ModeNotch pill at the top switches worlds now).
     @State private var selection = 1
+    // Claude  Date 07/27/2026
+    // Frames reported by tour targets that can't carry a preference anchor — today
+    // just the ModeNotch, hosted in a UIKit nav bar. Owned here and injected into
+    // the environment so the notch can write to it from inside the toolbar. See
+    // TourFrames.swift for why the preference path doesn't reach it.
+    @StateObject private var tourFrames = TourFrames()
     // Claude  Date 06/16/2026 last changed: 07/13/2026 by: Claude
     // Which world the bar shows — lifting vs nutrition. Persisted so the app reopens
     // where you left off. Flipped by switchMode(to:), driven by the ModeNotch pill.
@@ -77,6 +83,17 @@ struct RootTabView: View {
         // own keyboard handling: Form/List is UIScrollView-backed, so UIKit still
         // scrolls the focused field into view.
         .ignoresSafeArea(.keyboard, edges: .bottom)
+        // Claude  Date 07/27/2026
+        // Injected here rather than at the app root so it stays scoped to the tour's
+        // only writer and reader. Toolbar content inherits the environment, which is
+        // how ModeNotch — a principal toolbar item — reaches it (it already resolves
+        // `store` and `theme` the same way).
+        .environment(\.tourFrames, tourFrames)
+        // Claude  Date 07/28/2026
+        // Which tab is actually on screen. A TabView keeps visited tabs alive, so
+        // every root screen's ModeNotch is live at once; each one reads this to tell
+        // whether it's the visible instance before reporting its frame to the tour.
+        .environment(\.activeTabTag, selection)
         .tint(theme.current.accent)
         // Claude  Date 07/21/2026
         // The app's typeface, carried by the theme (all built-ins are monospaced
@@ -180,6 +197,17 @@ struct RootTabView: View {
         // safe area also zeroes proxy.safeAreaInsets, so the real device insets come
         // from UIKit (deviceInsets below) — using the proxy's was the bug that put
         // the notch spotlight too high and the tab spotlights too low.
+        //
+        // Claude  Date 07/27/2026
+        // Frame resolution is now three tiers, most-accurate first:
+        //   1. the preference anchor (exact, and what everything on the SwiftUI side
+        //      of the tree uses);
+        //   2. tourFrames — an exact frame(in: .global) for targets that can't carry
+        //      a preference because they live inside UIKit chrome (the ModeNotch).
+        //      Same window coordinate space as the anchors, since this reader ignores
+        //      safe area;
+        //   3. fallbackFrame — the synthesized approximation, now a genuine backstop
+        //      rather than the live path for the notch.
         .overlayPreferenceValue(TourAnchorKey.self) { anchors in
             GeometryReader { proxy in
                 if store.tourActive {
@@ -187,14 +215,14 @@ struct RootTabView: View {
                         steps: TourScript.steps,
                         frameFor: { target in
                             anchors[target].map { proxy[$0] }
+                                ?? tourFrames.frames[target]
                                 ?? target.fallbackFrame(size: proxy.size,
                                                         insets: deviceInsets,
                                                         mode: mode)
                         },
                         onApply: applyTourStep,
                         onFinish: { store.completeTour() },
-                        size: proxy.size,
-                        insets: deviceInsets
+                        size: proxy.size
                     )
                     .transition(.opacity)
                 }

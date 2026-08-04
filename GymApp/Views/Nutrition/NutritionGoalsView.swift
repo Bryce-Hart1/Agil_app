@@ -61,7 +61,7 @@ struct NutritionGoalsView: View {
     var body: some View {
         Form {
             Section {
-                goalField("Calories (kcal)", value: $store.nutritionGoals.calories)
+                goalField("Calories (kcal)", value: calorieGoalBinding)
                 goalField("Protein (g)", value: $store.nutritionGoals.protein)
                 goalField("Carbs (g)", value: $store.nutritionGoals.carbs)
                 goalField("Fat (g)", value: $store.nutritionGoals.fat)
@@ -71,7 +71,7 @@ struct NutritionGoalsView: View {
                 // Claude  Date 07/12/2026
                 // Manual entry stays the primary path; the calculator below is an
                 // optional shortcut, not a constraint on these fields.
-                Text("Set the gram fields however you like — or use the calculator below to fill them from your calorie goal.")
+                Text("Set the above fields to your preference, or use the calculator below to fill them from your calorie goal.")
             }
 
             macroCalculatorSection
@@ -92,7 +92,7 @@ struct NutritionGoalsView: View {
 
     // MARK: - Macro calculator
 
-    // Claude  Date 07/12/2026
+    // Claude  Date 07/12/2026 edited 7/26/26 Bryce Hart
     // Opt-in "calculate from calories" helper: choose a preset split (or Custom
     // with sliders), see the resulting grams for the current calorie goal, and
     // press Apply to write them. Nothing here runs automatically — typing in the
@@ -123,7 +123,7 @@ struct NutritionGoalsView: View {
                     if justApplied {
                         Label("Applied", systemImage: "checkmark")
                     } else {
-                        Text("Apply to macro goals")
+                        Text("apply to macro goals")
                     }
                     Spacer()
                 }
@@ -253,13 +253,36 @@ struct NutritionGoalsView: View {
 
     // MARK: - Fields
 
-    // Claude  Date 07/16/2026
+    // Claude  Date 07/25/2026
+    // Calories, wrapped so committing an edit also ticks the Journal's setup
+    // checklist (and, through it, the First Plan badge). Marking on *any* write —
+    // rather than on a change of value — is the forgiving choice: someone whose
+    // target genuinely is the default 2000 still gets credit for coming in here and
+    // typing it. markNutritionSetup is guarded, so per-keystroke calls are free.
+    // Protein/carbs/fat stay bound straight through; only the two goals the
+    // checklist asks for are tracked.
+    private var calorieGoalBinding: Binding<Double> {
+        Binding(
+            get: { store.nutritionGoals.calories },
+            set: {
+                store.nutritionGoals.calories = $0
+                store.markNutritionSetup(\.calorieGoalSet)
+            }
+        )
+    }
+
+    // Claude  Date 07/16/2026 last changed: 07/25/2026 by: Claude
     // The water goal seen through the display unit: reads convert ml → unit (rounded
     // to a tenth for a sane field value), writes convert back to canonical ml.
+    // (Now also ticks the setup checklist, like the calorie field above. The unit
+    // conversion is unaffected — the flag records that a goal was set, not what.)
     private var waterGoalBinding: Binding<Double> {
         Binding(
             get: { (waterUnit.fromMilliliters(store.nutritionGoals.water) * 10).rounded() / 10 },
-            set: { store.nutritionGoals.water = waterUnit.toMilliliters($0) }
+            set: {
+                store.nutritionGoals.water = waterUnit.toMilliliters($0)
+                store.markNutritionSetup(\.waterGoalSet)
+            }
         )
     }
 

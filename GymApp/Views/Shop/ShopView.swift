@@ -49,8 +49,15 @@ struct ShopView: View {
         }
         .navigationTitle("Shop")
         .themed(theme.current)
-        .sheet(item: $previewItem) { item in
-            ShopItemPreviewSheet(
+        // Claude  Date 06/17/2026 last changed: 08/03/2026 by: Claude
+        // fullScreenCover, not a sheet. The old .sheet opened at a .medium detent that
+        // was shorter than the detail content's intrinsic height, so the description
+        // and the "you need N more coins" line were pushed off the bottom edge. An
+        // item is also the thing you're about to spend 3,000 coins on — it deserves
+        // the whole screen. Dismissal is the detail view's own Go Back button and
+        // toolbar chevron, since a full-screen cover has no drag-to-dismiss.
+        .fullScreenCover(item: $previewItem) { item in
+            ShopItemDetailView(
                 item: item,
                 isOwned: isOwned(item),
                 isEquipped: isEquipped(item),
@@ -60,7 +67,6 @@ struct ShopView: View {
                 onEquip: { equip(item) }
             )
             .environmentObject(theme)
-            .presentationDetents([.medium, .large])
         }
     }
 
@@ -187,10 +193,16 @@ struct ShopView: View {
 
 // MARK: - Featured tile
 
-// Claude  Date 06/17/2026
+// Claude  Date 06/17/2026 last changed: 08/03/2026 by: Claude
 // One hero tile in the featured grid: full-bleed artwork (the live card or a mini
-// theme mock), a rarity badge, the name, and a price / owned line. Tapping opens
-// the preview sheet where the actual buying happens.
+// theme mock), the name, and a price / owned line. Tapping opens the detail screen
+// where the actual buying happens.
+//
+// No rarity badge here any more (Bryce, 8/3/26): a capsule sitting on top of the
+// artwork competed with the item it was labelling — you looked at the badge instead
+// of the card. Rarity is still on the tile, just not as chrome: the stroke and glow
+// are the tier colour, so gold still reads as legendary at a glance. The spelled-out
+// badge lives on the detail screen, where there's room for it to not be in the way.
 private struct FeaturedItemCard: View {
     let item: ShopItem
     let isOwned: Bool
@@ -200,20 +212,15 @@ private struct FeaturedItemCard: View {
     var body: some View {
         Button(action: onTap) {
             VStack(alignment: .leading, spacing: 8) {
-                ZStack(alignment: .topTrailing) {
-                    ShopItemArtwork(item: item)
-                        .frame(height: 130)
-                        .frame(maxWidth: .infinity)
-                        .clipShape(RoundedRectangle(cornerRadius: 14))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 14)
-                                .stroke(item.rarityColor.opacity(0.65), lineWidth: 1.5)
-                        )
-                        .shadow(color: item.rarityColor.opacity(0.35), radius: 8, y: 2)
-
-                    RarityBadge(label: item.rarityLabel, color: item.rarityColor)
-                        .padding(8)
-                }
+                ShopItemArtwork(item: item)
+                    .frame(height: 130)
+                    .frame(maxWidth: .infinity)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14)
+                            .stroke(item.rarityColor.opacity(0.65), lineWidth: 1.5)
+                    )
+                    .shadow(color: item.rarityColor.opacity(0.35), radius: 8, y: 2)
 
                 Text(item.name)
                     .font(.subheadline.weight(.semibold))
@@ -281,14 +288,18 @@ private struct CatalogRow: View {
     }
 }
 
-// MARK: - Preview sheet (the buy screen)
+// MARK: - Item detail (the buy screen)
 
-// Claude  Date 06/17/2026
-// Full-size look at one item with the buy / equip action. This doubles as the
-// "preview for the shop" Bryce asked for — see the theme or card big before
-// spending. A confirm alert could be layered on later; for now the prominent
-// "Buy for N" button is the confirmation step.
-private struct ShopItemPreviewSheet: View {
+// Claude  Date 06/17/2026 last changed: 08/03/2026 by: Claude
+// Full-screen look at one item with the buy / equip action — the "preview for the
+// shop" Bryce asked for: see the theme or card big before spending.
+//
+// Was ShopItemPreviewSheet, a fixed-height VStack in a .medium sheet detent, which
+// clipped its own copy off the bottom. Two structural changes stop that recurring:
+// the content scrolls (so it can never overflow, on any device size or Dynamic Type
+// setting), and the buttons live in a .safeAreaInset bar pinned to the bottom
+// instead of being pushed there by a Spacer that had no room to give.
+private struct ShopItemDetailView: View {
     let item: ShopItem
     let isOwned: Bool
     let isEquipped: Bool
@@ -301,43 +312,127 @@ private struct ShopItemPreviewSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        VStack(spacing: 20) {
-            ShopItemArtwork(item: item)
-                .frame(height: 240)
-                .frame(maxWidth: .infinity)
-                .clipShape(RoundedRectangle(cornerRadius: 20))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 20)
-                        .stroke(item.rarityColor.opacity(0.65), lineWidth: 2)
-                )
-                .shadow(color: item.rarityColor.opacity(0.4), radius: 14, y: 4)
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 18) {
+                    hero
 
-            VStack(spacing: 8) {
-                Text(item.name).font(.title2.weight(.bold))
-                RarityBadge(label: item.rarityLabel, color: item.rarityColor)
+                    VStack(spacing: 8) {
+                        Text(item.name)
+                            .font(.title2.weight(.bold))
+                            .multilineTextAlignment(.center)
+                        RarityBadge(label: item.rarityLabel, color: item.rarityColor)
+                    }
+
+                    // Per-item copy (see ShopItem.blurb) — used to be one of two
+                    // generic strings shared by every theme / every card.
+                    Text(item.blurb)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+
+                    priceRow
+                }
+                .padding(.horizontal)
+                .padding(.top, 8)
+                .padding(.bottom, 24)
             }
-
-            Text(kindDescription)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal)
-
-            Spacer()
-
-            actionButton
-                .padding(.horizontal)
+            .background(theme.current.background.ignoresSafeArea())
+            .safeAreaInset(edge: .bottom) { actionBar }
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                // Second dismissal affordance — the bottom Go Back button is the
+                // primary one, this is the reachable-with-a-thumb twin.
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { dismiss() } label: {
+                        Label("Back", systemImage: "chevron.left")
+                    }
+                    .tint(theme.current.accent)
+                }
+            }
         }
-        .padding(.top, 28)
-        .padding(.bottom, 20)
-        .background(theme.current.background.ignoresSafeArea())
     }
 
-    private var kindDescription: String {
-        switch item {
-        case .theme: return "An app-wide colour theme. Equip it to recolour every screen."
-        case .card:  return "A profile-card background. Equip it from your profile card."
+    // MARK: Hero
+
+    // Claude  Date 08/03/2026
+    // Cards show their real background full-bleed (animated ones animate here too).
+    // Themes get ThemeShowcaseView — a slice of actual app UI in the theme's palette
+    // and typeface — instead of the old abstract ThemeMiniMock, so you can judge
+    // legibility before buying. The showcase needs more height than a card since it
+    // holds real components at real size.
+    @ViewBuilder private var hero: some View {
+        Group {
+            switch item {
+            case .card:
+                ShopItemArtwork(item: item).frame(height: 240)
+            case .theme(let appTheme):
+                ThemeShowcaseView(theme: appTheme).frame(height: 330)
+            }
         }
+        .frame(maxWidth: .infinity)
+        .clipShape(RoundedRectangle(cornerRadius: 20))
+        .overlay(
+            RoundedRectangle(cornerRadius: 20)
+                .stroke(item.rarityColor.opacity(0.65), lineWidth: 2)
+        )
+        .shadow(color: item.rarityColor.opacity(0.4), radius: 14, y: 4)
+    }
+
+    // Price and what's left in the wallet — worth showing now there's room for it.
+    @ViewBuilder private var priceRow: some View {
+        if !isOwned {
+            HStack(spacing: 10) {
+                Label("\(item.price.formatted())", systemImage: "circle.hexagongrid.fill")
+                    .font(.headline)
+                    .foregroundStyle(item.rarityColor)
+                Text("·").foregroundStyle(.secondary)
+                Text("Balance \(balance.formatted())")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            .monospacedDigit()
+        }
+    }
+
+    // MARK: Action bar
+
+    // Claude  Date 08/03/2026
+    // Pinned to the bottom of the screen, so nothing here can ever be scrolled or
+    // squeezed out of view. Order is deliberate: the action, then why it's disabled,
+    // then the way out.
+    private var actionBar: some View {
+        VStack(spacing: 10) {
+            actionButton
+
+            // Claude  Date 08/03/2026
+            // Deliberately a sibling here rather than living inside actionButton's
+            // @ViewBuilder. In the old code it was returned from that builder as part
+            // of a TupleView, which flattened it into the parent stack as an extra
+            // row below the button — and it was the first thing to fall off the
+            // bottom edge. Keeping it explicit is what actually fixes the clipping.
+            if !isOwned && !canAfford {
+                Text("You need \((item.price - balance).formatted()) more coins.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            // The clear way out. Required, not decorative: a full-screen cover can't
+            // be swiped away.
+            Button { dismiss() } label: {
+                Text("Go Back")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.large)
+            .tint(.secondary)
+        }
+        .padding(.horizontal)
+        .padding(.top, 12)
+        .padding(.bottom, 8)
+        .background(theme.current.background)
     }
 
     @ViewBuilder private var actionButton: some View {
@@ -365,12 +460,6 @@ private struct ShopItemPreviewSheet: View {
             .controlSize(.large)
             .disabled(!canAfford)
             .opacity(canAfford ? 1 : 0.5)
-
-            if !canAfford {
-                Text("You need \((item.price - balance).formatted()) more coins.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
         }
     }
 }
@@ -395,11 +484,17 @@ private struct RarityBadge: View {
     }
 }
 
-// Claude  Date 06/17/2026
+// Claude  Date 06/17/2026 last changed: 08/03/2026 by: Claude
 // Renders a preview of any ShopItem, scaled to whatever frame it's given — the one
 // place that knows how each kind looks. Cards reuse the real CardBackgroundView
 // (so animated cards animate here too); themes get a tiny mocked "app screen" so
-// the palette reads at a glance. Refine the theme mock later.
+// the palette reads at a glance.
+//
+// This is the SMALL artwork only: the 130pt featured tiles and the 44pt browse-all
+// rows. The detail screen deliberately doesn't go through here for themes — it
+// renders ThemeShowcaseView instead (real components at real size). At tile size
+// that showcase would be unreadable mush, so the abstract mock still earns its keep
+// at the top of the funnel.
 private struct ShopItemArtwork: View {
     let item: ShopItem
 
@@ -413,10 +508,12 @@ private struct ShopItemArtwork: View {
     }
 }
 
-// Claude  Date 06/17/2026
+// Claude  Date 06/17/2026 last changed: 08/03/2026 by: Claude
 // A miniature fake "app screen" that shows off a theme's palette: tinted
 // background, an accent header bar, a couple of surface cards, and an accent
-// "button". Purely cosmetic placeholder art for the shop tiles.
+// "button". Purely cosmetic art, and now only used at TILE size — the detail screen
+// shows the real thing (ThemeShowcaseView). Everything is proportional to the frame
+// height, which is why it survives being shrunk to a 44pt browse-all row.
 private struct ThemeMiniMock: View {
     let theme: AppTheme
 

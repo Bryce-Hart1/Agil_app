@@ -1,20 +1,39 @@
 import SwiftUI
 
-// Claude  Date 06/12/2026 last changed: 07/22/2026 by: Claude
+// Claude  Date 06/12/2026 last changed: 08/02/2026 by: Claude
 // (07/22) Rebuilt as a tap-to-edit screen: the live profile card fills the view and each
 // part of it is tappable — tap the avatar/rank, name, badges, or the header palette chip
 // and the matching editor slides up as a bottom sheet. The old Form of stacked sections is
 // gone; every control now lives behind the element it changes. The pickers themselves
 // (card styles, avatars, coin/buy flow) are unchanged — just relocated into the sheets.
+//
+// (08/02) Two tabs now: CARD (the tap-to-edit card above) and CHARACTER (the full-screen
+// customizer). The character has far too many knobs — 7 slots, 5 colour roles, a live
+// preview — to live only behind a face tap on a bottom sheet; it needs a room of its own,
+// and it needs to be findable without knowing the card is tappable. Both tabs and the face
+// tap all drive the SAME CharacterCustomizerView, so there's one editor, not two.
+// Temporary home while the build settles — if the character grows past what a tab here can
+// hold, this lifts out to its own destination off the Profile hub with no changes to the
+// customizer itself.
 struct EditProfileCardView: View {
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var theme: ThemeManager
 
     // Which element's editor is currently presented (nil = none).
     @State private var target: EditTarget?
+    @State private var section: EditSection = .card
 
     private var stats: ProfileStats {
         ProfileStats(workouts: store.workouts, exercises: store.exercises)
+    }
+
+    // Claude  Date 08/02/2026
+    // The two halves of this screen. Not an enum of sheets like EditTarget — these are
+    // top-level modes, so they're a segmented control rather than a presentation.
+    private enum EditSection: String, CaseIterable, Identifiable {
+        case card, character
+        var id: String { rawValue }
+        var title: String { self == .card ? "Card" : "Character" }
     }
 
     // Claude  Date 07/22/2026
@@ -27,6 +46,51 @@ struct EditProfileCardView: View {
     }
 
     var body: some View {
+        VStack(spacing: 0) {
+            Picker("Section", selection: $section) {
+                ForEach(EditSection.allCases) { Text($0.title).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .padding(.bottom, 6)
+            .retintOnThemeChange(theme.current, salt: "edit-profile-section")
+
+            switch section {
+            case .card:      cardTab
+            case .character: CharacterCustomizerView()
+            }
+        }
+        .background(theme.current.background.ignoresSafeArea())
+        .navigationTitle(section == .card ? "Edit Profile Card" : "Your Character")
+        .navigationBarTitleDisplayMode(.inline)
+        .themed(theme.current)
+        .sheet(item: $target) { target in
+            switch target {
+            case .style:
+                CardStylePickerSheet()
+                    .environmentObject(store)
+                    .environmentObject(theme)
+                    .presentationDetents([.medium, .large])
+            case .avatar:
+                // Claude  Date 08/02/2026
+                // (Was AvatarPickerSheet. Now the same customizer the Character tab shows,
+                // wrapped in sheet chrome — which is why it wants the full height.)
+                FaceEditorSheet()
+                    .environmentObject(store)
+                    .environmentObject(theme)
+                    .presentationDetents([.large])
+            case .badges:
+                NavigationStack { FeaturedBadgesView() }
+                    .environmentObject(store)
+                    .environmentObject(theme)
+            }
+        }
+    }
+
+    // The original tap-to-edit card, unchanged. The GeometryReader now measures the space
+    // left under the tab picker, so the card still sizes itself to (almost) fill it.
+    private var cardTab: some View {
         GeometryReader { geo in
             ScrollView {
                 VStack(spacing: 12) {
@@ -36,15 +100,15 @@ struct EditProfileCardView: View {
                         unlockedIDs: store.unlockedAchievementIDs,
                         pinnedIDs: store.profile.showcasedAchievementIDs,
                         memberSince: stats.memberSince,
-                        rank: store.profile.showsRankOnCard ? store.strategistRank : nil,
+                        rank: store.strategistRank,
                         rankProgress: store.strategistProgress,
                         avatarID: store.profile.avatarID,
+                        character: store.profile.character,
                         ringFillMode: .rankProgress,
                         catalog: store.achievementCatalog,
                         edit: ProfileCardEditActions(
                             background: { target = .style },
                             avatar: { target = .avatar },
-                            rank: { target = .avatar },
                             badges: { target = .badges }
                         )
                     )
@@ -56,28 +120,6 @@ struct EditProfileCardView: View {
                         .padding(.bottom, 8)
                 }
                 .padding(16)
-            }
-            .background(theme.current.background.ignoresSafeArea())
-        }
-        .navigationTitle("Edit Profile Card")
-        .navigationBarTitleDisplayMode(.inline)
-        .themed(theme.current)
-        .sheet(item: $target) { target in
-            switch target {
-            case .style:
-                CardStylePickerSheet()
-                    .environmentObject(store)
-                    .environmentObject(theme)
-                    .presentationDetents([.medium, .large])
-            case .avatar:
-                AvatarPickerSheet()
-                    .environmentObject(store)
-                    .environmentObject(theme)
-                    .presentationDetents([.medium, .large])
-            case .badges:
-                NavigationStack { FeaturedBadgesView() }
-                    .environmentObject(store)
-                    .environmentObject(theme)
             }
         }
     }
@@ -130,87 +172,8 @@ private struct CardStylePickerSheet: View {
     }
 }
 
-// MARK: - Avatar + rank picker
-
-// Claude  Date 07/22/2026
-// Raised by tapping the avatar or the rank title. Groups the whole avatar/ring cluster: the
-// avatar strip (equip/buy) plus the "Show rank on card" toggle — putting the rank control
-// here means it's reachable even when the ring is currently off (nothing to tap on the card
-// in that case).
-private struct AvatarPickerSheet: View {
-    @EnvironmentObject private var store: AppStore
-    @EnvironmentObject private var theme: ThemeManager
-    @Environment(\.dismiss) private var dismiss
-
-    // The avatar awaiting a buy-confirmation, if any.
-    @State private var pendingAvatarPurchase: Avatar?
-
-    private var balance: Int { theme.balance(earned: store.totalCoinsEarned) }
-
-    var body: some View {
-        NavigationStack {
-            List {
-                Section {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 14) {
-                            ForEach(Avatar.all) { avatar in
-                                AvatarPickCell(
-                                    avatar: avatar,
-                                    accent: theme.current.accent,
-                                    isSelected: store.profile.avatarID == avatar.id,
-                                    isUnlocked: theme.isAvatarUnlocked(avatar),
-                                    canAfford: balance >= avatar.price,
-                                    onSelect: { store.profile.avatarID = avatar.id },
-                                    onBuy: { pendingAvatarPurchase = avatar }
-                                )
-                            }
-                        }
-                        .padding(.vertical, 4)
-                    }
-                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
-                } header: {
-                    Text("Avatar")
-                } footer: {
-                    Text("Coins: \(balance)")
-                }
-
-                Section {
-                    Toggle("Show rank on card", isOn: $store.profile.showsRankOnCard)
-                } footer: {
-                    Text("Frames your avatar with your Strategist rank emblem.")
-                }
-            }
-            .navigationTitle("Avatar & Rank")
-            .navigationBarTitleDisplayMode(.inline)
-            .themed(theme.current)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                }
-            }
-            .alert("Buy Avatar", isPresented: avatarPurchaseAlertBinding, presenting: pendingAvatarPurchase) { avatar in
-                Button("Buy for \(avatar.price)") { confirmAvatarPurchase(avatar) }
-                Button("Cancel", role: .cancel) {}
-            } message: { avatar in
-                Text("Unlock the \(avatar.name) avatar for \(avatar.price) coins?")
-            }
-        }
-    }
-
-    private var avatarPurchaseAlertBinding: Binding<Bool> {
-        Binding(get: { pendingAvatarPurchase != nil }, set: { if !$0 { pendingAvatarPurchase = nil } })
-    }
-
-    // Buy, then equip the newly unlocked avatar.
-    private func confirmAvatarPurchase(_ avatar: Avatar) {
-        if theme.purchaseAvatar(avatar, balance: balance) {
-            store.profile.avatarID = avatar.id
-        }
-        pendingAvatarPurchase = nil
-    }
-}
-
 // MARK: - Rows (shared by the sheets above)
+// (The avatar sheet + its cell moved to FaceEditorSheet.swift on 08/02/2026.)
 
 // Claude  Date 06/13/2026 last changed: 06/13/2026 by: Claude
 // One card-style row: a swatch (color fill or image thumbnail) + name, with a
@@ -296,56 +259,6 @@ private struct CardStyleRow: View {
             .buttonStyle(.borderedProminent)
             .disabled(!canAfford)
             .opacity(canAfford ? 1 : 0.5)
-        }
-    }
-}
-
-// Claude  Date 06/30/2026
-// One avatar in the horizontal picker: the avatar art in a ring (accent when selected),
-// its name, and a state line below — selected, "Owned", or a coin price to buy. Tapping
-// an owned/free avatar equips it; a locked one triggers the buy alert.
-private struct AvatarPickCell: View {
-    let avatar: Avatar
-    let accent: Color
-    let isSelected: Bool
-    let isUnlocked: Bool
-    let canAfford: Bool
-    let onSelect: () -> Void
-    let onBuy: () -> Void
-
-    var body: some View {
-        VStack(spacing: 6) {
-            AvatarView(avatar: avatar, size: 60, tint: accent,
-                       discColor: Color.gray.opacity(0.15),
-                       ringColor: isSelected ? accent : Color.gray.opacity(0.3))
-                .overlay(alignment: .bottomTrailing) {
-                    if isSelected {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(accent)
-                            .background(Circle().fill(.background))
-                    }
-                }
-
-            Text(avatar.name).font(.caption).lineLimit(1)
-
-            trailing
-                .font(.caption2)
-                .frame(height: 16)
-        }
-        .frame(width: 72)
-        .contentShape(Rectangle())
-        .onTapGesture { if isUnlocked { onSelect() } else { onBuy() } }
-    }
-
-    @ViewBuilder private var trailing: some View {
-        if isSelected {
-            Text("Equipped").foregroundStyle(.secondary)
-        } else if isUnlocked {
-            Text("Owned").foregroundStyle(.secondary)
-        } else {
-            Label("\(avatar.price)", systemImage: "circle.hexagongrid.fill")
-                .foregroundStyle(canAfford ? accent : .secondary)
-                .opacity(canAfford ? 1 : 0.6)
         }
     }
 }

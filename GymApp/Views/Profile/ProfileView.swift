@@ -9,7 +9,12 @@ import SwiftUI
 struct ProfileView: View {
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var theme: ThemeManager
-
+    // Claude  Date 07/28/2026
+    // Profile is the one screen mounted in BOTH worlds, and its tab tag differs
+    // between them (4 lifting, 3 nutrition) — the notch needs the right one to tell
+    // whether it's the visible instance. Same persisted key RootTabView reads.
+    @AppStorage("appMode") private var modeRaw = AppMode.lifting.rawValue
+    @Environment(\.activeTabTag) private var activeTabTag
     private var stats: ProfileStats {
         ProfileStats(workouts: store.workouts, exercises: store.exercises)
     }
@@ -28,9 +33,16 @@ struct ProfileView: View {
                             unlockedIDs: store.unlockedAchievementIDs,
                             pinnedIDs: store.profile.showcasedAchievementIDs,
                             memberSince: stats.memberSince,
-                            rank: store.profile.showsRankOnCard ? store.strategistRank : nil,
+                            rank: store.strategistRank,
                             rankProgress: store.strategistProgress,
                             avatarID: store.profile.avatarID,
+                            character: store.profile.character,
+                            // Claude  Date 08/02/2026
+                            // Only YOUR card's picture is a coin you can turn over — see
+                            // RankCoinView. Edit mode makes that circle a tap-to-edit
+                            // target, and a friend's character usually isn't on this
+                            // device, so neither of those opts in.
+                            coinFace: true,
                             ringFillMode: .rankProgress,
                             catalog: store.achievementCatalog
                         )
@@ -55,7 +67,87 @@ struct ProfileView: View {
             // Centered mode-switcher pill in the nav bar (shared by all root tabs).
             // As the principal item it takes the inline title's spot — the tab
             // label already says Profile, so no title text is lost that matters.
-            .modeNotchToolbar()
+            .modeNotchToolbar(tab: profileTab)
+            // Claude  Date 07/28/2026
+            // The two destinations worth reaching without scrolling past the card:
+            // Achievements on the left (carrying the unopened count that's the whole
+            // reason you came here), Settings on the right. Achievements moved up
+            // here entirely — its row is gone from navRows below — while Settings is
+            // a shortcut and keeps its row, since Settings is where people look by
+            // habit. One icon per side also keeps the ModeNotch pill on the midline;
+            // see modeNotchToolbar's note on how UIKit centers a principal item.
+            //
+            // Both report their frames to the tour through the global registry, not
+            // .tourTarget: toolbar items live in a UIKit navigation bar and a SwiftUI
+            // preference can't escape it. Gated on the tab because ProfileView is
+            // mounted in BOTH worlds, so two instances can be alive at once.
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    NavigationLink {
+                        AchievementBookView()
+                    } label: {
+                        toolbarIcon("medal")
+                            .overlay(alignment: .topTrailing) { unopenedBadge }
+                    }
+                    .accessibilityLabel("Achievements")
+                    .tourTargetGlobal(.profileAchievements, active: tourTargetsActive)
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    NavigationLink {
+                        SettingsView()
+                    } label: {
+                        Image(systemName: "gearshape")
+                            .font(.system(size: 19))
+                    }
+                    .accessibilityLabel("Settings")
+                    .tourTargetGlobal(.profileSettings, active: tourTargetsActive)
+                }
+            }
+        }
+    }
+
+    // Claude  Date 07/28/2026
+    // This screen's tab tag — 4 in lifting, 3 in nutrition (it's the one view mounted
+    // in both worlds).
+    private var profileTab: Int {
+        AgilTabItem.profileTag(for: AppMode(rawValue: modeRaw) ?? .lifting)
+    }
+
+    // Only the visible world's ProfileView should publish toolbar frames to the tour.
+    private var tourTargetsActive: Bool {
+        store.tourActive && profileTab == activeTabTag
+    }
+
+    // Claude  Date 07/28/2026
+    // Custom-asset toolbar glyph. .renderingMode(.template) is required — medal.svg
+    // declares no template-rendering-intent in its Contents.json, so without it the
+    // artwork draws flat instead of taking the bar's tint.
+    private func toolbarIcon(_ asset: String) -> some View {
+        Image(asset)
+            .renderingMode(.template)
+            .resizable()
+            .scaledToFit()
+            .frame(width: 22, height: 22)
+    }
+
+    // Claude  Date 07/28/2026
+    // The unopened-badge count, riding the medal icon. Drawn as an overlay so it
+    // doesn't widen the toolbar item — the pill's centering depends on the leading
+    // and trailing items staying the same width. Same count the Profile tab badge
+    // shows; zero draws nothing.
+    @ViewBuilder
+    private var unopenedBadge: some View {
+        let count = store.unopenedAchievementCount
+        if count > 0 {
+            Text(count > 9 ? "9+" : "\(count)")
+                .font(.system(size: 10, weight: .bold))
+                .monospacedDigit()
+                .foregroundStyle(.white)
+                .padding(.horizontal, 4)
+                .frame(minWidth: 15, minHeight: 15)
+                .background(Color.red, in: Capsule())
+                .offset(x: 8, y: -6)
+                .accessibilityLabel("\(count) new")
         }
     }
 
@@ -108,15 +200,11 @@ struct ProfileView: View {
                 PremadeWorkoutsView()
             }
             Divider().padding(.leading, 16)
-            // Claude  Date 07/24/2026
-            // The Achievement Book (was the flat AchievementsView list). Carries the
-            // same unopened count as the tab badge, so the reason you came to this
-            // screen is still visible once the tab bar is behind you.
-            profileNavRow("Achievements", systemImage: "rosette",
-                          badgeCount: store.unopenedAchievementCount) {
-                AchievementBookView()
-            }
-            Divider().padding(.leading, 16)
+            // Claude  Date 07/24/2026 last changed: 07/28/2026 by: Claude
+            // (07/28) The Achievement Book row lived here, carrying the unopened
+            // count. It's now the medal button in the nav bar's top-left instead —
+            // one place, not two, and reachable without scrolling past the card,
+            // which is the point when an unopened badge is what brought you here.
             profileNavRow("Shop", systemImage: "bag") {
                 ShopView()
             }
@@ -135,10 +223,9 @@ struct ProfileView: View {
         _ title: String,
         systemImage: String,
         disabledMessage: String? = nil,
-        badgeCount: Int = 0,
         @ViewBuilder destination: () -> Destination
     ) -> some View {
-        profileNavRow(title, disabledMessage: disabledMessage, badgeCount: badgeCount,
+        profileNavRow(title, disabledMessage: disabledMessage,
                       icon: { Image(systemName: systemImage) }, destination: destination)
     }
 
@@ -158,18 +245,18 @@ struct ProfileView: View {
         )
     }
 
-    // Claude  Date 07/13/2026 last changed: 07/24/2026 by: Claude
+    // Claude  Date 07/13/2026 last changed: 07/28/2026 by: Claude
     // Shared row body — accepts any icon view so both the SF-Symbol and custom-asset
     // variants above can reuse it. When `disabledMessage` is set the row is inert:
     // no NavigationLink push, the title/icon are greyed (.plain buttons don't auto-
     // grey, so opacity is applied manually), and the message replaces the chevron.
-    // `badgeCount` (07/24/2026) draws a red count before the chevron — zero draws
-    // nothing, so every other row is untouched.
+    // (07/28) The `badgeCount` parameter came out with the Achievements row — it was
+    // that row's alone, and nothing else here has ever wanted a count. The unopened
+    // count now rides the nav bar's medal button instead; see unopenedBadge.
     @ViewBuilder
     private func profileNavRow<Icon: View, Destination: View>(
         _ title: String,
         disabledMessage: String? = nil,
-        badgeCount: Int = 0,
         @ViewBuilder icon: () -> Icon,
         @ViewBuilder destination: () -> Destination
     ) -> some View {
@@ -191,16 +278,6 @@ struct ProfileView: View {
                 HStack {
                     Label { Text(title) } icon: { icon() }
                     Spacer()
-                    if badgeCount > 0 {
-                        Text(badgeCount > 99 ? "99+" : "\(badgeCount)")
-                            .font(.caption2.weight(.bold))
-                            .monospacedDigit()
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 6)
-                            .frame(minWidth: 20, minHeight: 20)
-                            .background(Color.red, in: Capsule())
-                            .accessibilityLabel("\(badgeCount) new")
-                    }
                     Image(systemName: "chevron.right")
                         .font(.footnote.weight(.semibold))
                         .foregroundStyle(.secondary)
@@ -222,10 +299,16 @@ struct ProfileView: View {
 // an interactive editor (see EditProfileCardView). Each closure just signals which element
 // was tapped; the owner raises the matching sheet. Defaulted so a caller can wire up only
 // what it needs.
+//
+// Claude 08/03/2026: `rank` is gone. It routed to the avatar's editor, so the card carried
+// TWO pencils — one on the ring, one on the rank title right beneath it — opening the same
+// sheet. It made sense while that sheet was AvatarPickerSheet and carried the rank toggle;
+// once it became the character customizer (08/02) the rank chip was promising rank editing
+// and delivering a face editor. Nothing equips a rank from the card any more, so the title
+// is now plain text, like the name above it.
 struct ProfileCardEditActions {
     var background: () -> Void = {}
     var avatar: () -> Void = {}   // the avatar art + rank ring cluster
-    var rank: () -> Void = {}     // routed to the same editor as the avatar
     var badges: () -> Void = {}
 }
 
@@ -245,11 +328,20 @@ struct ProfileShowcaseCard: View {
     // fills its ring toward the next rank.
     var rank: StrategistRank? = nil
     var rankProgress: Double = 1
-    // Claude  Date 06/30/2026 last changed: 07/09/2026 by: Claude
-    // The chosen avatar shown at the top of the card. nil means "no avatar to show" —
-    // which is the friend-card case, since SharedCard syncs `rank` but not `avatarID`.
-    // A nil avatar renders an initials core inside the rank ring instead of art.
+    // Claude  Date 06/30/2026 last changed: 08/02/2026 by: Claude
+    // The face at the top of the card, as the two inputs ProfileFaceView decides between:
+    // the customizable character wins when it's present and enabled, otherwise the stock
+    // avatar, otherwise initials. Both are optional because a friend's card may have
+    // neither — SharedCard carries `character` but deliberately never `avatarID`, so a
+    // friend who turned characters off still renders as initials, exactly as before.
     var avatarID: String? = nil
+    var character: UserCharacter? = nil
+    // Claude  Date 08/02/2026
+    // Opt in to the two-sided coin: the picture turns over between your rank's chess piece
+    // (heads, the default) and your character (tails). Off everywhere by default — the edit
+    // card needs that circle as a tap-to-edit target, and a friend's character usually
+    // isn't on this device. Requires an equipped rank; with no ring there's no coin.
+    var coinFace: Bool = false
     // Claude  Date 07/09/2026
     // How the rank ring reads. Your OWN card uses .rankProgress (the ring fills toward your
     // next rank — a personal "how close am I" meter). Friends viewing your card keep the
@@ -307,34 +399,38 @@ struct ProfileShowcaseCard: View {
             .shadow(color: shadowColor.opacity(0.4), radius: 12, y: 6)
     }
 
-    // Claude  Date 07/09/2026
-    // The avatar at the top of the card. When a rank is equipped it's framed by the
+    // Claude  Date 07/09/2026 last changed: 08/02/2026 by: Claude
+    // The picture at the top of the card. When a rank is equipped it's framed by the
     // RankRing (rank earns the frame, coins buy what's inside); with no rank it's the
-    // plain avatar as before. The ring's core is the chosen avatar art on your own card,
+    // plain face as before. The ring's core is the character/avatar on your own card,
     // or initials on a friend's card (their avatarID doesn't sync — see avatarID above).
+    // (08/02) With `coinFace` the ringed version becomes a two-sided coin — rank chess
+    // piece on heads, your character on tails. It needs the ring to be a coin at all, so
+    // the no-rank branch stays a plain face.
     private let ringSize: CGFloat = 120
 
     @ViewBuilder private var cardAvatar: some View {
         if let rank {
-            RankRing(rank: rank, progress: rankProgress, size: ringSize,
-                     fillMode: ringFillMode) {
-                avatarCore(diameter: RingGeometry.coreDiameter(for: ringSize))
+            if coinFace {
+                RankCoinView(rank: rank, progress: rankProgress, size: ringSize,
+                             fillMode: ringFillMode, character: character,
+                             avatarID: avatarID, name: name)
+            } else {
+                RankRing(rank: rank, progress: rankProgress, size: ringSize,
+                         fillMode: ringFillMode) {
+                    avatarCore(diameter: RingGeometry.coreDiameter(for: ringSize))
+                }
             }
         } else {
             avatarCore(diameter: 92)
         }
     }
 
+    // Claude  Date 07/09/2026 last changed: 08/02/2026 by: Claude
+    // (Was a hand-rolled avatar-or-initials switch. ProfileFaceView now owns that decision
+    // — and the character case it grew — so this is a straight hand-off.)
     @ViewBuilder private func avatarCore(diameter: CGFloat) -> some View {
-        if let avatarID {
-            AvatarView(avatar: Avatar.avatar(for: avatarID), size: diameter)
-        } else {
-            ZStack {
-                Circle().fill(Color.white.opacity(0.15))
-                RankRingInitials(name: name, size: diameter)
-            }
-            .frame(width: diameter, height: diameter)
-        }
+        ProfileFaceView(character: character, avatarID: avatarID, name: name, size: diameter)
     }
 
     private var content: some View {
@@ -352,17 +448,18 @@ struct ProfileShowcaseCard: View {
                 .minimumScaleFactor(0.6)
                 .lineLimit(1)
 
-            // Claude  Date 06/15/2026 last changed: 07/09/2026 by: Claude
+            // Claude  Date 06/15/2026 last changed: 08/03/2026 by: Claude
             // The equipped rank's title (when turned on in Edit Profile Card). The
             // emblem that used to sit here is gone — the rank ring around the avatar now
             // carries the rank visually, so this is just the label. (StrategistEmblem
             // still lives on the rank banner and the ladder.)
+            // (08/03) No longer editable — it opened the avatar's editor, which put a
+            // second pencil on the card doing the same job as the ring's. See
+            // ProfileCardEditActions.
             if let rank {
-                editable(edit?.rank, chip: .trailing) {
-                    Text(rank.title)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.white)
-                }
+                Text(rank.title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
             }
 
             // Claude  Date 07/22/2026

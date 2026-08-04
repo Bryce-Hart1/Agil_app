@@ -1,19 +1,26 @@
 import SwiftUI
 
-// Claude  Date 07/14/2026
-// Trust level of a food record, from the backend DTO's `source`. Curated `verified`
-// foods outrank auto-cached `openFoodFacts`, which outrank unreviewed `userSubmitted`.
-// Drives the little provenance badge on the detail page.
+// Claude  Date 07/14/2026 last changed: 08/04/2026 by: Claude
+// Display face of a food's ORIGIN — one badge per case, drawn by FoodSourceBadge.
+// `verified` (Agil's curated vault) gets the brand-pink Agil mark; the rest get a
+// tinted symbol capsule. The second provenance axis (has a human vouched for the
+// numbers?) is `FoodVerification`, rendered as a separate stacked badge — a
+// `generic` or `restaurant` food shows both. (Was origin-only with three cases;
+// `generic`/`restaurant` were added alongside the two-axis model.)
 enum FoodTrust: String, Codable, Hashable {
     case verified
     case openFoodFacts
+    case generic
+    case restaurant
     case userSubmitted
 
     var label: String {
         switch self {
         case .verified:      return "Verified"
         case .openFoodFacts: return "Open Food Facts"
-        case .userSubmitted: return "User submitted"
+        case .generic:       return "Generic"
+        case .restaurant:    return "Restaurant"
+        case .userSubmitted: return "My food"
         }
     }
 
@@ -21,26 +28,33 @@ enum FoodTrust: String, Codable, Hashable {
         switch self {
         case .verified:      return "checkmark.seal.fill"
         case .openFoodFacts: return "globe"
-        case .userSubmitted: return "person.crop.circle.badge.questionmark"
+        case .generic:       return "basket.fill"
+        case .restaurant:    return "fork.knife"
+        case .userSubmitted: return "person.crop.circle"
         }
     }
 
     var tint: Color {
         switch self {
-        case .verified:      return .green
-        case .openFoodFacts: return .blue
-        case .userSubmitted: return .orange
+        case .verified:      return FoodSourcePalette.verified
+        case .openFoodFacts: return FoodSourcePalette.openFoodFacts
+        case .generic:       return FoodSourcePalette.generic
+        case .restaurant:    return FoodSourcePalette.restaurant
+        case .userSubmitted: return FoodSourcePalette.userSubmitted
         }
     }
 
-    // Claude  Date 07/14/2026
-    // Bridge from the current library's FoodSource until the app fetches the richer DTO
-    // end-to-end: shipped seeds read as curated, cached OFF stays OFF, hand-typed foods
-    // are treated as user-submitted.
+    // Claude  Date 07/14/2026 last changed: 08/04/2026 by: Claude
+    // Bridge from the library's FoodSource. Origin maps 1:1 — verification is NOT
+    // folded in here (it's the other axis, carried on FoodDetail.verification), so
+    // a verified restaurant food still reads as `restaurant` and stacks its
+    // Verified badge rather than masquerading as vault-curated.
     init(_ source: FoodSource) {
         switch source {
         case .seed:          self = .verified
         case .openFoodFacts: self = .openFoodFacts
+        case .usda:          self = .generic
+        case .restaurant:    self = .restaurant
         case .custom:        self = .userSubmitted
         }
     }
@@ -66,6 +80,9 @@ struct FoodDetail: Identifiable, Hashable {
     // today). Mapped to an icon via `categoryIcon`.
     var category: String?
     var source: FoodTrust
+    // Claude  Date 08/04/2026
+    // Second provenance axis — see FoodVerification. nil = unknown (no stacked badge).
+    var verification: FoodVerification?
     // Grams/ml in one serving. nil → per-100 only.
     var servingQuantity: Double?
     // "g" or "ml" — what the per-100 basis and serving are measured in.
@@ -88,7 +105,8 @@ struct FoodDetail: Identifiable, Hashable {
     var isCountBased: Bool { servingUnit != nil }
 
     init(id: UUID = UUID(), name: String, brand: String = "", barcode: String? = nil,
-         category: String? = nil, source: FoodTrust, servingQuantity: Double? = nil,
+         category: String? = nil, source: FoodTrust,
+         verification: FoodVerification? = nil, servingQuantity: Double? = nil,
          basisUnit: String = "g", per100: Nutrients, micros: Micros = .empty,
          servingUnit: String? = nil) {
         self.id = id
@@ -97,6 +115,7 @@ struct FoodDetail: Identifiable, Hashable {
         self.barcode = barcode
         self.category = category
         self.source = source
+        self.verification = verification
         self.servingQuantity = servingQuantity
         self.basisUnit = basisUnit
         self.per100 = per100
@@ -148,26 +167,39 @@ struct FoodDetail: Identifiable, Hashable {
     //    derive per-100 from, so DON'T fabricate one — hand the per-serving nutrients
     //    through as-is and flag the food as count-based (via `servingUnit`) so the page
     //    shows a per-serving view instead of a bogus "per 100 g".
-    // Micros are empty (FoodItem doesn't carry them), which renders as "not available".
+    // Category and micros now come straight off the FoodItem when the backend sent
+    // them (they used to be hardcoded empty here, so every networked food showed a
+    // blank micronutrient block and a "Food" category chip); a hand-entered food
+    // still has neither, which renders as "not available".
+    //
+    // ⚠️ Basis mismatch to keep straight: FoodItem.nutrients are per `servingSize`
+    // (hence the scale to per-100 below), but `micros` are taken as ALREADY per-100
+    // — that's what FoodDetail documents and what the backend contract requires.
+    // Micros are passed through unscaled; if the backend ever sends them per-serving
+    // they'd render wrong, so that requirement is spelled out in
+    // backend_food_sources_contract.md rather than guessed at here.
+    // (last changed 08/04/2026 by Claude: category/micros/verification passthrough.)
     init(from item: FoodItem) {
         let unit = item.servingUnit.lowercased()
         let weightBased = (unit == "g" || unit == "ml") && item.servingSize > 0
         if weightBased {
             self.init(
                 id: item.id, name: item.name, brand: item.brand, barcode: item.barcode,
-                category: nil, source: FoodTrust(item.source),
-                servingQuantity: item.servingSize,
+                category: item.category, source: FoodTrust(item.source),
+                verification: item.verification,
+                servingQuantity: item.servingQuantity ?? item.servingSize,
                 basisUnit: (unit == "ml") ? "ml" : "g",
                 per100: item.nutrients.scaled(by: 100 / item.servingSize),
-                micros: .empty
+                micros: item.micros ?? .empty
             )
         } else {
             self.init(
                 id: item.id, name: item.name, brand: item.brand, barcode: item.barcode,
-                category: nil, source: FoodTrust(item.source),
+                category: item.category, source: FoodTrust(item.source),
+                verification: item.verification,
                 servingQuantity: nil, basisUnit: "g",
                 per100: item.nutrients,           // per one serving in count mode
-                micros: .empty,
+                micros: item.micros ?? .empty,
                 servingUnit: item.servingUnit
             )
         }

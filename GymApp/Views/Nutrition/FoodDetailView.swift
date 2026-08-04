@@ -131,10 +131,6 @@ struct FoodDetailView: View {
 
     private var accent: Color { theme.current.accent }
     private var surface: Color { theme.current.surface }
-    // Claude  Date 07/15/2026
-    // The app's signature pink (Classic accent), pinned regardless of the active theme —
-    // the "Verified" provenance badge always reads in brand pink.
-    private var agilPink: Color { Color(hex: "#EA0F8B") }
 
     var body: some View {
         ScrollView {
@@ -182,8 +178,14 @@ struct FoodDetailView: View {
             if !food.brand.trimmingCharacters(in: .whitespaces).isEmpty {
                 Text(food.brand).font(.subheadline).foregroundStyle(.secondary)
             }
+            // Claude  Date 07/14/2026 last changed: 08/04/2026 by: Claude
+            // Provenance + category. The source badge (and its stacked verification
+            // badge, for generic/restaurant foods) now comes from the shared
+            // FoodSourceBadge so the detail page and every list row agree.
             HStack(spacing: 8) {
-                sourceBadge
+                FoodSourceBadge(source: food.source,
+                                verification: food.verification,
+                                style: .detail)
                 categoryChip
                 Spacer(minLength: 0)
             }
@@ -196,32 +198,6 @@ struct FoodDetailView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
         .background(surface, in: RoundedRectangle(cornerRadius: 16))
-    }
-
-    // Claude  Date 07/14/2026 last changed: 07/15/2026 by: Claude
-    // Provenance badge. A verified food gets the special brand-pink badge with the Agil
-    // kettlebell mark (template-tinted to the pink) instead of an SF Symbol; every other
-    // source keeps its plain tinted-symbol capsule.
-    @ViewBuilder private var sourceBadge: some View {
-        if food.source == .verified {
-            HStack(spacing: 5) {
-                Image("AgilMark")
-                    .renderingMode(.template)
-                    .resizable().scaledToFit()
-                    .frame(width: 14, height: 14)
-                Text("Verified")
-            }
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(agilPink)
-            .padding(.horizontal, 10).padding(.vertical, 5)
-            .background(agilPink.opacity(0.15), in: Capsule())
-        } else {
-            Label(food.source.label, systemImage: food.source.systemImage)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(food.source.tint)
-                .padding(.horizontal, 10).padding(.vertical, 5)
-                .background(food.source.tint.opacity(0.15), in: Capsule())
-        }
     }
 
     @ViewBuilder private var categoryChip: some View {
@@ -473,12 +449,12 @@ struct FoodDetailView: View {
             }
             Divider()
             VStack(spacing: 0) {
-                macroRow("Protein", n.protein, "g", tint: .blue)
-                macroRow("Carbs",   n.carbs,   "g", tint: .orange)
-                macroRow("Fat",     n.fat,     "g", tint: .pink)
-                macroRow("Fiber",   n.fiber,   "g", tint: .green)
-                macroRow("Sugar",   n.sugar,   "g", tint: .purple)
-                macroRow("Sodium",  n.sodium, "mg", tint: .cyan, last: true)
+                macroRow("Protein", n.protein, "g", tint: MacroPalette.protein)
+                macroRow("Carbs",   n.carbs,   "g", tint: MacroPalette.carbs)
+                macroRow("Fat",     n.fat,     "g", tint: MacroPalette.fat)
+                macroRow("Fiber",   n.fiber,   "g", tint: MacroPalette.fiber)
+                macroRow("Sugar",   n.sugar,   "g", tint: MacroPalette.sugar)
+                macroRow("Sodium",  n.sodium, "mg", tint: MacroPalette.sodium, last: true)
             }
         }
         .padding(16)

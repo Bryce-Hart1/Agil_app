@@ -61,7 +61,7 @@ struct PresetsListView: View {
             .themed(theme.current)
             // Claude  Date 07/13/2026
             // Centered mode-switcher pill in the nav bar (shared by all root tabs).
-            .modeNotchToolbar()
+            .modeNotchToolbar(tab: AgilTabItem.build.tag)
             .navigationDestination(for: UUID.self) { id in
                 PresetEditorView(presetID: id)
             }
@@ -87,9 +87,12 @@ struct PresetsListView: View {
                 }
                 ToolbarItem(placement: .primaryAction) {
                     // Claude  Date 07/25/2026
-                    // Two ways to get a preset, mirroring the Workouts tab's + menu:
-                    // a blank one to fill in, or one lifted from the shipped catalog.
-                    // Blank Preset is the old + button's behavior, unchanged.
+                    // Claude  Date 07/25/2026 last changed: 07/28/2026 by: Claude
+                    // Two ways to get a preset: a blank one to fill in, or one lifted
+                    // from the shipped catalog. Blank Preset is the old + button's
+                    // behavior, unchanged. (This used to mirror the Workouts tab's +
+                    // menu; that tab now splits its two paths into a pair of nav-bar
+                    // buttons instead, so the shapes no longer match.)
                     Menu {
                         Button {
                             let preset = WorkoutPreset(name: "New Preset")

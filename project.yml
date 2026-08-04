@@ -1,8 +1,12 @@
 name: GymApp
 options:
   bundleIdPrefix: com.brycehart
+  # Claude  Date 07/21/2026
+  # 16.1 (was 16.0) for SwiftUI's .fontDesign(_:), which is how the theme's typeface
+  # is applied app-wide (see AppFontDesign). 16.0 → 16.1 costs no realistic install
+  # base; anyone on 16.0 can update.
   deploymentTarget:
-    iOS: "16.0"
+    iOS: "16.1"
   createIntermediateGroups: true
 settings:
   base:
@@ -17,6 +21,19 @@ targets:
       - path: GymApp
         excludes:
           - "**/.DS_Store"
+    # Claude  Date 07/16/2026
+    # Home-screen widget extension, embedded into the app's PlugIns folder.
+    dependencies:
+      - target: GymAppWidget
+    # Claude  Date 07/16/2026
+    # App Group shared with the widget extension — the app writes WidgetSnapshot
+    # (today's calories / focus goal / theme) into this group's UserDefaults and
+    # the widget reads it. xcodegen writes this entitlements file on generate.
+    entitlements:
+      path: GymApp/GymApp.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.brycehart.gymapp
     # Claude  Date 06/18/2026
     # Explicit Info.plist (kept at the repo root, outside the GymApp sources glob) so
     # we can add an App Transport Security exception for the local dev backend. We
@@ -83,3 +100,50 @@ targets:
         # can also drop the ATS exception above.
         Release:
           AGIL_BACKEND_BASE_URL: "https://CHANGE-ME.example.com"
+
+  # Claude  Date 07/16/2026
+  # Home-screen widget (WidgetKit app extension): today's calories, the first
+  # Focus goal, and the Agil mark, tinted with the active theme. Reads its data
+  # from the App Group snapshot the app writes (see WidgetSnapshot.swift). The
+  # extension compiles a small set of the app's files directly — model/theme
+  # types it renders with — because an app extension can't import the app's code.
+  GymAppWidget:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: GymAppWidget
+        excludes:
+          - "**/.DS_Store"
+      # Shared with the app target (compiled into both):
+      - GymApp/Shared/WidgetSnapshot.swift
+      - GymApp/Models/NutrientFocusGoal.swift
+      - GymApp/Models/Nutrients.swift
+      - GymApp/Models/NutritionGoals.swift
+      - GymApp/Theme/AppTheme.swift
+      - GymApp/Theme/Color+Hex.swift
+      - GymApp/Theme/MacroPalette.swift
+    # Same App Group as the app — this is the widget's read side.
+    entitlements:
+      path: GymAppWidget/GymAppWidget.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.brycehart.gymapp
+    # Explicit Info.plist for the NSExtension declaration (what makes this bundle
+    # a WidgetKit extension); INFOPLIST_KEY_* values still merge in at build time
+    # via GENERATE_INFOPLIST_FILE, matching the app target's pattern.
+    info:
+      path: GymAppWidget/Info.plist
+      properties:
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.brycehart.gymapp.widget
+        GENERATE_INFOPLIST_FILE: YES
+        # Shown in the widget gallery / under the widget on the home screen.
+        INFOPLIST_KEY_CFBundleDisplayName: Agil
+        TARGETED_DEVICE_FAMILY: "1"
+        SUPPORTED_PLATFORMS: "iphoneos iphonesimulator"
+        SKIP_INSTALL: YES
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: 6XTP9P5C7M

@@ -286,7 +286,12 @@ private struct FriendMiniRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            AvatarBubble(name: card.displayName)
+            // Claude  Date 07/14/2026 last changed: 08/02/2026 by: Claude
+            // (Was a local initials-only AvatarBubble. Now the shared component — it draws
+            // the friend's character when the payload carries one and still falls back to
+            // their initials when it doesn't, which is every friend until the backend
+            // echoes the field. Same component a chat row will use.)
+            CharacterBubbleView(card: card, size: 38)
             VStack(alignment: .leading, spacing: 2) {
                 Text(card.displayName.isEmpty ? "Unknown" : card.displayName)
                     .font(.headline)
@@ -297,25 +302,6 @@ private struct FriendMiniRow: View {
                 }
             }
         }
-    }
-}
-
-// Claude  Date 07/14/2026
-// Initials bubble stand-in for a friend row (SharedCard doesn't carry an avatar).
-private struct AvatarBubble: View {
-    let name: String
-
-    private var initials: String {
-        let parts = name.split(separator: " ").prefix(2)
-        let letters = parts.compactMap { $0.first }.map(String.init).joined()
-        return letters.isEmpty ? "?" : letters.uppercased()
-    }
-
-    var body: some View {
-        Circle()
-            .fill(.secondary.opacity(0.2))
-            .frame(width: 38, height: 38)
-            .overlay(Text(initials).font(.subheadline.weight(.semibold)))
     }
 }
 

@@ -123,6 +123,12 @@ struct AgilWidgetView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .widgetBackgroundCompat(theme.background)
+        // Claude  Date 07/21/2026
+        // Match the app's typeface, which the theme carries (see AppFontDesign) and
+        // the snapshot already ships across the App Group. Like in the app, this
+        // cascades over the explicit designs above (the big calorie number's
+        // .rounded included) so the widget reads as one piece with the app.
+        .fontDesign(theme.fontDesign.design)
     }
 }
 

@@ -310,7 +310,7 @@ private struct WorkoutEditor: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Update “\(sourcePresetName)” to match this workout — its exercises, rep ranges, and set counts. This can’t be undone.")
+            Text("Update “\(sourcePresetName)” to match this workout. Its exercises, rep ranges, and set counts. This can’t be undone.")
         }
         .alert("Preset Updated", isPresented: $overridePresetConfirmation) {
             Button("OK", role: .cancel) {}
