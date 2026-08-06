@@ -91,14 +91,34 @@ struct MacroSummaryView: View {
 
     // MARK: - Calorie ring
 
-    // Claude  Date 06/16/2026 last changed: 07/26/2026 by: Claude
+    // Claude  Date 06/16/2026 last changed: 08/06/2026 by: Claude
     // Calorie ring: fills toward the goal, showing kcal remaining (or "over" when
     // the day exceeds the goal). Clamped so the arc never overshoots a full circle.
-    // (Redesigned this change: the single accent arc became three stacked macro
-    // segments — carbs, protein, fat — sized by each one's share of the calories
-    // eaten, and the flat track became a staged remainder that reads green while
-    // there's room, then greys down as the day fills up. The dot riding the tip is
-    // now stroke-width, so it doubles as the arc's one rounded cap.)
+    // (Redesigned 07/26: the single accent arc became three stacked macro segments —
+    // carbs, protein, fat — sized by each one's share of the calories eaten, and the
+    // flat track became a staged remainder that reads green while there's room, then
+    // greys down as the day fills up. The dot riding the tip is now stroke-width, so
+    // it doubles as the arc's one rounded cap.)
+    //
+    // Claude  Date 08/06/2026 — every arc now animates in ONE transaction, keyed on
+    // the whole drawn geometry. Two bugs came out of the old arrangement:
+    //
+    //  • The remainder carried its own `.animation(_:value: stage)`. A scoped
+    //    animation modifier governs its subtree outright, so the remainder ignored
+    //    the outer spring and snapped whenever `stage` happened not to change —
+    //    which is most changes. Deleting a food therefore moved the remainder
+    //    instantly while the macro arcs, drawn ON TOP of it, spent the better part of
+    //    a second springing down. The stale arc sitting over the already-correct
+    //    remainder is what read as "the yellow didn't go away."
+    //  • Keying on `sweep` alone meant a change that moved the macro split without
+    //    moving the calorie total (swap 100 kcal of carbs for 100 kcal of fat) redrew
+    //    the segments with no animation at all.
+    //
+    // The spring is also critically damped now (was 0.85). An overshooting spring
+    // interpolates the trim PAST its target, and `trim(from:to:)` with from > to
+    // renders the wrapped path — a full-circle flash every time the day crossed its
+    // goal. Clamping the inputs can't prevent that; only a curve that doesn't
+    // overshoot can.
     private var calorieRing: some View {
         let goal = max(goals.calories, 1)
         let progress = min(totals.calories / goal, 1)
@@ -116,7 +136,6 @@ struct MacroSummaryView: View {
                 .stroke(stage.color,
                         style: StrokeStyle(lineWidth: ringLineWidth, lineCap: .butt))
                 .rotationEffect(.degrees(-90))
-                .animation(.easeInOut(duration: 0.35), value: stage)
 
             // Filled portion, one arc per macro. Butt caps so neighbouring
             // segments meet cleanly instead of overlapping into mud.
@@ -143,7 +162,8 @@ struct MacroSummaryView: View {
             centerReadout(remaining: remaining)
         }
         .frame(width: ringSize, height: ringSize)
-        .animation(.spring(response: 0.9, dampingFraction: 0.85), value: sweep)
+        .animation(.spring(response: 0.7, dampingFraction: 1),
+                   value: CalorieRingGeometry(sweep: sweep, segments: segments, stage: stage))
         // The frame is fixed, so an accessibility text size would otherwise push
         // the readout straight through the stroke.
         .dynamicTypeSize(...DynamicTypeSize.accessibility1)
@@ -238,14 +258,30 @@ struct MacroSummaryView: View {
     }
 }
 
-// Claude  Date 07/26/2026
+// Claude  Date 07/26/2026 last changed: 08/06/2026 by: Claude
 // One colored slice of the calorie ring's filled arc. `start`/`end` are fractions
 // of the full circle, already scaled for the grow-in, so the view just trims to them.
-private struct RingSegment: Identifiable {
+// `id` is the macro's fixed position (0 carbs, 1 protein, 2 fat), NOT the index in
+// the emitted array — a macro that drops to zero leaves the array, and reusing array
+// indices would slide the survivors onto each other's views.
+// (Equatable so the ring can key one animation on its whole geometry.)
+private struct RingSegment: Identifiable, Equatable {
     let id: Int
     let color: Color
     let start: Double
     let end: Double
+}
+
+// Claude  Date 08/06/2026
+// Everything the ring draws, as one comparable value. The ring's arcs have to move
+// together or not at all — see the note on `calorieRing` — so they hang off a single
+// `.animation(_:value:)` keyed on this rather than on the calorie sweep alone.
+// (Named for the calorie ring specifically: `RingGeometry` is already the rank
+// ring's layout constants over in RankRing.swift.)
+private struct CalorieRingGeometry: Equatable {
+    let sweep: Double
+    let segments: [RingSegment]
+    let stage: RemainderStage
 }
 
 // Claude  Date 07/26/2026

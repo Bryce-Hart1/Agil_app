@@ -184,7 +184,9 @@ struct NutritionJournalView: View {
                 .animation(.spring(response: 0.55, dampingFraction: 0.85), value: day.water)
                 WaterBarView(fraction: day.water / goal, accent: theme.current.accent)
                 HStack { //added conversions for cups, bottle (even though a bottle is 500ml)
-                // one cup is approx 236.588 ml rounded up
+                // Claude  Date 08/06/2026 — the cup is FoodUnit.cup.perBase now (240 ml,
+                // the US "legal" cup nutrition labels use) rather than a local 237, so
+                // food and water agree on what a cup is. Was the customary 236.588.
                     ForEach(waterQuickAdds, id: \.label) { add in
                         Button(add.label) {
                             store.logWater(milliliters: add.ml, on: selectedDate)
@@ -204,11 +206,11 @@ struct NutritionJournalView: View {
         switch waterUnit {
         case .milliliters:
             return [("+250 ml", 250), ("+500 ml", 500),
-                    ("+bottle", 500), ("+cup", 237)]
+                    ("+bottle", 500), ("+cup", FoodUnit.cup.perBase)]
         case .fluidOunces:
             return [("+8 oz", 8 * WaterUnit.mlPerFluidOunce),
                     ("+16 oz", 16 * WaterUnit.mlPerFluidOunce),
-                    ("+bottle", 500), ("+cup", 237)]
+                    ("+bottle", 500), ("+cup", FoodUnit.cup.perBase)]
         }
     }
 
@@ -341,7 +343,17 @@ private struct FoodEntryRow: View {
         }
     }
 
+    // Claude  Date 06/16/2026 last changed: 08/06/2026 by: Claude
+    // What was eaten, in the words the user used: "200 g", "2 cups", "1.5 servings".
+    //
+    // (Was always the servings count. Everything logged through the detail page is
+    // stored as `servings: 1` with the amount folded into the nutrient snapshot, so
+    // every row read a uniform, useless "1× serving" whether you'd logged 30 g or a
+    // pound. The measurement is recorded on the entry now — `amountText` scales it by
+    // the servings multiplier so an edited entry stays consistent. Entries logged
+    // before that existed, and any plain servings-count log, keep the old wording.)
     private var servingsText: String {
+        if let text = entry.amountText { return text }
         let s = entry.servings
         let n = s.rounded() == s ? String(Int(s)) : String(format: "%.2g", s)
         return "\(n)× serving"

@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 
-// Claude  Date 08/06/2026
+// Claude  Date 08/06/2026 Peer reviewed 08/06/2026 Bryce Hart
 // The last card on the food detail page: what the record doesn't say, and the way to
 // do something about it. Two jobs in one place on purpose —
 //
@@ -132,7 +132,7 @@ private struct FoodCorrectionCardBody: View {
     }
 }
 
-// Claude  Date 08/06/2026
+// Bryce Hart Date 08/06/2026
 // The reason picker: five buttons, no free-text field. Tapping a reason IS the send —
 // a confirm step would only add a tap to a request that's already cheap to make and
 // rate-limited anyway. The sheet stays up while the call is in flight so a failure can
@@ -165,7 +165,7 @@ private struct FoodCorrectionReasonSheet: View {
                 } header: {
                     Text("What's wrong?")
                 } footer: {
-                    Text("This sends \(food.name) back to be checked. You can ask for 3 corrections a day.")
+                    Text("This sends \(food.name) back to be checked. Sending wrong labels helps keep Agil free for everyone.")
                 }
             }
             .navigationTitle("Ask for correction")

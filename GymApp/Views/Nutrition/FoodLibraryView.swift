@@ -200,9 +200,12 @@ struct FoodLibraryView: View {
             // diary picker pushes it — so this sheet provides the stack and the Done.)
             .sheet(item: $detailFood) { detail in
                 NavigationStack {
-                    FoodDetailView(food: detail) { meal, consumed in
-                        store.logFoodDetail(detail, consumed: consumed, meal: meal)
-                    }
+                    FoodDetailView(food: detail,
+                                   initialMeasurement: store.lastMeasurements[detail.id],
+                                   onLog: { meal, consumed, measurement in
+                        store.logFoodDetail(detail, consumed: consumed,
+                                            measurement: measurement, meal: meal)
+                    })
                     .toolbar {
                         ToolbarItem(placement: .confirmationAction) {
                             Button("Done") { detailFood = nil }

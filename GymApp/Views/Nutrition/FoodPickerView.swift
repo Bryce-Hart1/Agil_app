@@ -90,16 +90,24 @@ struct FoodPickerView: View {
             .navigationTitle("Add to \(meal.title)")
             .navigationBarTitleDisplayMode(.inline)
             .themed(theme.current)
-            // Claude  Date 07/16/2026
+            // Claude  Date 07/16/2026 last changed: 08/06/2026 by: Claude
             // The confirm step is the full food detail page now (same one the Foods tab
             // and barcode scans use) — one polished flow instead of the old bare
-            // LogFoodView form. It's pushed, pre-seeded with this sheet's target meal,
-            // and hands back the dialed-in nutrients; we write the diary entry onto
+            // LogFoodView form. It's pushed, pre-seeded with this sheet's target meal
+            // AND with the amount this food was last logged at, and hands back the
+            // dialed-in nutrients plus that measurement; we write the diary entry onto
             // `date` and drop the whole picker sheet.
+            //
+            // `FoodDetail(from:)` preserves the FoodItem's id, and the path always holds
+            // the item the store actually returned (cacheFood dedupes scans by barcode
+            // and can hand back a different row), so `detail.id` is the right cache key.
             .navigationDestination(for: FoodItem.self) { food in
                 let detail = FoodDetail(from: food)
-                FoodDetailView(food: detail, initialMeal: meal) { chosenMeal, consumed in
+                FoodDetailView(food: detail, initialMeal: meal,
+                               initialMeasurement: store.lastMeasurements[detail.id]) {
+                    chosenMeal, consumed, measurement in
                     store.logFoodDetail(detail, consumed: consumed,
+                                        measurement: measurement,
                                         meal: chosenMeal, on: date)
                     dismiss()
                 }

@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 
-// Claude  Date 07/14/2026 last changed: 08/06/2026 by: Claude
+// Claude  Date 07/14/2026 last changed: 08/06/2026 Peer reviewed Bryce Hart 08-06-26
 // The food detail page that pops when you scan an item or tap one in Foods. Shows the
 // backend DTO: name/brand, a category chip and a provenance (source) badge, a
 // serving/unit selector with quick-amount chips, the macro block, and the sparse
@@ -22,14 +22,22 @@ import UIKit
 //
 // Store-free: the view never touches AppStore directly. A caller opts into logging by
 // passing `onLog` — the page then shows a meal picker + "Add" bar and, on tap, hands
-// back the chosen meal and the consumed nutrients for the dialed-in amount so the
-// caller does the actual diary write. Without `onLog` (and without a primary action)
-// the page is pure info.
+// back the chosen meal, the consumed nutrients for the dialed-in amount, and the
+// measurement the user expressed, so the caller does the actual diary write. Without
+// `onLog` (and without a primary action) the page is pure info. The last-used
+// measurement likewise comes IN as `initialMeasurement` rather than being read from
+// the store here.
 //
 // (Reworked for speed: no NavigationStack of its own anymore, so it can be pushed from
-// the diary picker or wrapped in a stack for sheets. Opens on 1 serving, serving counts
-// are adjustable, quick chips cover common amounts without the keyboard, and the typed
-// amount commits live on every keystroke — see `amountText`.)
+// the diary picker or wrapped in a stack for sheets. Quick chips cover common amounts
+// without the keyboard, and the typed amount commits live on every keystroke — see
+// `amountText`.)
+//
+// Claude  Date 08/06/2026 — the amount system: two tabs (Serving | Weight, or
+// Serving | Volume for a liquid) with tappable unit chips inside the unit tab
+// (g · oz · lb / cup · fl oz · mL). Tapping a chip converts the amount in place, so
+// switching units never costs the user their number. Weight and volume never mix:
+// crossing them needs a density the food data doesn't carry. See EntryMode/FoodUnit.
 struct FoodDetailView: View {
     @EnvironmentObject private var theme: ThemeManager
     @Environment(\.dismiss) private var dismiss
@@ -45,31 +53,43 @@ struct FoodDetailView: View {
     // adding to; nil (Foods tab / scan) falls back to the time-of-day guess.
     var initialMeal: MealType? = nil
 
-    // Claude  Date 07/15/2026 last changed: 07/16/2026 by: Claude
+    // Claude  Date 08/06/2026
+    // The amount this food was logged at last time, from AppStore.lastMeasurements.
+    // When it still fits the food (see FoodMeasurement.isValid) the page opens on it
+    // instead of the 1-serving default, so a food you eat every day is two taps to
+    // re-log. nil = no history, or a stale one — fall back to the defaults.
+    var initialMeasurement: FoodMeasurement? = nil
+
+    // Claude  Date 07/15/2026 last changed: 08/06/2026 by: Claude
     // Logging hook. When non-nil the page shows a meal picker + "Add to <meal>" bar; on
-    // tap it fires with the selected meal and the nutrients consumed for the current
-    // amount (per-100 already scaled by `factor`). Nil = no logging affordance.
+    // tap it fires with the selected meal, the nutrients consumed for the current
+    // amount (per-100 already scaled by `factor`), and the measurement the user dialed
+    // in — the caller writes all three. Nil = no logging affordance.
     // (Declared last so call sites can keep passing it as a trailing closure.)
-    var onLog: ((MealType, Nutrients) -> Void)? = nil
+    var onLog: ((MealType, Nutrients, FoodMeasurement) -> Void)? = nil
 
     // Which meal the "Add" bar logs into. Seeded on appear (see `initialMeal`).
     @State private var selectedMeal: MealType = .snack
 
-    // Claude  Date 07/15/2026 last changed: 07/16/2026 by: Claude
-    // Which reference amount the numbers are shown against. `serving` and `servingCount`
-    // are a count of servings; `gram` (log by grams) is offered for solids, the volume
-    // units (cup/mL/oz) only for liquids (basisUnit == "ml"); `per100` is the fixed
-    // reference view. Every basis except per100 carries a user-chosen `unitQuantity`
-    // (how many grams/cups/servings, etc.) — reduced to a per-100 scale factor.
-    // (`serving` used to be pinned at exactly 1; it's now quantitative like the rest so
-    // "2 servings" is a stepper tap, not gram arithmetic.)
-    private enum ServingBasis: Hashable {
-        case per100, serving, gram, cup, milliliter, ounce, servingCount
-    }
+    // Claude  Date 07/15/2026 last changed: 08/06/2026 by: Claude
+    // How the amount is being expressed: as a count of the food's own servings, or as
+    // a quantity of a real unit (`selectedUnit`). Both carry a user-chosen
+    // `unitQuantity`, reduced to a per-100 scale factor by `factor`.
+    //
+    // (Was a 7-case ServingBasis — per100/serving/gram/cup/milliliter/ounce/
+    // servingCount — that conflated "which tab" with "which unit", so adding oz and lb
+    // to the weight side would have meant four more top-level segments. The unit is
+    // its own axis now: two tabs, and chips inside the unit tab. `per100` is gone
+    // outright; it was the gram tab with the amount frozen at 100. A count-based food
+    // has no unit tab at all — `.serving` counts its opaque servings, and per-100
+    // already IS one serving there.)
+    private enum EntryMode: Hashable { case serving, unit }
 
-    @State private var basis: ServingBasis = .per100
-    // How many of the selected quantitative unit (servings / grams / cups / mL / oz).
-    // Ignored for the fixed per100 basis.
+    @State private var mode: EntryMode = .serving
+    // Which unit the amount is in while `mode == .unit`. Always from this food's
+    // family (weight for solids, volume for liquids) — see FoodUnit.family.
+    @State private var selectedUnit: FoodUnit = .gram
+    // How many of the selected unit (or how many servings in `.serving` mode).
     @State private var unitQuantity: Double = 1
 
     // Claude  Date 07/16/2026
@@ -82,57 +102,51 @@ struct FoodDetailView: View {
     @State private var amountText: String = "1"
     @FocusState private var amountFocused: Bool
 
-    // Claude  Date 07/15/2026
-    // ml in one of each volume unit. 1 cup ≈ 240 ml; 1 US fluid ounce ≈ 29.574 ml (so
-    // oz = ml / 29.574).
-    private static let mlPerCup = 240.0
-    private static let mlPerOunce = 29.574
-
-    // Claude  Date 07/15/2026 last changed: 07/16/2026 by: Claude
-    // The bases offered for this food. A count-based food (no g/ml basis) offers only a
-    // servings count. Otherwise: serving first (the default view) when the DTO gave a
-    // size; cup/mL/oz for liquids, an editable gram amount for solids; per-100 last as
-    // the reference view.
-    private var bases: [ServingBasis] {
-        if food.isCountBased { return [.servingCount] }
-        var out: [ServingBasis] = []
-        if food.servingQuantity != nil { out.append(.serving) }
-        if food.basisUnit == "ml" {
-            out += [.cup, .milliliter, .ounce]
-        } else {
-            out.append(.gram)
-        }
-        out.append(.per100)
-        return out
+    // Claude  Date 07/15/2026 last changed: 08/06/2026 by: Claude
+    // The tabs offered for this food. A count-based food gets none (its only amount is
+    // a count of its own opaque servings, so a picker with one option is noise); a food
+    // with a known serving size gets both; one without gets the unit tab alone.
+    //
+    // (The unit conversion constants that used to live here — mlPerCup/mlPerOunce —
+    // moved to FoodUnit.perBase, which is now the app's one set. The weight family
+    // g/oz/lb is new; there was no way to log ounces or pounds before.)
+    private var availableModes: [EntryMode] {
+        if food.isCountBased { return [] }
+        return food.servingQuantity != nil ? [.serving, .unit] : [.unit]
     }
 
-    // Every basis except the fixed per-100 reference lets the user pick how many.
-    private func isQuantitative(_ b: ServingBasis) -> Bool { b != .per100 }
+    // The unit chips this food offers — weight for solids, volume for liquids. Never
+    // both: converting between them needs a density we don't have.
+    private var unitFamily: [FoodUnit] { FoodUnit.family(forBasisUnit: food.basisUnit) }
 
-    private func mlPerUnit(_ b: ServingBasis) -> Double {
-        switch b {
-        case .cup:         return Self.mlPerCup
-        case .ounce:       return Self.mlPerOunce
-        case .milliliter:  return 1
-        default:           return 0
-        }
-    }
-
-    // Claude  Date 07/15/2026 last changed: 07/16/2026 by: Claude
-    // Scale factor applied to every reference value in the current basis. Grams and mL
-    // are the per-100 base unit itself (amount / 100); cup/oz convert through ml first;
-    // a serving is unitQuantity servings of servingQuantity g/ml each. In count mode
-    // `per100` is already one serving, so the factor is just the servings count.
+    // Claude  Date 07/15/2026 last changed: 08/06/2026 by: Claude
+    // Scale factor applied to every per-100 reference value. A unit amount converts
+    // through its base (g or ml) — `perBase` is 1 for the base unit itself, so grams
+    // and mL fall out as amount/100. A serving is `unitQuantity` servings of
+    // `servingQuantity` g/ml each. For a count food per-100 already IS one serving, so
+    // the factor is just the count.
     private var factor: Double {
-        switch basis {
-        case .per100:  return 1
+        if food.isCountBased { return max(0, unitQuantity) }
+        switch mode {
         case .serving: return max(0, unitQuantity) * (food.servingQuantity ?? 100) / 100
-        case .gram, .milliliter:
-            return max(0, unitQuantity) / 100
-        case .cup, .ounce:
-            return max(0, unitQuantity) * mlPerUnit(basis) / 100
-        case .servingCount:
-            return max(0, unitQuantity)
+        case .unit:    return max(0, unitQuantity) * selectedUnit.perBase / 100
+        }
+    }
+
+    // Claude  Date 08/06/2026
+    // The amount as the user expressed it, for the log record. A count food and the
+    // serving tab both record a serving count (no unit); the unit tab records the
+    // chip. This is what the diary row renders and what gets cached for next time.
+    private var currentMeasurement: FoodMeasurement {
+        if food.isCountBased {
+            return FoodMeasurement(amount: unitQuantity, unit: nil,
+                                   servingNoun: food.servingUnit ?? "serving")
+        }
+        switch mode {
+        case .serving: return FoodMeasurement(amount: unitQuantity, unit: nil,
+                                              servingNoun: "serving")
+        case .unit:    return FoodMeasurement(amount: unitQuantity, unit: selectedUnit,
+                                              servingNoun: nil)
         }
     }
 
@@ -143,7 +157,7 @@ struct FoodDetailView: View {
         ScrollView {
             VStack(spacing: 14) {
                 header
-                if bases.count > 1 || isQuantitative(basis) { basisSelector }
+                amountSelector
                 macrosCard
                 // Claude  Date 07/14/2026 last changed: 08/06/2026 by: Claude
                 // A group with nothing reported is dropped entirely rather than drawn
@@ -174,14 +188,31 @@ struct FoodDetailView: View {
         }
         .safeAreaInset(edge: .bottom) { bottomBar }
         .themed(theme.current)
-        .onAppear {
-            // Preselect the meal: the caller's context wins, else the time of day.
-            selectedMeal = initialMeal ?? Self.mealForNow()
-            // Open on the food's natural basis — 1 serving when a size is known,
-            // .servingCount for count foods, per-100 otherwise.
-            basis = bases.first ?? .per100
-            if isQuantitative(basis) { setQuantity(defaultQuantity(basis)) }
+        .onAppear(perform: seed)
+    }
+
+    // Claude  Date 07/15/2026 last changed: 08/06/2026 by: Claude
+    // What the page opens on. The user's last measurement for this food wins when it
+    // still fits (a re-log of a daily food should need no dialing at all); otherwise
+    // the food's natural default — 1 serving when a size is known, a count for count
+    // foods, else the base unit's default amount.
+    private func seed() {
+        // Preselect the meal: the caller's context wins, else the time of day.
+        selectedMeal = initialMeal ?? Self.mealForNow()
+        selectedUnit = FoodUnit.baseUnit(forBasisUnit: food.basisUnit)
+
+        if let last = initialMeasurement, last.isValid(for: food) {
+            if let unit = last.unit {
+                mode = .unit
+                selectedUnit = unit
+            } else {
+                mode = .serving
+            }
+            setQuantity(last.amount)
+            return
         }
+        mode = availableModes.first ?? .serving
+        setQuantity(defaultQuantity())
     }
 
     // MARK: - Header
@@ -234,40 +265,80 @@ struct FoodDetailView: View {
             .background(Color.secondary.opacity(0.12), in: Capsule())
     }
 
-    // MARK: - Basis selector
+    // MARK: - Amount selector
 
-    // Claude  Date 07/15/2026 last changed: 07/16/2026 by: Claude
-    // The segmented unit picker (hidden when there's only one basis, e.g. a count food),
-    // plus the amount controls for any quantitative basis. Switching bases seeds a
-    // sensible starting amount and drops the keyboard.
-    private var basisSelector: some View {
+    // Claude  Date 07/15/2026 last changed: 08/06/2026 by: Claude
+    // The amount block: a two-tab picker (Serving | Weight, or Serving | Volume for a
+    // liquid) over the amount controls. The picker hides itself when there's only one
+    // tab — a count food, or a food with no known serving size.
+    //
+    // (Was a segment per unit. Tabs and units are separate axes now: the tab picks
+    // servings-vs-real-units and the unit chips inside pick which one, so g/oz/lb fit
+    // without a five-segment control. The tab binding is custom rather than
+    // `$mode` + `.onChange` because that onChange would fire when `seed()` restores a
+    // cached measurement and immediately overwrite the restored amount with a default.)
+    @ViewBuilder private var amountSelector: some View {
         VStack(spacing: 10) {
-            if bases.count > 1 {
-                Picker("Amount", selection: $basis) {
-                    ForEach(bases, id: \.self) { b in
-                        Text(basisShortTitle(b)).tag(b)
+            if availableModes.count > 1 {
+                Picker("Amount", selection: Binding(get: { mode },
+                                                    set: { switchMode(to: $0) })) {
+                    ForEach(availableModes, id: \.self) { m in
+                        Text(modeTitle(m)).tag(m)
                     }
                 }
                 .pickerStyle(.segmented)
-                .onChange(of: basis) { newValue in
-                    amountFocused = false
-                    if isQuantitative(newValue) { setQuantity(defaultQuantity(newValue)) }
-                }
             }
-
-            if isQuantitative(basis) { quantityControls }
+            quantityControls
         }
     }
 
-    // Claude  Date 07/15/2026 last changed: 07/16/2026 by: Claude
+    // Claude  Date 08/06/2026
+    // Tab switch. The amount CARRIES ACROSS rather than resetting: opening a 170 g
+    // yogurt's Weight tab should show 170 g, not a generic 100. Both directions are
+    // always defined — the Serving tab only exists when servingQuantity is known.
+    private func switchMode(to newMode: EntryMode) {
+        guard newMode != mode else { return }
+        amountFocused = false
+        let per = food.servingQuantity ?? 100
+        switch newMode {
+        case .unit:
+            let base = unitQuantity * per                 // servings → g/ml
+            mode = .unit
+            setQuantity(Self.rounded(base / selectedUnit.perBase,
+                                     places: selectedUnit.displayPrecision))
+        case .serving:
+            let base = unitQuantity * selectedUnit.perBase // units → g/ml
+            mode = .serving
+            setQuantity(Self.rounded(base / per, places: 2))
+        }
+    }
+
+    // Claude  Date 08/06/2026
+    // Chip tap: switch unit and convert the amount in place, so 100 g becomes 3.5 oz
+    // rather than a meaningless 100 oz. Rounded to the unit's display precision —
+    // this is the ONLY place amounts get rounded; typed input never is.
+    private func selectUnit(_ newUnit: FoodUnit) {
+        guard newUnit != selectedUnit else { return }
+        let converted = selectedUnit.convert(unitQuantity, to: newUnit) ?? unitQuantity
+        selectedUnit = newUnit
+        setQuantity(Self.rounded(converted, places: newUnit.displayPrecision))
+        amountFocused = false
+    }
+
+    // Claude  Date 07/15/2026 last changed: 08/06/2026 by: Claude
     // The amount controls: quick chips for the common amounts (one tap, no keyboard),
     // then an editable field (type an exact value, e.g. 173 g off a label) paired with
     // a +/- stepper. The field parses live — see `amountText`. Below, a small "≈ …"
     // note shows the equivalent in the base unit where it isn't obvious (cup/oz → ml,
-    // servings → g/ml).
+    // lb → g, servings → g/ml).
+    //
+    // (In unit mode a row of tappable unit chips sits under the field, sharing the line
+    // with the "≈" note — chips leading, note trailing. They're deliberately NOT inline
+    // with the field: TextField + 3 chips + stepper overflows an SE-width screen, and
+    // this way the row costs no extra vertical space on the foods that show the note.)
     private var quantityControls: some View {
         VStack(spacing: 8) {
-            if !quickAmounts(basis).isEmpty { quickChips }
+            if !quickAmounts.isEmpty { quickChips }
             HStack(spacing: 10) {
                 TextField("Amount", text: $amountText)
                     .keyboardType(.decimalPad)
@@ -279,20 +350,50 @@ struct FoodDetailView: View {
                     .onChange(of: amountText) { newValue in
                         if let v = Self.parseAmount(newValue) { unitQuantity = v }
                     }
-                Text(unitNoun(basis, count: unitQuantity))
+                Text(unitNoun)
                     .fontWeight(.medium)
-                Spacer()
+                Spacer(minLength: 4)
                 Stepper("", value: Binding(get: { unitQuantity },
                                            set: { setQuantity($0) }),
-                        in: quantityRange(basis), step: quantityStep(basis))
+                        in: quantityRange, step: quantityStep)
                     .labelsHidden()
             }
-            if let note = equivalentNote {
-                HStack {
-                    Spacer()
-                    Text(note)
-                        .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+            if showsUnitChips || equivalentNote != nil {
+                HStack(spacing: 8) {
+                    if showsUnitChips { unitChips }
+                    Spacer(minLength: 4)
+                    if let note = equivalentNote {
+                        Text(note)
+                            .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                    }
                 }
+            }
+        }
+    }
+
+    // Chips only exist where there's a choice: the unit tab of a weight/volume food.
+    private var showsUnitChips: Bool { mode == .unit && !food.isCountBased }
+
+    // Claude  Date 08/06/2026
+    // The unit family as small tappable capsules (g · oz · lb, or cup · fl oz · mL).
+    // Sized below the quick-amount chips so the row reads as "amount, then its unit"
+    // rather than two competing controls.
+    private var unitChips: some View {
+        HStack(spacing: 4) {
+            ForEach(unitFamily, id: \.self) { unit in
+                let selected = unit == selectedUnit
+                Button { selectUnit(unit) } label: {
+                    Text(unit.abbreviation)
+                        .font(.caption.weight(.semibold))
+                        .lineLimit(1)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                        .foregroundStyle(selected ? Color.white : Color.primary)
+                        .background(selected ? accent : Color.secondary.opacity(0.12),
+                                    in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(unit.label(count: 2))
             }
         }
     }
@@ -302,7 +403,7 @@ struct FoodDetailView: View {
     // keyboard; the chip matching the current amount fills with the accent color.
     private var quickChips: some View {
         HStack(spacing: 8) {
-            ForEach(quickAmounts(basis), id: \.self) { amount in
+            ForEach(quickAmounts, id: \.self) { amount in
                 let selected = abs(unitQuantity - amount) < 0.0001
                 Button {
                     setQuantity(amount)
@@ -322,17 +423,20 @@ struct FoodDetailView: View {
         }
     }
 
-    // Claude  Date 07/16/2026
-    // The preset amounts per unit — the values people actually eat/pour, so most logs
-    // are a single tap. Empty for the fixed per-100 reference view.
-    private func quickAmounts(_ b: ServingBasis) -> [Double] {
-        switch b {
-        case .serving, .servingCount: return [0.5, 1, 1.5, 2]
-        case .gram:                   return [50, 100, 150, 200]
-        case .milliliter:             return [100, 250, 330, 500]
-        case .cup:                    return [0.5, 1, 2]
-        case .ounce:                  return [8, 12, 16]
-        case .per100:                 return []
+    // Claude  Date 07/16/2026 last changed: 08/06/2026 by: Claude
+    // The preset amounts for the current unit — the values people actually eat/pour, so
+    // most logs are a single tap. Serving counts and the new weight units (oz in
+    // kitchen sizes, lb in quarter steps) get their own sets; 50/100/150/200 would be
+    // absurd chips for pounds.
+    private var quickAmounts: [Double] {
+        if food.isCountBased || mode == .serving { return [0.5, 1, 1.5, 2] }
+        switch selectedUnit {
+        case .gram:       return [50, 100, 150, 200]
+        case .ounce:      return [1, 2, 4, 8]
+        case .pound:      return [0.25, 0.5, 1, 2]
+        case .cup:        return [0.25, 0.5, 1, 2]
+        case .fluidOunce: return [8, 12, 16]
+        case .milliliter: return [100, 250, 330, 500]
         }
     }
 
@@ -369,89 +473,90 @@ struct FoodDetailView: View {
         return value
     }
 
-    // Claude  Date 07/16/2026
-    // "≈ …" conversion note under the amount: cup/oz show their ml equivalent, a
-    // serving shows its weight/volume (from servingQuantity). Grams and mL are already
-    // the base unit so they need none.
+    // Claude  Date 07/16/2026 last changed: 08/06/2026 by: Claude
+    // "≈ …" conversion note under the amount: a derived unit (oz/lb, cup/fl oz) shows
+    // its equivalent in the food's base unit, and a serving shows its weight/volume
+    // (from servingQuantity). Grams and mL ARE the base unit, so they need none.
     private var equivalentNote: String? {
-        switch basis {
-        case .cup, .ounce:
-            return "≈ \(Self.number(max(0, unitQuantity) * mlPerUnit(basis))) ml"
+        if food.isCountBased { return nil }
+        switch mode {
+        case .unit:
+            guard selectedUnit.perBase != 1 else { return nil }
+            let base = max(0, unitQuantity) * selectedUnit.perBase
+            return "≈ \(Self.number(base, decimals: 1)) \(food.basisUnit)"
         case .serving:
             guard let per = food.servingQuantity else { return nil }
             return "≈ \(Self.number(max(0, unitQuantity) * per)) \(food.basisUnit)"
-        default:
-            return nil
         }
     }
 
-    // Short label for the segmented control.
-    private func basisShortTitle(_ b: ServingBasis) -> String {
-        switch b {
-        case .per100:       return "100 \(food.basisUnit)"
-        case .serving:      return "Serving"
-        case .gram:         return "Grams"
-        case .cup:          return "Cup"
-        case .milliliter:   return "mL"
-        case .ounce:        return "oz"
-        case .servingCount: return (food.servingUnit ?? "Serving").capitalized
+    // Segment titles. The unit tab is named for the FAMILY, not a unit — it used to say
+    // "Grams", which was wrong the moment the tab could also hold oz and lb.
+    private func modeTitle(_ m: EntryMode) -> String {
+        switch m {
+        case .serving: return "Serving"
+        case .unit:    return food.basisUnit == "ml" ? "Volume" : "Weight"
         }
     }
 
-    // Singular/plural unit word for the amount field.
-    private func unitNoun(_ b: ServingBasis, count: Double) -> String {
-        switch b {
-        case .serving:      return Self.pluralize("serving", count: count)
-        case .gram:         return "g"
-        case .cup:          return count == 1 ? "cup" : "cups"
-        case .milliliter:   return "mL"
-        case .ounce:        return count == 1 ? "oz" : "oz"
-        case .servingCount: return Self.pluralize(food.servingUnit ?? "serving", count: count)
-        default:            return ""
+    // Singular/plural unit word beside the amount field, for the modes that don't show
+    // tappable unit chips (serving counts, and a count food's own noun).
+    private var unitNoun: String {
+        if food.isCountBased {
+            return FoodMeasurement.pluralize(food.servingUnit ?? "serving", count: unitQuantity)
+        }
+        switch mode {
+        case .serving: return FoodMeasurement.pluralize("serving", count: unitQuantity)
+        case .unit: return selectedUnit.label(count: unitQuantity)
         }
     }
 
-    // Claude  Date 07/15/2026
-    // Naive pluralization for a count serving noun ("bar" → "bars"), enough for the
-    // free-text units a custom food can carry. Leaves an already-plural noun alone.
-    static func pluralize(_ noun: String, count: Double) -> String {
-        guard count != 1, !noun.isEmpty, !noun.hasSuffix("s") else { return noun }
-        return noun + "s"
-    }
-
-    // Starting quantity when a quantitative unit is first picked. Grams seed to one
-    // serving's weight when known, else 100 g.
-    private func defaultQuantity(_ b: ServingBasis) -> Double {
-        switch b {
-        case .gram:        return food.servingQuantity ?? 100
-        case .cup:         return 1
-        case .milliliter:  return 250
-        case .ounce:       return 8
-        default:           return 1
+    // Claude  Date 07/16/2026 last changed: 08/06/2026 by: Claude
+    // Starting quantity for the current mode/unit when there's no cached measurement
+    // to restore. The gram default is one serving's weight when known — the closest
+    // thing to "what you probably meant" without a history.
+    private func defaultQuantity() -> Double {
+        if food.isCountBased || mode == .serving { return 1 }
+        switch selectedUnit {
+        case .gram:       return food.servingQuantity ?? 100
+        case .ounce:      return 4
+        case .pound:      return 0.5
+        case .cup:        return 1
+        case .fluidOunce: return 8
+        case .milliliter: return food.servingQuantity ?? 250
         }
     }
 
-    private func quantityStep(_ b: ServingBasis) -> Double {
-        switch b {
-        case .serving:     return 0.25
-        case .gram:        return 5
-        case .cup:         return 0.25
-        case .milliliter:  return 10
-        case .ounce:       return 1
-        default:           return 1
+    private var quantityStep: Double {
+        if food.isCountBased || mode == .serving { return 0.25 }
+        switch selectedUnit {
+        case .gram:       return 5
+        case .ounce:      return 0.5
+        case .pound:      return 0.25
+        case .cup:        return 0.25
+        case .fluidOunce: return 1
+        case .milliliter: return 10
         }
     }
 
-    private func quantityRange(_ b: ServingBasis) -> ClosedRange<Double> {
-        switch b {
-        case .serving:      return 0.25...50
-        case .gram:         return 1...2000
-        case .cup:          return 0.25...20
-        case .milliliter:   return 10...2000
-        case .ounce:        return 1...64
-        case .servingCount: return 0.25...50
-        default:            return 1...1
+    private var quantityRange: ClosedRange<Double> {
+        if food.isCountBased || mode == .serving { return 0.25...50 }
+        switch selectedUnit {
+        case .gram:       return 1...2000
+        case .ounce:      return 0.25...70
+        case .pound:      return 0.05...10
+        case .cup:        return 0.25...20
+        case .fluidOunce: return 1...64
+        case .milliliter: return 10...2000
         }
+    }
+
+    // Claude  Date 08/06/2026
+    // Round to a fixed number of places — used only when an amount ARRIVES via a
+    // conversion, so 100 g reads as "3.5 oz" and not "3.5274 oz".
+    static func rounded(_ value: Double, places: Int) -> Double {
+        let scale = pow(10.0, Double(places))
+        return (value * scale).rounded() / scale
     }
 
     // MARK: - Macros
@@ -460,9 +565,18 @@ struct FoodDetailView: View {
         let n = food.per100.scaled(by: factor)
         return VStack(spacing: 12) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(Self.number(n.calories))
+                // Claude  Date 08/06/2026
+                // Whole kcal, always. `Self.number` keeps up to 2 decimals, which is
+                // right for micros (0.9 µg is a real quantity) and meaningless here —
+                // nobody acts on half a calorie, and at 40pt "428.57" was wide enough
+                // to wrap onto a second line and collide with the rows below. The
+                // line limit is the belt to that fix's braces: a four-digit total
+                // ("1429") is still wide, so it scales down rather than wrapping.
+                Text("\(Int(n.calories.rounded()))")
                     .font(.system(size: 40, weight: .bold, design: .rounded))
                     .foregroundStyle(accent)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
                     .contentTransition(.numericText())
                 Text("kcal").font(.headline).foregroundStyle(.secondary)
                 Spacer()
@@ -483,25 +597,19 @@ struct FoodDetailView: View {
         .animation(.spring(response: 0.4, dampingFraction: 0.9), value: factor)
     }
 
-    // Caption under the calorie number describing the current reference amount.
+    // Caption under the calorie number describing the current reference amount —
+    // always the dialed-in measurement now that the fixed per-100 view is gone.
     private var basisCaption: String {
-        switch basis {
-        case .per100:      return "per 100 \(food.basisUnit)"
-        case .serving, .gram, .cup, .milliliter, .ounce, .servingCount:
-            return "per \(Self.number(unitQuantity)) \(unitNoun(basis, count: unitQuantity))"
-        }
+        "per \(currentMeasurement.displayText)"
     }
 
-    private func macroRow(_ label: String, _ value: Double, _ unit: String,
-                          tint: Color, last: Bool = false) -> some View {
+    private func macroRow(_ label: String, _ value: Double, _ unit: String, tint: Color, last: Bool = false) -> some View {
         VStack(spacing: 0) {
             HStack {
                 iconChip(macroIcon(label), tint: tint)
                 Text(label).font(.subheadline)
                 Spacer()
-                Text("\(Self.number(value)) \(unit)")
-                    .font(.subheadline).monospacedDigit()
-                    .foregroundStyle(.secondary)
+                Text("\(Self.number(value, decimals: 1)) \(unit)").font(.subheadline).monospacedDigit().foregroundStyle(.secondary)
             }
             .padding(.vertical, 8)
             if !last { Divider() }
@@ -603,14 +711,15 @@ struct FoodDetailView: View {
         }
     }
 
-    // Claude  Date 07/15/2026 last changed: 07/16/2026 by: Claude
+    // Claude  Date 07/15/2026 last changed: 08/06/2026 by: Claude
     // The log affordance: pick a meal, then add the dialed-in amount to the diary. Hands
-    // the caller the consumed nutrients (per-100 scaled by the current factor) so the
-    // store write stays outside this view. Disabled when the amount rounds to nothing.
-    // (The button now shows the live calorie total so what you're about to log is never
-    // a guess, drops the keyboard before reading the amount, and confirms with a
+    // the caller the consumed nutrients (per-100 scaled by the current factor) AND the
+    // measurement the user expressed, so the store write — and the per-food memory of
+    // what they picked — stay outside this view. Disabled when the amount rounds to
+    // nothing. (The button shows the live calorie total so what you're about to log is
+    // never a guess, drops the keyboard before reading the amount, and confirms with a
     // success haptic.)
-    private func logBar(_ onLog: @escaping (MealType, Nutrients) -> Void) -> some View {
+    private func logBar(_ onLog: @escaping (MealType, Nutrients, FoodMeasurement) -> Void) -> some View {
         let consumed = food.per100.scaled(by: factor)
         return VStack(spacing: 10) {
             HStack {
@@ -627,7 +736,7 @@ struct FoodDetailView: View {
             Button {
                 amountFocused = false
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
-                onLog(selectedMeal, food.per100.scaled(by: factor))
+                onLog(selectedMeal, food.per100.scaled(by: factor), currentMeasurement)
                 dismiss()
             } label: {
                 Text("Add to \(selectedMeal.title) · \(Int(consumed.calories.rounded())) kcal")
@@ -657,14 +766,18 @@ struct FoodDetailView: View {
 
     // MARK: - Number formatting
 
-    // Claude  Date 07/14/2026
-    // Compact number: integers show whole; fractional values keep up to 2 decimals with
-    // trailing zeros trimmed (micros can be tiny, e.g. 0.9 µg). Keeps a real 0 as "0".
-    static func number(_ value: Double) -> String {
+    // Claude  Date 07/14/2026 last changed: 08/06/2026 by: Claude
+    // Compact number: integers show whole; fractional values keep up to `decimals`
+    // places with trailing zeros trimmed. Keeps a real 0 as "0".
+    //
+    // The default of 2 is for micros, which are genuinely tiny (0.9 µg) and need the
+    // precision. Macros pass 1 — a gram of fat to two decimals ("30.36 g") is false
+    // precision on a number the source rounded before we ever saw it.
+    static func number(_ value: Double, decimals: Int = 2) -> String {
         if value == value.rounded() && abs(value) < 1e12 {
             return String(Int(value.rounded()))
         }
-        var s = String(format: "%.2f", value)
+        var s = String(format: "%.\(decimals)f", value)
         while s.hasSuffix("0") { s.removeLast() }
         if s.hasSuffix(".") { s.removeLast() }
         return s
@@ -699,7 +812,7 @@ private extension FoodDetail {
 // credentials from it — a preview without one traps at runtime.)
 #Preview("Populated · logging") {
     NavigationStack {
-        FoodDetailView(food: .sample, onLog: { meal, consumed in
+        FoodDetailView(food: .sample, onLog: { meal, consumed, _ in
             print("log \(meal.title): \(consumed.calories) kcal")
         })
     }
@@ -736,7 +849,21 @@ private extension FoodDetail {
             basisUnit: "ml",
             per100: Nutrients(calories: 45, protein: 0.7, carbs: 10.4, fat: 0.2,
                               fiber: 0.2, sugar: 8.4, sodium: 1),
-            micros: Micros(vC: 50, potassium: 200)), onLog: { _, _ in })
+            micros: Micros(vC: 50, potassium: 200)), onLog: { _, _, _ in })
+    }
+    .environmentObject(ThemeManager())
+    .environmentObject(CardSyncService())
+}
+
+// Claude  Date 08/06/2026
+// Cache seeding: a food the user last logged as 6 oz. The page must open on the Weight
+// tab with the oz chip lit and 6 in the field — not the 1-serving default — and the
+// "≈ 170 g" note underneath.
+#Preview("Seeded from last measurement") {
+    NavigationStack {
+        FoodDetailView(food: .sample,
+                       initialMeasurement: FoodMeasurement(amount: 6, unit: .ounce),
+                       onLog: { _, _, _ in })
     }
     .environmentObject(ThemeManager())
     .environmentObject(CardSyncService())
@@ -758,7 +885,7 @@ private extension FoodDetail {
             servingQuantity: 33,
             per100: Nutrients(calories: 594, protein: 21, carbs: 21, fat: 51,
                               fiber: 6, sugar: 6, sodium: 152),
-            micros: Micros(vE: 3.1)), onLog: { _, _ in })
+            micros: Micros(vE: 3.1)), onLog: { _, _, _ in })
     }
     .environmentObject(ThemeManager())
     .environmentObject(CardSyncService())
@@ -777,7 +904,7 @@ private extension FoodDetail {
             servingUnit: "bar",
             nutrients: Nutrients(calories: 210, protein: 20, carbs: 22, fat: 7,
                                  fiber: 3, sugar: 5, sodium: 140),
-            source: .custom)), onLog: { _, _ in })
+            source: .custom)), onLog: { _, _, _ in })
     }
     .environmentObject(ThemeManager())
 }

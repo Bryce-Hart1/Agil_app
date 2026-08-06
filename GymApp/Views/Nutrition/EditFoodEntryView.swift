@@ -28,13 +28,13 @@ struct EditFoodEntryView: View {
             Form {
                 Section("Food") {
                     Text(entry.name).font(.headline)
-                    Text("Per serving: \(Int(entry.nutrients.calories.rounded())) kcal")
+                    Text(loggedCaption)
                         .font(.caption).foregroundStyle(.secondary)
                 }
 
                 Section("Amount") {
                     Stepper(value: $servings, in: 0.25...50, step: 0.25) {
-                        Text("Servings: \(servingsText)")
+                        Text(amountLabel)
                     }
                     Picker("Meal", selection: $meal) {
                         ForEach(MealType.allCases) { Text($0.title).tag($0) }
@@ -78,6 +78,31 @@ struct EditFoodEntryView: View {
         updated.mealType = meal
         store.updateFoodEntry(updated)
         dismiss()
+    }
+
+    // Claude  Date 08/06/2026
+    // What was originally logged. For anything logged through the food detail page,
+    // `nutrients` is the WHOLE portion and `servings` is 1 — so the old
+    // "Per serving: N kcal" was really the total, and reading it as a serving size
+    // made the stepper below look like it did something different than it does. With
+    // a measurement on the entry we can say what was actually logged.
+    private var loggedCaption: String {
+        let kcal = Int(entry.nutrients.calories.rounded())
+        if let measurement = entry.measurement {
+            return "Logged: \(measurement.displayText) · \(kcal) kcal"
+        }
+        return "Per serving: \(kcal) kcal"
+    }
+
+    // Claude  Date 08/06/2026
+    // The stepper multiplies whatever was logged, so show the result in the user's own
+    // units — stepping a 200 g entry to 1.5 reads "Amount: 300 g", not "Servings: 1.5".
+    // Legacy measurement-less entries keep the bare count.
+    private var amountLabel: String {
+        if let measurement = entry.measurement {
+            return "Amount: \(measurement.scaled(by: servings).displayText)"
+        }
+        return "Servings: \(servingsText)"
     }
 
     private var servingsText: String {
