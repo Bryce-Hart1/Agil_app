@@ -43,11 +43,13 @@ struct NewFoodView: View {
     @State private var sodium: Double = 0
 
     // Claude  Date 08/04/2026
-    // The backend's two curation flags. They're set by the submitter (never inferred
-    // from Open Food Facts, whose records are all retail packaged goods) and they're
-    // what the provenance badge reads.
-    @State private var isRestaurant = false
-    @State private var isGeneric = false
+    // What kind of food this is. One choice rather than the backend's two independent
+    // booleans, because the two are not independent in practice: a food is a packaged
+    // product, a restaurant menu item, or a generic whole food, never two of those.
+    // Modelling it as an enum also makes the barcode question answer itself — only a
+    // packaged product has one — so the barcode step appears for exactly one case
+    // instead of being a field the user has to know not to fill in.
+    @State private var kind: FoodKind = .packaged
 
     // Micronutrients as typed — per serving, like the macros above. Converted to
     // per-100 on submission; MicroField owns which fields exist and in what unit.
@@ -75,9 +77,50 @@ struct NewFoodView: View {
     private var trimmedName: String { name.trimmingCharacters(in: .whitespaces) }
     private var trimmedBarcode: String { barcode.filter(\.isNumber) }
     private var hasBarcode: Bool { !trimmedBarcode.isEmpty }
-    // Restaurant menu items don't carry barcodes, so the step doesn't apply to them.
-    private var needsBarcode: Bool { !isRestaurant }
     private var canSubmit: Bool { cardSync.backendAuth != nil }
+
+    // Claude  Date 08/04/2026
+    // The three kinds a hand-entered food can be, and the two backend curation flags
+    // each one implies. Split this way because "does it have a barcode?" is answered
+    // by the kind, not asked separately: only a packaged retail product carries one.
+    private enum FoodKind: String, CaseIterable, Identifiable {
+        case packaged, restaurant, generic
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .packaged:   return "Packaged"
+            case .restaurant: return "Restaurant"
+            case .generic:    return "Generic"
+            }
+        }
+
+        /// Only a packaged product has a barcode to scan.
+        var hasBarcode: Bool { self == .packaged }
+
+        var isRestaurant: Bool { self == .restaurant }
+        var isGeneric: Bool { self == .generic }
+
+        /// The origin stamped on the local copy, mirroring the flags the backend gets.
+        var localSource: FoodSource {
+            switch self {
+            case .packaged:   return .custom
+            case .restaurant: return .restaurant
+            case .generic:    return .usda
+            }
+        }
+
+        var explanation: String {
+            switch self {
+            case .packaged:
+                return "A branded product with a barcode on the package."
+            case .restaurant:
+                return "A menu item, like a Chipotle bowl. No barcode — restaurant food isn't packaged."
+            case .generic:
+                return "A whole food, like \u{201C}apple, raw\u{201D}. No barcode — generic food isn't a branded product."
+            }
+        }
+    }
 
     var body: some View {
         NavigationStack {
@@ -88,7 +131,7 @@ struct NewFoodView: View {
                 }
 
                 kindSection
-                if needsBarcode { barcodeSection }
+                if kind.hasBarcode { barcodeSection }
 
                 Section("Serving") {
                     LabeledContent("Size") {
@@ -156,45 +199,23 @@ struct NewFoodView: View {
     // MARK: - Kind
 
     // Claude  Date 08/04/2026
-    // What kind of food this is. These map to the backend's `isRestaurant`/`isGeneric`
-    // flags and drive the provenance badge. Mutually exclusive in practice — a
-    // restaurant menu item isn't a generic whole food — so selecting one clears the
-    // other rather than letting an ambiguous pair be submitted.
+    // One three-way choice, sitting directly above the barcode step because it decides
+    // whether that step exists at all. Replaced two independent toggles that could both
+    // be off (ambiguous) or both be on (nonsense, and only prevented by a pair of
+    // onChange handlers clearing each other) — a segmented picker makes the invalid
+    // states unrepresentable instead of merely unreachable.
     private var kindSection: some View {
         Section {
-            Toggle(isOn: $isRestaurant) {
-                Label {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Restaurant food")
-                        Text("A menu item, like a Chipotle bowl")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                } icon: {
-                    Image(systemName: "fork.knife")
-                        .foregroundStyle(FoodSourcePalette.restaurant)
+            Picker("Kind", selection: $kind) {
+                ForEach(FoodKind.allCases) { kind in
+                    Text(kind.title).tag(kind)
                 }
             }
-            .onChange(of: isRestaurant) { on in if on { isGeneric = false } }
-
-            Toggle(isOn: $isGeneric) {
-                Label {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Generic food")
-                        Text("A whole food, like \u{201C}apple, raw\u{201D}")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                } icon: {
-                    Image(systemName: "basket.fill")
-                        .foregroundStyle(FoodSourcePalette.generic)
-                }
-            }
-            .onChange(of: isGeneric) { on in if on { isRestaurant = false } }
+            .pickerStyle(.segmented)
         } header: {
             Text("Kind")
         } footer: {
-            if isRestaurant {
-                Text("Restaurant foods have no barcode, so this one stays in your library and the review queue rather than the verified database.")
-            }
+            Text(kind.explanation)
         }
     }
 
@@ -312,9 +333,14 @@ struct NewFoodView: View {
             Text("Agil database")
         } footer: {
             if canSubmit {
-                Text(isRestaurant
-                     ? "Your entry joins the review queue so others can find it. Restaurant nutrition facts are published by the chains themselves — enter them as listed, and don't copy menu descriptions."
-                     : "Your entry joins the review queue. Once it's checked it becomes a verified food for everyone.")
+                switch kind {
+                case .restaurant:
+                    Text("Your entry joins the review queue so others can find it. Restaurant nutrition facts are published by the chains themselves — enter them as listed, and don't copy menu descriptions.")
+                case .generic:
+                    Text("Your entry joins the review queue so others can find it.")
+                case .packaged:
+                    Text("Your entry joins the review queue. Once it's checked it becomes a verified food for everyone.")
+                }
             } else {
                 Text("Foods can only be shared with the database in Friends mode. This one will be saved to your device.")
             }
@@ -337,7 +363,10 @@ struct NewFoodView: View {
     // implying the entry was lost.
     private func save() async {
         let unit = servingUnit.trimmingCharacters(in: .whitespaces)
-        let code = trimmedBarcode
+        // Only a packaged product carries a barcode. A code typed before switching
+        // kinds stays in the field (so switching back doesn't lose it) but never
+        // reaches the saved food — the kind is the authority on whether one exists.
+        let code = kind.hasBarcode ? trimmedBarcode : ""
         let willSubmit = shareForReview && canSubmit
 
         let food = store.addFood(FoodItem(
@@ -348,7 +377,7 @@ struct NewFoodView: View {
             servingUnit: unit.isEmpty ? "serving" : unit,
             nutrients: Nutrients(calories: calories, protein: protein, carbs: carbs,
                                  fat: fat, fiber: fiber, sugar: sugar, sodium: sodium),
-            source: localSource,
+            source: kind.localSource,
             // Pending only when it's actually on its way to the queue; a device-only
             // food isn't waiting on anyone.
             verification: willSubmit ? .pending : nil,
@@ -364,8 +393,8 @@ struct NewFoodView: View {
             isSubmitting = true
             do {
                 _ = try await FoodSubmissionClient().submit(
-                    food, micros: micros, isRestaurant: isRestaurant,
-                    isGeneric: isGeneric, auth: auth)
+                    food, micros: micros, isRestaurant: kind.isRestaurant,
+                    isGeneric: kind.isGeneric, auth: auth)
             } catch {
                 isSubmitting = false
                 // The local save already happened; report and let the user dismiss.
@@ -379,13 +408,6 @@ struct NewFoodView: View {
 
         onCreate(food)
         dismiss()
-    }
-
-    // The origin stamped on the local copy, mirroring the flags the backend gets.
-    private var localSource: FoodSource {
-        if isRestaurant { return .restaurant }
-        if isGeneric { return .usda }
-        return .custom
     }
 }
 

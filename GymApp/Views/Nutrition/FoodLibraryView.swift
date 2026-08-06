@@ -134,19 +134,20 @@ struct FoodLibraryView: View {
             .modeNotchToolbar(tab: AgilTabItem.foods.tag)
             .toolbar {
                 // Claude  Date 07/28/2026 last changed: 08/04/2026 by: Claude
-                // Scan on the left, add on the right — one real button per side.
+                // Scan on the left, add on the right — one real button per side, the
+                // same shape every other root tab uses.
                 //
-                // This replaces a pair of invisible navBarBalancers that used to sit
-                // on the leading side purely to keep the ModeNotch pill centered
+                // This replaces a pair of invisible width-reserving stand-ins that used
+                // to sit on the leading side purely to keep the ModeNotch pill centered
                 // against two trailing buttons. Under the current toolbar style each
                 // item group draws its own capsule, so a group holding only invisible
                 // content rendered as an empty capsule floating in the corner. A real
                 // button on each side removes it and gives scanning its own target.
                 //
-                // No balancer now: the two sides differ only by the width of the
-                // barcode glyph vs the plus, which shifts the pill by a couple of
-                // points. Re-balancing would put a half-empty capsule back on screen,
-                // and that reads far worse than a slightly off-center pill.
+                // Nothing reserves width now: the two sides differ only by the barcode
+                // glyph vs the plus, which shifts the pill by a couple of points.
+                // Re-balancing would put a half-empty capsule back on screen, and that
+                // reads far worse than a slightly off-center pill.
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
                         scannedBarcode = nil
@@ -216,20 +217,16 @@ struct FoodLibraryView: View {
     // MARK: - Toolbar glyphs
 
     // Claude  Date 08/04/2026
-    // The scan button's glyph.
-    //
-    // ⚠️ Still the SF Symbol: there is no barcode SVG in the repo yet (nothing under
-    // assets/, nothing in Assets.xcassets). To swap in the custom one, drop the file
-    // at assets/general/barcode.svg, add a `barcode.imageset` to
-    // GymApp/Resources/Assets.xcassets containing it (copy note.imageset's
-    // Contents.json — same single-file, scale-1x layout), and replace the body below
-    // with the template-rendered Image, matching the 22×22 sizing WorkoutsListView and
-    // ProfileView use for their custom toolbar icons:
-    //
-    //     Image("barcode").renderingMode(.template)
-    //         .resizable().scaledToFit().frame(width: 22, height: 22)
+    // The scan button's glyph — the custom barcode mark, template-rendered so it takes
+    // the toolbar tint (the SVG ships with a hardcoded black fill). 22×22 matches the
+    // custom toolbar icons in WorkoutsListView and ProfileView, so the three tabs'
+    // buttons line up at the same optical size.
     private var scanIcon: some View {
-        Image(systemName: "barcode.viewfinder")
+        Image("barcode")
+            .renderingMode(.template)
+            .resizable()
+            .scaledToFit()
+            .frame(width: 22, height: 22)
     }
 
     // MARK: - All-foods search

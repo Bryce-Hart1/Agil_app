@@ -5,14 +5,16 @@ import SwiftUI
 struct WorkoutDetailView: View {
     @EnvironmentObject private var store: AppStore
     let workoutID: UUID
-    // Claude  Date 06/10/2026
-    // True when this was a freshly created workout (vs editing an existing one),
-    // which changes the bottom button to "Finish Workout" vs "Finish Edit".
+    // Claude  Date 06/10/2026 last changed: 08/04/2026 by: Claude
+    // (08/04) `isNew` was documented as switching the bottom button between
+    // "Finish Workout" and "Finish Edit", but the editor never read it — that
+    // button has always keyed off workout.isFinished. Accepted and ignored here so
+    // the call site keeps compiling; nothing downstream uses it.
     var isNew: Bool = false
 
     var body: some View {
         if let binding = store.binding(for: workoutID) {
-            WorkoutEditor(workout: binding, isNew: isNew)
+            WorkoutEditor(workout: binding)
         } else {
             Text("This workout no longer exists.")
                 .foregroundStyle(.secondary)
@@ -23,13 +25,26 @@ struct WorkoutDetailView: View {
 /// Edits a single workout: its date, the exercises performed, the sets logged
 /// for each, and freeform notes. All edits flow through the binding and are
 /// persisted automatically by `AppStore`.
+// Claude  Date 08/04/2026
+// (08/04) The top of the screen was a `Section("Date")` holding a DatePicker and a
+// `Section("Notes")` at the very bottom. Both were form rows for things that
+// wanted to be page furniture: the date is almost never edited (you log the
+// workout you're doing), and the notes were written but displayed nowhere. They're
+// now a header — date and time set in the theme's face, tap to unfold the picker —
+// with the notes directly beneath it as read-then-tap-to-edit text.
 private struct WorkoutEditor: View {
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var theme: ThemeManager
     @EnvironmentObject private var session: WorkoutSession
     @Environment(\.dismiss) private var dismiss
     @Binding var workout: Workout
-    let isNew: Bool
+    // Claude  Date 08/04/2026
+    // Header state: whether the date picker is unfolded, and whether the notes row
+    // is in its editing shape. `notesFocused` drives the collapse — losing focus
+    // (Done, tapping away, the toolbar's global dismiss) puts notes back to display.
+    @State private var showingDatePicker = false
+    @State private var isEditingNotes = false
+    @FocusState private var notesFocused: Bool
     @State private var showingExercisePicker = false
     // Claude  Date 06/18/2026
     // The library exercise being edited from a section's pencil (nil = none).
@@ -66,26 +81,151 @@ private struct WorkoutEditor: View {
         return name.isEmpty ? "Untitled Preset" : name
     }
 
+    // Claude  Date 08/04/2026
+    // Room the nav bar leaves a principal item: the screen less the back button and
+    // the ⋯ menu with their margins. Approximate on purpose — the marquee needs a
+    // concrete width to decide whether to scroll (a principal item is sized to its
+    // intrinsic content, so there's no proxy to ask), and being a few points off
+    // only shifts where a long name starts scrolling.
+    private var titleMaxWidth: CGFloat {
+        #if canImport(UIKit)
+        return max(120, UIScreen.main.bounds.width - 160)
+        #else
+        return 200
+        #endif
+    }
+
+    // MARK: - Header
+
+    // Claude  Date 08/04/2026
+    // The page's masthead: when this workout happened, and the notes that apply to
+    // the whole session. Drawn as a Section with a clear row background and no
+    // separators so it reads as page furniture rather than the first two rows of a
+    // form — while still scrolling with the content and letting the List animate the
+    // date picker's insertion, which a safeAreaInset header wouldn't.
+    private var headerSection: some View {
+        Section {
+            dateHeader
+            if showingDatePicker { datePicker }
+            notesRow
+        }
+        .listRowBackground(Color.clear)
+        .listRowSeparator(.hidden)
+    }
+
+    // Claude  Date 08/04/2026
+    // The date/time line. Set in the THEME's face — a deliberate island in a screen
+    // that's otherwise on the system face (see systemTypeface at the bottom of body):
+    // a nested fontDesign beats the ambient one, and the contrast is what makes this
+    // read as a header rather than a row. A Button, not a tap gesture, so it's
+    // reachable and describable to VoiceOver.
+    private var dateHeader: some View {
+        Button {
+            hideKeyboard()
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                showingDatePicker.toggle()
+            }
+        } label: {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(workout.date, format: .dateTime.weekday(.wide).month().day())
+                        .font(.title3.weight(.semibold))
+                    Text(workout.date, format: .dateTime.hour().minute())
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Image(systemName: "chevron.down")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .rotationEffect(.degrees(showingDatePicker ? 180 : 0))
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .fontDesign(theme.current.fontDesign.design)
+        .accessibilityLabel("Workout date")
+        .accessibilityValue(Text(workout.date, format: .dateTime.weekday(.wide).month().day().hour().minute()))
+        .accessibilityHint("Tap to change")
+    }
+
+    // Claude  Date 06/14/2026 last changed: 08/04/2026 by: Claude
+    // Cap the date at "now" so a workout can't be logged in the future (you can't
+    // have trained a session that hasn't happened yet). The open-ended `...Date()`
+    // range disables future days/times in the picker; existing dates in the past
+    // stay freely editable. (08/04) Unfolded from the header rather than always
+    // shown, and graphical rather than a compact row — once it's a deliberate
+    // disclosure, it may as well be the pleasant version of the control.
+    private var datePicker: some View {
+        DatePicker("", selection: $workout.date, in: ...Date(),
+                   displayedComponents: [.date, .hourAndMinute])
+            .datePickerStyle(.graphical)
+            .labelsHidden()
+            .transition(.opacity.combined(with: .move(edge: .top)))
+    }
+
+    // Claude  Date 08/04/2026
+    // Workout-level notes, directly under the date. Reads as text until tapped —
+    // a permanently-open TextField at the top of the page would look like something
+    // demanding to be filled in, and most sessions have nothing to say.
+    //
+    // Focus is what closes it: losing first responder (Done, tapping elsewhere, the
+    // toolbar's dismiss) drops back to display, so there's no separate confirm step.
+    @ViewBuilder
+    private var notesRow: some View {
+        if isEditingNotes {
+            TextField("Notes for this workout", text: $workout.notes, axis: .vertical)
+                .font(.subheadline)
+                .lineLimit(1...5)
+                .focused($notesFocused)
+                // Focusing in the same layout pass the field is inserted doesn't take
+                // on iOS 16 — the field has to exist first.
+                .onAppear { DispatchQueue.main.async { notesFocused = true } }
+                .onChange(of: notesFocused) { focused in
+                    if !focused { isEditingNotes = false }
+                }
+        } else {
+            Button {
+                isEditingNotes = true
+            } label: {
+                HStack(spacing: 6) {
+                    if workout.notes.isEmpty {
+                        Image(systemName: "square.and.pencil")
+                            .font(.caption)
+                        Text("Add notes…")
+                    } else {
+                        Text(workout.notes)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .font(.subheadline)
+                .foregroundStyle(workout.notes.isEmpty ? AnyShapeStyle(.tertiary)
+                                                       : AnyShapeStyle(.secondary))
+                .multilineTextAlignment(.leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Workout notes")
+            .accessibilityValue(workout.notes.isEmpty ? "None" : workout.notes)
+            .accessibilityHint("Tap to edit")
+        }
+    }
+
     var body: some View {
         Form {
-            Section("Date") {
-                // Claude  Date 06/14/2026
-                // Cap the date at "now" so a workout can't be logged in the future
-                // (you can't have trained a session that hasn't happened yet). The
-                // open-ended `...Date()` range disables future days/times in the
-                // picker; existing dates in the past stay freely editable.
-                DatePicker("Date", selection: $workout.date, in: ...Date(),
-                           displayedComponents: [.date, .hourAndMinute])
-            }
+            headerSection
 
             ForEach($workout.exercises) { $logged in
                 Section {
-                    // Claude  Date 07/19/2026
+                    // Claude  Date 07/19/2026 last changed: 08/04/2026 by: Claude
                     // onSwap: point this entry at a different lift, in place. The logged
                     // sets, note and adaptive suggestion all describe the OLD lift, so
                     // they're cleared; the rep range is re-derived from the new lift's
                     // history (same rule the picker uses when adding). Rest timer stays —
                     // it's a property of how you're training, not of the lift.
+                    // (08/04) `logged.note` is the SESSION note, which is why it clears.
+                    // The perma note needs nothing here: it lives on the Exercise and is
+                    // looked up by exerciseId, so it re-resolves to the new lift's own.
                     ExerciseLogSection(logged: $logged, accent: theme.current.accent,
                                        focusedField: $focusedField) { exercise in
                         logged.exerciseId = exercise.id
@@ -130,11 +270,6 @@ private struct WorkoutEditor: View {
                 } label: {
                     Label("Add Exercise", systemImage: "plus")
                 }
-            }
-
-            Section("Notes") {
-                TextField("Notes", text: $workout.notes, axis: .vertical)
-                    .lineLimit(1...5)
             }
 
             // Claude  Date 06/09/2026 last changed: 06/16/2026 by: Claude
@@ -196,13 +331,49 @@ private struct WorkoutEditor: View {
         }
         .navigationTitle(workout.date.formatted(.dateTime.month().day()))
         .navigationBarTitleDisplayMode(.inline)
+        // Claude  Date 08/04/2026
+        // A workout started from a preset is "Push Day", not "Aug 4" — the name the
+        // user gave it is the more useful identifier, and the date is now spelled
+        // out in the header a few points below anyway. Preset names are free text,
+        // so a long one scrolls rather than truncating (see MarqueeText); the date
+        // fallback for ad-hoc workouts always fits.
+        //
+        // navigationTitle above is deliberately kept: the principal view supersedes
+        // it visually, but it's still what VoiceOver announces for the screen and
+        // what a pushed child shows on its back button.
+        //
+        // The font is set here rather than inherited. This screen runs on the system
+        // face (see systemTypeface below) while the nav bar everywhere else is the
+        // theme's — ChromeFontAppearance styles UIKit's own title label, which a
+        // custom principal view isn't, so it has to match 17pt semibold by hand.
+        //
+        // Only a preset name gets the marquee. A date is "Aug 4" — it always fits,
+        // and running it through a scroller means one more thing that can go wrong
+        // for zero benefit on the commonest case, an ad-hoc workout.
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Group {
+                    if sourcePreset != nil {
+                        MarqueeText(sourcePresetName,
+                                    font: .system(size: 17, weight: .semibold),
+                                    maxWidth: titleMaxWidth)
+                    } else {
+                        Text(workout.date.formatted(.dateTime.month().day()))
+                            .font(.system(size: 17, weight: .semibold))
+                            .lineLimit(1)
+                    }
+                }
+                .fontDesign(theme.current.fontDesign.design)
+            }
+        }
         // Claude  Date 07/21/2026
         // This screen opts out of the theme's typeface and stays on the system face.
         // Its set rows are a fixed-width numeric layout ("Set N" in a 54pt column,
         // then reps/weight fields), and monospaced glyphs are wide enough to wrap the
         // labels out of their columns. Everything else — the exercise headers, the
         // notes, the buttons — follows along so the page reads as one piece rather
-        // than a patchwork of two faces.
+        // than a patchwork of two faces. (08/04) The date header is the one exception,
+        // and re-applies the theme face locally — see headerSection.
         .systemTypeface()
         .themed(theme.current)
         // Claude  Date 06/16/2026
@@ -212,37 +383,41 @@ private struct WorkoutEditor: View {
         .onDisappear { if session.viewingWorkoutID == workout.id { session.viewingWorkoutID = nil } }
         .selectAllWhenEditingNumberFields()
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Menu {
-                    if workout.exercises.count > 1 {
-                        Button {
-                            showingReorder = true
-                        } label: {
-                            Label("Reorder Exercises", systemImage: "arrow.up.arrow.down")
+            // Claude  Date 07/13/2026 last changed: 08/04/2026 by: Claude
+            // Overflow menu: reorder, and the two preset actions mirrored from the
+            // buttons at the bottom of the form for discoverability.
+            // (08/04) The whole item is now omitted on an empty workout instead of
+            // being rendered disabled. Every entry below needs at least one
+            // exercise, so on a workout you've only just started it was a button
+            // that looked live, did nothing when tapped, and gave no hint why —
+            // and it's the first thing you see, since a new workout IS empty.
+            if !workout.exercises.isEmpty {
+                ToolbarItem(placement: .primaryAction) {
+                    Menu {
+                        if workout.exercises.count > 1 {
+                            Button {
+                                showingReorder = true
+                            } label: {
+                                Label("Reorder Exercises", systemImage: "arrow.up.arrow.down")
+                            }
                         }
-                    }
-                    // Claude  Date 07/13/2026
-                    // Mirror the bottom "Override Preset" here for discoverability, when
-                    // this workout came from a preset that still exists.
-                    if sourcePreset != nil && !workout.exercises.isEmpty {
-                        Button {
-                            showingOverrideConfirm = true
-                        } label: {
-                            Label("Override Preset", systemImage: "square.stack.3d.up")
+                        if sourcePreset != nil {
+                            Button {
+                                showingOverrideConfirm = true
+                            } label: {
+                                Label("Override Preset", systemImage: "square.stack.3d.up")
+                            }
                         }
-                    }
-                    if !workout.exercises.isEmpty {
                         Button {
                             presetName = ""
                             showingSaveAsPreset = true
                         } label: {
                             Label("Save as New Preset", systemImage: "square.stack.badge.plus")
                         }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
                     }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
                 }
-                .disabled(workout.exercises.isEmpty)
             }
             // Claude  Date 07/21/2026
             // The bar that rides on top of the keyboard: Done, plus quick steppers for
@@ -310,7 +485,7 @@ private struct WorkoutEditor: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Update “\(sourcePresetName)” to match this workout. Its exercises, rep ranges, and set counts. This can’t be undone.")
+            Text("Update “\(sourcePresetName)” to match this workout. Its exercises, rep ranges, set counts, and notes. This can’t be undone.")
         }
         .alert("Preset Updated", isPresented: $overridePresetConfirmation) {
             Button("OK", role: .cancel) {}
@@ -381,10 +556,13 @@ private struct ExerciseLogSection: View {
     var body: some View {
         RepRangeRow(targetRepRange: $logged.targetRepRange)
 
-        TextField("Note (form cues…)",
-                  text: Binding($logged.note, replacingNilWith: ""),
-                  axis: .vertical)
-            .lineLimit(1...4)
+        // Claude  Date 08/04/2026
+        // Two note tiers, replacing the single "Note (form cues…)" field: the perma
+        // note on the lift itself and the session note on this logged entry. See
+        // ExerciseNoteFields — shared with the preset editor so both read the same.
+        ExerciseNoteFields(exerciseId: logged.exerciseId,
+                           sessionNote: $logged.note,
+                           accent: accent)
 
         // Claude  Date 06/12/2026 last changed: 07/16/2026 by: Claude
         // Optional rest timer for ANY exercise — preset items arrive with a duration,

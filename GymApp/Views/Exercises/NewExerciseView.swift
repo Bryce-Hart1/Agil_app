@@ -357,12 +357,18 @@ struct NewExerciseView: View {
         return (resolvedCategory, resolvedMover)
     }
 
-    // Claude  Date 07/13/2026
+    // Claude  Date 07/13/2026 last changed: 08/04/2026 by: Claude
     // "Save" while editing — update THIS lift in place, preserving its id, liftType, and
     // quality (not shown in this form). Every workout/preset that references it updates.
     // Falls back to creating one if somehow called without an edit target.
+    // (08/04) Re-read the lift from the store before applying the form's fields.
+    // `editing` is a snapshot taken when this sheet opened, and the perma note
+    // (Exercise.note) is now editable from the workout and preset editors — i.e. from
+    // the screen sitting directly behind this sheet. Writing back the stale snapshot
+    // would silently revert a note typed there.
     private func saveInPlace() {
-        guard var existing = editing else { return saveAsNew() }
+        guard let target = editing else { return saveAsNew() }
+        var existing = store.exercise(for: target.id) ?? target
         let fields = resolvedFields()
         existing.name = trimmedName
         existing.region = region

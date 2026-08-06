@@ -46,6 +46,20 @@ private struct PresetEditor: View {
                 IconGrid(selected: $preset.symbolName, accent: theme.current.accent)
             }
 
+            // Claude  Date 08/04/2026
+            // Notes for the template as a whole — standing instructions that apply
+            // every time it's run ("warm up on the bar", "superset 2 and 3"). Copied
+            // onto each workout started from this preset, and overwritten by that
+            // workout's notes if it's later saved back over this template. Sits with
+            // Name and Icon because, like them, it describes the preset itself rather
+            // than any one lift in it.
+            Section("Notes") {
+                TextField("Notes for this preset",
+                          text: Binding($preset.notes, replacingNilWith: ""),
+                          axis: .vertical)
+                    .lineLimit(1...5)
+            }
+
             // Bryce Hart Jul 25 26
             // Adaptive-progression toggle for the whole preset, with a "?" explainer
             // (mirrors the info-button pattern in NewExerciseView). When on, each
@@ -90,10 +104,14 @@ private struct PresetEditor: View {
                     // so the value labels pick up the new accent instead of keeping the
                     // old theme's color.
                     .retintOnThemeChange(theme.current, salt: "sets-\(item.id)")
-                    TextField("Note (Things like form cues, bench height)",
-                              text: Binding($item.note, replacingNilWith: ""),
-                              axis: .vertical)
-                        .lineLimit(1...4)
+                    // Claude  Date 08/04/2026
+                    // Two note tiers, replacing the single note field: the perma note
+                    // on the lift itself (edited here, it changes everywhere that lift
+                    // appears) and this template's own note for it. Shared with the
+                    // workout editor so the pair looks identical in both.
+                    ExerciseNoteFields(exerciseId: item.exerciseId,
+                                       sessionNote: $item.note,
+                                       accent: theme.current.accent)
                     // Claude  Date 06/12/2026
                     // Rest duration carried into workouts started from this preset.
                     Picker(selection: $item.restSeconds) {
@@ -220,6 +238,11 @@ private struct PresetEditor: View {
             ExercisePickerView { exercise in
                 guard let id = swappingItemID,
                       let index = preset.items.firstIndex(where: { $0.id == id }) else { return }
+                // Claude  Date 08/04/2026
+                // The note cleared here is this template's own (session-tier) note,
+                // which described the old lift. The perma note isn't touched: it
+                // lives on the Exercise and resolves by exerciseId, so the row
+                // simply starts showing the new lift's.
                 preset.items[index].exerciseId = exercise.id
                 preset.items[index].note = nil
                 preset.items[index].weightIncrement = nil
