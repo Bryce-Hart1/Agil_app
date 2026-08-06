@@ -84,11 +84,17 @@ struct Exercise: Identifiable, Codable, Hashable {
     // Claude  Date 06/14/2026
     // Optimal/Classic quality tag (see LiftQuality). nil for untagged custom lifts.
     var quality: LiftQuality?
+    // Claude  Date 08/04/2026
+    // The "perma note": a form cue that belongs to the LIFT, not to any one
+    // session — it surfaces wherever this exercise appears (workout editor,
+    // preset editor) and edits write straight back to the library. Contrast with
+    // LoggedExercise.note / PresetItem.note, which are per-session/per-template.
+    var note: String?
 
     init(id: UUID = UUID(), name: String, region: MuscleRegion = .other, category: String,
          isUnilateral: Bool = false, liftType: LiftType? = nil,
          primaryMover: String = "", quality: LiftQuality? = nil,
-         isBodyweight: Bool = false) {
+         isBodyweight: Bool = false, note: String? = nil) {
         self.id = id
         self.name = name
         self.region = region
@@ -98,6 +104,7 @@ struct Exercise: Identifiable, Codable, Hashable {
         self.primaryMover = primaryMover
         self.quality = quality
         self.isBodyweight = isBodyweight
+        self.note = note
     }
 
     // Claude  Date 06/09/2026 Edited 6/10/2026 Bryce Hart
@@ -135,12 +142,14 @@ struct Exercise: Identifiable, Codable, Hashable {
         liftType ?? (region == .arms && category == "Biceps" ? .curl : nil)
     }
 
-    // Claude  Date 06/09/2026 last changed: 07/20/2026 by: Claude
+    // Claude  Date 06/09/2026 last changed: 08/04/2026 by: Claude
     // Custom decode so exercises saved before newer fields existed still load
     // (missing keys default to false / nil / ""). encode(to:) is synthesized.
     // (07/20) Added isBodyweight — absent on older exercises, so defaults false.
+    // (08/04) Added note (the perma note) — absent on older exercises, so nil.
     enum CodingKeys: String, CodingKey {
-        case id, name, region, category, isUnilateral, liftType, primaryMover, quality, isBodyweight
+        case id, name, region, category, isUnilateral, liftType, primaryMover, quality, isBodyweight,
+             note
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -153,6 +162,7 @@ struct Exercise: Identifiable, Codable, Hashable {
         primaryMover = try c.decodeIfPresent(String.self, forKey: .primaryMover) ?? ""
         quality = try c.decodeIfPresent(LiftQuality.self, forKey: .quality)
         isBodyweight = try c.decodeIfPresent(Bool.self, forKey: .isBodyweight) ?? false
+        note = try c.decodeIfPresent(String.self, forKey: .note)
     }
 }
 

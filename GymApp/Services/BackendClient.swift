@@ -85,15 +85,18 @@ struct BackendClient: CardBackend {
     // edit. Falls back to the LAN dev host if the value is missing, empty, or wasn't
     // substituted, so a bad config can never crash the app at launch.
     static let baseURL: URL = {
-        let fallback = URL(string: "http://192.168.12.159:8080")!
+        let fallback = URL(string: "https://192.168.12.235:8443")!
         guard let raw = Bundle.main.object(forInfoDictionaryKey: "AgilBackendBaseURL") as? String else {
+            print("⚠️ AgilBackendBaseURL MISSING from Info.plist — using fallback \(fallback)")
             return fallback
         }
+        print("→ raw AgilBackendBaseURL from Info.plist: '\(raw)'")
         let trimmed = raw.trimmingCharacters(in: .whitespaces)
-        // Reject empty or an unsubstituted "$(…)" placeholder before trusting it.
         guard !trimmed.isEmpty, !trimmed.contains("$("), let url = URL(string: trimmed) else {
+            print("⚠️ AgilBackendBaseURL invalid ('\(trimmed)') — using fallback \(fallback)")
             return fallback
         }
+        print("✅ using baseURL: \(url)")
         return url
     }()
 

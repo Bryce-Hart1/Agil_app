@@ -56,15 +56,23 @@ struct WorkoutPreset: Identifiable, Codable, Hashable {
     // browse list — it survives a rename, which a name match wouldn't. Optional, so
     // the synthesized Codable decodes presets saved before this field existed as nil.
     var premadeID: String?
+    // Claude  Date 08/04/2026
+    // Notes for the template as a whole — "warm up on the bar first", "superset 2
+    // and 3". Copied onto a workout started from this preset (AppStore.workout(from:))
+    // and back off it when the workout is saved as, or overridden onto, a preset.
+    // Optional so the synthesized Codable decodes older presets as nil.
+    var notes: String?
 
     init(id: UUID = UUID(), name: String = "", symbolName: String = "dumbbell.fill",
-         items: [PresetItem] = [], isAdaptive: Bool = false, premadeID: String? = nil) {
+         items: [PresetItem] = [], isAdaptive: Bool = false, premadeID: String? = nil,
+         notes: String? = nil) {
         self.id = id
         self.name = name
         self.symbolName = symbolName
         self.items = items
         self.isAdaptive = isAdaptive
         self.premadeID = premadeID
+        self.notes = notes
     }
 }
 

@@ -1,17 +1,24 @@
 import SwiftUI
 import UIKit
 
-// Claude  Date 07/14/2026 last changed: 07/16/2026 by: Claude
+// Claude  Date 07/14/2026 last changed: 08/06/2026 by: Claude
 // The food detail page that pops when you scan an item or tap one in Foods. Shows the
-// backend DTO in full: name/brand, a provenance (source) badge and category chip, a
+// backend DTO: name/brand, a category chip and a provenance (source) badge, a
 // serving/unit selector with quick-amount chips, the macro block, and the sparse
-// micronutrients grouped into Fats / Vitamins / Minerals.
+// micronutrients grouped into Fats / Vitamins / Minerals, then the correction card.
 //
 // Contract rules it honors:
 //  • Everything is per 100 g/ml; a serving scales by servingQuantity / 100. When
 //    servingQuantity is nil there's no serving option — per-100 only, nothing fabricated.
 //  • Units are fixed per field (from MicroField), never derived.
-//  • A nil micro renders "—" / not available; a real 0 renders "0".
+//  • A nil micro is NOT SHOWN at all; a real 0 renders "0". (Was: nil rendered as "—".
+//    A typical Open Food Facts row fills 2–4 of the 32 fields, so the honest read-out
+//    was three cards of dashes the user had to scroll past to reach the real numbers.
+//    What's missing is now stated once, as a count, on the correction card.)
+//
+// The barcode used to print under the badges; it's internal plumbing (a dedupe key),
+// not something the user reads, so it's gone from the header — `food.barcode` itself
+// stays, since submissions and correction requests both travel with it.
 //
 // Store-free: the view never touches AppStore directly. A caller opts into logging by
 // passing `onLog` — the page then shows a meal picker + "Add" bar and, on tap, hands
@@ -138,9 +145,18 @@ struct FoodDetailView: View {
                 header
                 if bases.count > 1 || isQuantitative(basis) { basisSelector }
                 macrosCard
+                // Claude  Date 07/14/2026 last changed: 08/06/2026 by: Claude
+                // A group with nothing reported is dropped entirely rather than drawn
+                // as an empty card — see `reportedFields(in:)`.
                 ForEach(MicroGroup.allCases) { group in
-                    microCard(group)
+                    let fields = reportedFields(in: group)
+                    if !fields.isEmpty { microCard(fields, group: group) }
                 }
+                // Claude  Date 08/06/2026
+                // The one place the page admits what it doesn't know, and the user's
+                // way out: send the food back for review. Self-contained (it owns the
+                // network call and the card credentials) so this view stays store-free.
+                FoodCorrectionCard(food: food)
             }
             .padding(16)
         }
@@ -178,21 +194,21 @@ struct FoodDetailView: View {
             if !food.brand.trimmingCharacters(in: .whitespaces).isEmpty {
                 Text(food.brand).font(.subheadline).foregroundStyle(.secondary)
             }
-            // Claude  Date 07/14/2026 last changed: 08/04/2026 by: Claude
-            // Provenance + category. The source badge (and its stacked verification
-            // badge, for generic/restaurant foods) now comes from the shared
-            // FoodSourceBadge so the detail page and every list row agree.
+            // Claude  Date 07/14/2026 last changed: 08/06/2026 by: Claude
+            // Category, then provenance. The source badge (and its stacked verification
+            // badge, for generic/restaurant foods) comes from the shared FoodSourceBadge
+            // so the detail page and every list row agree.
+            //
+            // (The two used to share one HStack. A long source label — "Open Food Facts"
+            // wraps to two lines — starved the chip of width and truncated the category
+            // to "Peanut butte…". Each gets its own row now, so neither can squeeze the
+            // other no matter how long the strings get.)
+            categoryChip
             HStack(spacing: 8) {
                 FoodSourceBadge(source: food.source,
                                 verification: food.verification,
                                 style: .detail)
-                categoryChip
                 Spacer(minLength: 0)
-            }
-            if let code = food.barcode, !code.isEmpty {
-                Text(code)
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -208,7 +224,12 @@ struct FoodDetailView: View {
         Label(lead ?? "Food", systemImage: food.categoryIcon)
             .font(.caption.weight(.medium))
             .foregroundStyle(.secondary)
-            .lineLimit(1)
+            // Claude  Date 08/06/2026
+            // Now that the chip owns a full row it can afford to wrap instead of
+            // truncate — a long leading term ("Peanut butter and chocolate spreads")
+            // stays readable. fixedSize lets the capsule grow to the wrapped height.
+            .lineLimit(2)
+            .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, 10).padding(.vertical, 5)
             .background(Color.secondary.opacity(0.12), in: Capsule())
     }
@@ -501,26 +522,27 @@ struct FoodDetailView: View {
 
     // MARK: - Micros
 
-    private func microCard(_ group: MicroGroup) -> some View {
-        let fields = MicroField.fields(in: group)
-        // Claude  Date 07/15/2026
-        // When the whole group came up blank (every value nil), collapse the rows into a
-        // single "None" line under the header instead of a wall of "—".
-        let allEmpty = fields.allSatisfy { $0.value(food.micros) == nil }
-        return VStack(alignment: .leading, spacing: 0) {
+    // Claude  Date 08/06/2026
+    // The fields in a group this food actually reports. A nil micro means "not
+    // available" (see Micros), and there's nothing to say about it row by row — the
+    // page shows what IS known and states the size of the gap once, on the correction
+    // card. Callers use an empty result to drop the whole card.
+    private func reportedFields(in group: MicroGroup) -> [MicroField] {
+        MicroField.fields(in: group).filter { $0.value(food.micros) != nil }
+    }
+
+    // Claude  Date 07/15/2026 last changed: 08/06/2026 by: Claude
+    // One group's card. Only reported fields render, so the divider run and the
+    // `last:` flag both follow the filtered list. (Was: every field always drew, and
+    // an all-blank group collapsed to a single "None" line. Now an all-blank group
+    // never gets here at all — `body` skips it.)
+    private func microCard(_ fields: [MicroField], group: MicroGroup) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
             Text(group.rawValue)
                 .font(.headline)
                 .padding(.bottom, 8)
-            if allEmpty {
-                Text("None")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 6)
-            } else {
-                ForEach(Array(fields.enumerated()), id: \.element.id) { idx, field in
-                    microRow(field, last: idx == fields.count - 1)
-                }
+            ForEach(Array(fields.enumerated()), id: \.element.id) { idx, field in
+                microRow(field, last: idx == fields.count - 1)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -528,13 +550,15 @@ struct FoodDetailView: View {
         .background(surface, in: RoundedRectangle(cornerRadius: 16))
     }
 
+    // Claude  Date 07/14/2026 last changed: 08/06/2026 by: Claude
+    // One nutrient. Only reported fields reach here, so the label is always full-weight
+    // (it used to grey out for a nil value — that state no longer renders at all).
     private func microRow(_ field: MicroField, last: Bool) -> some View {
         let raw = field.value(food.micros)
         return VStack(spacing: 0) {
             HStack {
                 Text(field.label)
                     .font(.subheadline)
-                    .foregroundStyle(raw == nil ? .secondary : .primary)
                 Spacer()
                 Text(microValueString(raw, unit: field.unit))
                     .font(.subheadline).monospacedDigit()
@@ -545,8 +569,14 @@ struct FoodDetailView: View {
         }
     }
 
-    // nil → "—" (not available). A real value is scaled by the current basis factor and
-    // shown with its fixed unit. A genuine 0 stays "0 <unit>".
+    // Claude  Date 07/14/2026 last changed: 08/06/2026 by: Claude
+    // A value scaled by the current basis factor and shown with its fixed unit. A
+    // genuine 0 stays "0 <unit>" — that's a measured zero, not a gap.
+    //
+    // The nil → "—" branch is unreachable now that unreported fields are filtered out
+    // upstream; it stays because the Double? signature is what makes the 0-vs-missing
+    // distinction explicit at the call site, and a silent "0" would be a lie if a
+    // future caller ever skipped the filter.
     private func microValueString(_ raw: Double?, unit: String) -> String {
         guard let raw else { return "—" }
         return "\(Self.number(raw * factor)) \(unit)"
@@ -662,9 +692,11 @@ private extension FoodDetail {
     )
 }
 
-// Claude  Date 07/14/2026 last changed: 07/16/2026 by: Claude
+// Claude  Date 07/14/2026 last changed: 08/06/2026 by: Claude
 // Previews wrap the page in a NavigationStack now that the view no longer owns one
 // (so it can be pushed by the diary picker or sheeted by the Foods tab).
+// (CardSyncService joins the environment because the correction card reads the card
+// credentials from it — a preview without one traps at runtime.)
 #Preview("Populated · logging") {
     NavigationStack {
         FoodDetailView(food: .sample, onLog: { meal, consumed in
@@ -672,8 +704,12 @@ private extension FoodDetail {
         })
     }
     .environmentObject(ThemeManager())
+    .environmentObject(CardSyncService())
 }
 
+// Claude  Date 07/14/2026 last changed: 08/06/2026 by: Claude
+// No micros at all — every group card should be absent, leaving header → basis →
+// macros → correction card ("32 of 32 nutrients aren't reported").
 #Preview("Per-100 only, verified") {
     NavigationStack {
         FoodDetailView(food: FoodDetail(
@@ -684,6 +720,7 @@ private extension FoodDetail {
                               fiber: 10, sugar: 1, sodium: 6)))
     }
     .environmentObject(ThemeManager())
+    .environmentObject(CardSyncService())
 }
 
 // Claude  Date 07/15/2026 last changed: 07/16/2026 by: Claude
@@ -702,6 +739,29 @@ private extension FoodDetail {
             micros: Micros(vC: 50, potassium: 200)), onLog: { _, _ in })
     }
     .environmentObject(ThemeManager())
+    .environmentObject(CardSyncService())
+}
+
+// Claude  Date 08/06/2026
+// The header case that used to truncate: a long category term next to a long source
+// label, on a food that reports almost nothing. Confirms the chip wraps on its own row
+// instead of becoming "Peanut butte…", that the empty Fats/Minerals cards are gone
+// entirely, and that the correction card names the size of the gap.
+#Preview("Long category · sparse micros") {
+    NavigationStack {
+        FoodDetailView(food: FoodDetail(
+            name: "Natural Jif Creamy Peanut Butter Spread",
+            brand: "Jif",
+            barcode: "0051500243220",
+            category: "Peanut butter and chocolate spreads, Spreads",
+            source: .openFoodFacts,
+            servingQuantity: 33,
+            per100: Nutrients(calories: 594, protein: 21, carbs: 21, fat: 51,
+                              fiber: 6, sugar: 6, sodium: 152),
+            micros: Micros(vE: 3.1)), onLog: { _, _ in })
+    }
+    .environmentObject(ThemeManager())
+    .environmentObject(CardSyncService())
 }
 
 // Claude  Date 07/15/2026 last changed: 07/16/2026 by: Claude

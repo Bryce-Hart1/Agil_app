@@ -671,6 +671,28 @@ final class AppStore: ObservableObject {
         exercises.first { $0.id == id }
     }
 
+    // Claude  Date 08/04/2026
+    // Write access to a lift's perma note (Exercise.note) for the editors that show
+    // it — the workout editor and the preset editor both display the note of a lift
+    // they only reference by id, so neither has a Binding into `exercises` to hand a
+    // TextField. Writing through the array hits its didSet, which persists the
+    // library immediately: that's what makes the note "perma", including from a
+    // blank workout the user never saves as a preset.
+    //
+    // A lift deleted while its editor is open reads nil and swallows writes rather
+    // than resurrecting a library row.
+    func exerciseNoteBinding(for id: UUID) -> Binding<String?> {
+        Binding(
+            get: { [weak self] in self?.exercise(for: id)?.note },
+            set: { [weak self] newValue in
+                guard let self,
+                      let index = self.exercises.firstIndex(where: { $0.id == id })
+                else { return }
+                self.exercises[index].note = newValue
+            }
+        )
+    }
+
     // MARK: - Workouts
 
     func addWorkout(_ workout: Workout) {
@@ -1138,6 +1160,8 @@ final class AppStore: ObservableObject {
     // an ADAPTIVE preset, also attach a per-exercise weight suggestion (adaptiveSuggestion),
     // computed against that resolved rep range and the exercise's smart increment.
     // (07/13) Tag the workout with its source preset and pre-fill item.targetSets sets.
+    // (08/04) Carry the preset's own notes onto the workout, so a template's standing
+    // instructions are at the top of the page the moment the session starts.
     func workout(from preset: WorkoutPreset) -> Workout {
         Workout(exercises: preset.items.map { item in
             let range = defaultRepRange(for: item.exerciseId, explicit: item.targetRepRange)
@@ -1150,7 +1174,7 @@ final class AppStore: ObservableObject {
                                   note: item.note, restSeconds: item.restSeconds,
                                   sets: initialSets(for: item, range: range, adaptive: adaptive),
                                   adaptive: adaptive)
-        }, presetID: preset.id)
+        }, notes: preset.notes ?? "", presetID: preset.id)
     }
 
     // Claude  Date 07/13/2026
@@ -1192,12 +1216,16 @@ final class AppStore: ObservableObject {
     // Claude  Date 06/18/2026 last changed: 07/13/2026 by: Claude
     // (07/13) Capture the logged set count into targetSets so a preset saved from a
     // workout remembers how many sets to pre-fill next time.
+    // Claude  Date 08/04/2026
+    // (08/04) The workout's own notes ride along onto the new preset, so starting
+    // from it later brings them back. Blank stays nil rather than "" — the preset
+    // editor's field bridges nil↔"" and shouldn't persist an empty string.
     func makePreset(from workout: Workout, name: String) -> WorkoutPreset {
         WorkoutPreset(name: name, items: workout.exercises.map {
             PresetItem(exerciseId: $0.exerciseId, targetRepRange: $0.targetRepRange,
                        note: $0.note, restSeconds: $0.restSeconds,
                        targetSets: logicalSetCount(of: $0))
-        })
+        }, notes: workout.notes.isEmpty ? nil : workout.notes)
     }
 
     // Claude  Date 07/13/2026
@@ -1207,8 +1235,12 @@ final class AppStore: ObservableObject {
     // own identity (id, name, icon, adaptive toggle) is left untouched, and each surviving
     // item keeps its id and adaptive weight-step override (a preset-only field the workout
     // doesn't carry) by matching on exerciseId. No-op if the preset no longer exists.
+    // Claude  Date 07/13/2026 last changed: 08/04/2026 by: Claude
+    // (08/04) The workout's notes now overwrite the preset's too — same rule as the
+    // items: whatever the workout currently says wins.
     func updatePreset(id: UUID, from workout: Workout) {
         guard let index = presets.firstIndex(where: { $0.id == id }) else { return }
+        presets[index].notes = workout.notes.isEmpty ? nil : workout.notes
         let existing = presets[index].items
         presets[index].items = workout.exercises.map { logged in
             let prior = existing.first { $0.exerciseId == logged.exerciseId }
