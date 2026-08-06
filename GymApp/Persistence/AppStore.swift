@@ -64,6 +64,16 @@ final class AppStore: ObservableObject {
         }
     }
     @Published var waterLog: [WaterEntry] { didSet { persistence.save(waterLog, to: Self.waterLogFile) } }
+    // Claude  Date 08/06/2026
+    // Per-food memory of the last amount+unit logged, keyed by FoodItem/FoodDetail id.
+    // Seeds the detail page so re-logging a food you eat often is two taps instead of
+    // re-dialing the amount every time — the whole point of the measurement redesign.
+    // Written only by `logFoodDetail` (private(set)), so the page itself stays
+    // store-free. Uncapped: one tiny record per distinct food ever logged, bounded by
+    // the size of the user's food library.
+    @Published private(set) var lastMeasurements: [UUID: FoodMeasurement] {
+        didSet { persistence.save(lastMeasurements, to: Self.foodMeasurementsFile) }
+    }
     @Published var nutritionGoals: NutritionGoals {
         didSet {
             persistence.save(nutritionGoals, to: Self.nutritionGoalsFile)
@@ -159,6 +169,8 @@ final class AppStore: ObservableObject {
     private static let nutritionGoalsFile = "nutrition_goals.json"
     // Claude  Date 07/12/2026 — nutrient focus goals (diary Focus card).
     private static let focusGoalsFile = "nutrient_focus_goals.json"
+    // Claude  Date 08/06/2026 — last amount+unit logged, per food.
+    private static let foodMeasurementsFile = "food_measurements.json"
     // Claude  Date 06/16/2026 — alpha dev coin grant.
     private static let devCoinsFile = "dev_coins.json"
     // Claude  Date 06/17/2026 — barcode → product lookup cache.
@@ -191,6 +203,8 @@ final class AppStore: ObservableObject {
         self.waterLog = persistence.load(Self.waterLogFile, default: [WaterEntry]())
         self.nutritionGoals = persistence.load(Self.nutritionGoalsFile, default: NutritionGoals())
         self.focusGoals = persistence.load(Self.focusGoalsFile, default: [NutrientFocusGoal]())
+        self.lastMeasurements = persistence.load(Self.foodMeasurementsFile,
+                                                 default: [UUID: FoodMeasurement]())
         self.barcodeCache = persistence.load(Self.barcodeCacheFile, default: BarcodeCache())
         self.devBonusCoins = persistence.load(Self.devCoinsFile, default: 0)
 
@@ -886,25 +900,31 @@ final class AppStore: ObservableObject {
                                       loggedAt: Self.stamp(date)))
     }
 
-    // Claude  Date 07/15/2026
+    // Claude  Date 07/15/2026 Peer reviewed Bryce Hart Aug 6, 2026
     // Log straight from the food detail page (a scan or a tapped recent). That page is
     // per-100 and lets the user dial in an exact amount — grams, a serving, cups… — so
     // it hands back the already-consumed nutrients. We snapshot those as a single
     // "serving" (servings folded into the nutrients, so `consumed` reads back the same),
     // linking `foodId` to the library food when there is one. Stamped like logFood so the
     // entry lands chronologically on `date`.
-    func logFoodDetail(_ food: FoodDetail, consumed: Nutrients, meal: MealType,
-                       on date: Date = Date()) {
+    // carries the `measurement` — the amount+unit
+    // as the user dialed it. Two uses, and this is the one choke point for both: it's
+    // stamped onto the entry so the diary row can read "200 g" instead of the
+    // hardcoded "1× serving", and remembered per food so re-opening seeds the page
+    // with it. Optional/defaulted because `logFood` and any plain servings-count path
+    // legitimately have no unit to record.)
+    func logFoodDetail(_ food: FoodDetail, consumed: Nutrients, measurement: FoodMeasurement? = nil, meal: MealType,
+     on date: Date = Date()) {
         foodLog.append(FoodEntry(foodId: food.id, name: food.displayLabel,
                                  nutrients: consumed, servings: 1, mealType: meal,
-                                 loggedAt: Self.stamp(date)))
+                                 loggedAt: Self.stamp(date), measurement: measurement))
+        if let measurement { lastMeasurements[food.id] = measurement }
     }
 
     func deleteFoodEntry(id: UUID) {
         foodLog.removeAll { $0.id == id }
     }
 
-    // Claude  Date 06/16/2026
     // Replace a logged entry in place (matched by id), e.g. after correcting its
     // servings or meal in the editor. The nutrient snapshot is preserved by the
     // caller — this just writes the edited entry back, which persists via didSet.
@@ -914,7 +934,6 @@ final class AppStore: ObservableObject {
         }
     }
 
-    // Claude  Date 06/16/2026
     // Add water (canonical milliliters) toward the day's goal, stamped onto `date`.
     func logWater(milliliters: Double, on date: Date = Date()) {
         waterLog.append(WaterEntry(milliliters: milliliters, loggedAt: Self.stamp(date)))
@@ -924,13 +943,13 @@ final class AppStore: ObservableObject {
         waterLog.removeAll { $0.id == id }
     }
 
-    // Claude  Date 06/16/2026
     // The derived diary view for one calendar day (totals + per-meal grouping).
-    func nutritionDay(for date: Date) -> NutritionDay {
+    func nutritionDay(for date: Date) -> NutritionDay{
         NutritionDay(date: date, foodLog: foodLog, waterLog: waterLog)
-    }
 
-    // Claude  Date 07/16/2026
+    }
+    
+
     // Rewrite the home-screen widget's shared snapshot (App Group) and reload its
     // timeline. Called from the foodLog/nutritionGoals/focusGoals didSets and once
     // at launch (from GymAppApp, since didSets don't fire during init). Only the
