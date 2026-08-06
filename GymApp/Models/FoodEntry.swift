@@ -24,9 +24,19 @@ struct FoodEntry: Identifiable, Codable, Hashable {
     // Real wall-clock time logged; the calendar day of this is the diary day.
     var loggedAt: Date
 
+    // Claude  Date 08/06/2026
+    // How the user expressed the amount ("200 g", "2 cups", "1.5 servings"), for
+    // display only — `nutrients` × `servings` remains the arithmetic truth.
+    //
+    // Optional because it's genuinely absent on two paths: entries logged before this
+    // existed, and `FoodEntry.from` (plain servings-count logging, no unit involved).
+    // Synthesized Codable decodes a missing key as nil, so old logs keep loading —
+    // which matters, since PersistenceService silently RESETS a file it can't decode.
+    var measurement: FoodMeasurement?
+
     init(id: UUID = UUID(), foodId: UUID? = nil, name: String,
          nutrients: Nutrients, servings: Double = 1, mealType: MealType = .other,
-         loggedAt: Date = Date()) {
+         loggedAt: Date = Date(), measurement: FoodMeasurement? = nil) {
         self.id = id
         self.foodId = foodId
         self.name = name
@@ -34,6 +44,7 @@ struct FoodEntry: Identifiable, Codable, Hashable {
         self.servings = servings
         self.mealType = mealType
         self.loggedAt = loggedAt
+        self.measurement = measurement
     }
 
     // Claude  Date 06/16/2026
@@ -41,6 +52,15 @@ struct FoodEntry: Identifiable, Codable, Hashable {
     // This is the value totaled into a day / meal.
     var consumed: Nutrients {
         nutrients.scaled(by: servings)
+    }
+
+    // Claude  Date 08/06/2026
+    // The amount to show for this entry, scaled by the servings multiplier so the
+    // edit sheet's stepper reads honestly (a 200 g entry stepped to 1.5 shows
+    // "300 g"). One definition shared by the diary row and the editor. nil for
+    // entries logged without a measurement — callers fall back to the servings count.
+    var amountText: String? {
+        measurement?.scaled(by: servings).displayText
     }
 
     // Claude  Date 06/16/2026

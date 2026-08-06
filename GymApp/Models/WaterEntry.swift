@@ -27,8 +27,11 @@ enum WaterUnit: String, CaseIterable, Identifiable {
     case fluidOunces
 
     static let storageKey = "waterUnit"
-    // US fluid ounce (same constant family as FoodDetailView's volume conversions).
-    static let mlPerFluidOunce = 29.5735
+    // Claude  Date 08/06/2026
+    // US fluid ounce — deferred to FoodUnit, which owns every volume/weight constant
+    // in the app now. Same value it was declared with here; the point is that food and
+    // water can't drift apart (they already had two spellings of the fluid ounce).
+    static let mlPerFluidOunce = FoodUnit.fluidOunce.perBase
 
     var id: String { rawValue }
 
