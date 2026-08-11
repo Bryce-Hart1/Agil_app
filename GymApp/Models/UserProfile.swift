@@ -26,27 +26,18 @@ enum Gender: String, Codable, Hashable, CaseIterable {
 // The local user profile. Drives onboarding, the profile card, and (later) the
 // online/shareable profile. Codable so it can sync to the backend.
 // (Added gender — on-device badge calibration — and hasSeenTour, the one-shot
-// flag for the first-boot spotlight tour. Then added `character`, the customizable
-// user character that replaces the stock avatars — see the note on that field.)
+// flag for the first-boot spotlight tour.)
+//
+// Claude  Date 08/07/2026 — `avatarID` and `character` are gone with the profile-face
+// feature (stock avatars, the customizable character, and the coin flip that revealed it).
+// The card's picture is the rank emblem now. Old profiles still carry both keys on disk;
+// the decoder simply ignores unknown keys, so nothing needs migrating.
 struct UserProfile: Codable, Hashable {
     var displayName: String
     // Whether first-run onboarding (the welcome name prompt) has been completed.
     var hasOnboarded: Bool
     // The chosen profile-card style (CardStyle.id). Customizable via "Edit Profile Card".
     var cardStyleID: String
-    // Claude  Date 06/30/2026 last changed: 08/02/2026 by: Claude
-    // The chosen profile avatar (Avatar.id). Customizable via "Edit Profile Card".
-    // Still live: it's what `character.isEnabled == false` falls back to, and
-    // ThemeManager's unlockedAvatarIDs / coinsSpent key off it, so removing it would
-    // orphan past purchases and silently change the coin balance.
-    var avatarID: String
-    // Claude  Date 08/02/2026
-    // The customizable user character — layer option ids + colour tokens, resolved by
-    // CharacterView. Coexists with avatarID rather than replacing it: isEnabled == false
-    // means "use the stock Avatar catalogue instead", and the config survives that round
-    // trip so switching back is lossless. ProfileFaceView is the single place that
-    // decides between character, avatar and initials.
-    var character: UserCharacter
     // The data-storage mode chosen during onboarding.
     var dataMode: DataMode
     // Claude  Date 06/13/2026
@@ -70,18 +61,15 @@ struct UserProfile: Codable, Hashable {
     var tookFirstStep: Bool
 
     init(displayName: String = "", hasOnboarded: Bool = false,
-         cardStyleID: String = CardStyle.defaultStyle.id, avatarID: String = Avatar.defaultAvatar.id,
+         cardStyleID: String = CardStyle.defaultStyle.id,
          dataMode: DataMode = .ghost,
          showcasedAchievementIDs: [String] = [],
          gender: Gender = .unspecified, hasSeenTour: Bool = false,
          nutritionSetup: NutritionSetup = NutritionSetup(),
-         tookFirstStep: Bool = false,
-         character: UserCharacter = .default) {
+         tookFirstStep: Bool = false) {
         self.displayName = displayName
         self.hasOnboarded = hasOnboarded
         self.cardStyleID = cardStyleID
-        self.avatarID = avatarID
-        self.character = character
         self.dataMode = dataMode
         self.showcasedAchievementIDs = showcasedAchievementIDs
         self.gender = gender
@@ -96,17 +84,17 @@ struct UserProfile: Codable, Hashable {
     // re-show the welcome prompt. dataMode defaults to .ghost. cardStyleID is
     // new: if absent, migrate from the legacy cardColorHex (#000000 → "black",
     // anything else → the default style).
+    // (08/07/2026: `avatarID` and `character` removed with the profile-face feature. They
+    // stay in older files on disk and are simply ignored — unknown keys never fail a decode.)
     enum CodingKeys: String, CodingKey {
-        case displayName, hasOnboarded, cardStyleID, avatarID, dataMode, showcasedAchievementIDs,
-             gender, hasSeenTour, nutritionSetup, tookFirstStep, character
+        case displayName, hasOnboarded, cardStyleID, dataMode, showcasedAchievementIDs,
+             gender, hasSeenTour, nutritionSetup, tookFirstStep
     }
     private enum LegacyKeys: String, CodingKey { case cardColorHex }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         displayName = try c.decodeIfPresent(String.self, forKey: .displayName) ?? ""
         hasOnboarded = try c.decodeIfPresent(Bool.self, forKey: .hasOnboarded) ?? !displayName.isEmpty
-        // Claude  Date 06/30/2026 — new field; older profiles default to the free avatar.
-        avatarID = try c.decodeIfPresent(String.self, forKey: .avatarID) ?? Avatar.defaultAvatar.id
         dataMode = try c.decodeIfPresent(DataMode.self, forKey: .dataMode) ?? .ghost
         showcasedAchievementIDs = try c.decodeIfPresent([String].self, forKey: .showcasedAchievementIDs) ?? []
         // Claude  Date 07/14/2026 — new fields; older profiles default to baseline
@@ -119,10 +107,6 @@ struct UserProfile: Codable, Hashable {
         // Claude  Date 07/27/2026 — new field; a profile saved before it existed
         // starts false and re-earns First Step the next time it starts a workout.
         tookFirstStep = try c.decodeIfPresent(Bool.self, forKey: .tookFirstStep) ?? false
-        // Claude  Date 08/02/2026 — new field; a profile saved before characters existed
-        // gets the default character, already enabled, so it picks one up on next launch
-        // rather than staying on a stock avatar it never chose.
-        character = try c.decodeIfPresent(UserCharacter.self, forKey: .character) ?? .default
         if let id = try c.decodeIfPresent(String.self, forKey: .cardStyleID) {
             cardStyleID = id
         } else {

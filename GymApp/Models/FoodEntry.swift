@@ -34,9 +34,22 @@ struct FoodEntry: Identifiable, Codable, Hashable {
     // which matters, since PersistenceService silently RESETS a file it can't decode.
     var measurement: FoodMeasurement?
 
+    // Claude  Date 08/06/2026
+    // The source food's per-100 values and unit shape, snapshotted at log time. This is
+    // what lets the diary's editor RE-DIAL an amount — pick 250 g instead of 200 g and
+    // get the right nutrients — rather than only multiplying a frozen total. Without
+    // it an edit can't do anything but scale, which is how the old editor came to call
+    // a whole 250 g portion "1 serving" and let you double it by accident.
+    //
+    // Snapshotted rather than looked up through `foodId`: the same reason `nutrients`
+    // is. A one-off search result was never saved to the library, and a food that was
+    // can still be edited or deleted afterwards.
+    var basis: MeasurementBasis?
+
     init(id: UUID = UUID(), foodId: UUID? = nil, name: String,
          nutrients: Nutrients, servings: Double = 1, mealType: MealType = .other,
-         loggedAt: Date = Date(), measurement: FoodMeasurement? = nil) {
+         loggedAt: Date = Date(), measurement: FoodMeasurement? = nil,
+         basis: MeasurementBasis? = nil) {
         self.id = id
         self.foodId = foodId
         self.name = name
@@ -45,7 +58,15 @@ struct FoodEntry: Identifiable, Codable, Hashable {
         self.mealType = mealType
         self.loggedAt = loggedAt
         self.measurement = measurement
+        self.basis = basis
     }
+
+    // Claude  Date 08/06/2026
+    // Whether this entry can have its amount re-dialed with the full unit controls.
+    // Requires both halves of the redesign: what the user picked, and what the food's
+    // numbers mean. Entries logged before either existed fall back to the old
+    // servings stepper.
+    var isRedialable: Bool { measurement != nil && basis != nil }
 
     // Claude  Date 06/16/2026
     // What was actually consumed: the per-serving snapshot scaled by serving count.

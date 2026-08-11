@@ -25,18 +25,12 @@ import Foundation
 // as the stable identity — friend requests are sent BY code, but accept/decline/
 // unfriend/unblock all key off the other user's `userId`.
 //
-// Claude  Date 08/02/2026
-// `character` is the user's customizable character (UserCharacter) — layer option ids and
-// colour tokens, nothing else. It belongs here because it IS card cosmetics: it's precisely
-// what a friend's app needs to draw your face next to your name, and it carries no
-// identity, no measurements and nothing derived from training. It's nil when the user has
-// characters switched off, so opting out genuinely REMOVES it from the payload rather than
-// shipping a disabled config. `avatarID` remains deliberately absent — a friend with
-// characters off still renders as initials, exactly as every friend does today; sending the
-// stock avatar is a separate decision, not a consequence of this one.
-//
-// ⚠️ Inert until the backend stores and echoes the field. The client sends and decodes it
-// correctly right now; friends' characters simply arrive nil until then.
+// Claude  Date 08/07/2026
+// `character` is gone with the profile-face feature. Nothing is sent for it any more, and a
+// payload that still CARRIES one (a friend on an older build, or a backend that stored the
+// field) decodes fine — an unknown key is ignored, never an error — so no coordinated
+// release is required. Everyone renders as initials, which is what every friend already
+// rendered as in practice. No `avatarID` was ever in this payload.
 struct SharedCard: Codable, Equatable {
     var userId: String
     var displayName: String
@@ -46,10 +40,6 @@ struct SharedCard: Codable, Equatable {
     var rankProgress: Double
     var showcasedAchievementIDs: [String]
     var memberSince: Date?
-    // Optional + defaulted like `friendCode` below, so payloads written before this field
-    // existed still decode, and so nil can mean "characters off / not echoed yet" — which
-    // is exactly the initials fallback ProfileFaceView already handles.
-    var character: UserCharacter? = nil
     var updatedAt: Date?
     // Server-owned; see note above. Optional + defaulted so local construction and
     // decoding of older/keyless payloads both stay valid.

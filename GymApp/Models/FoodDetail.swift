@@ -76,6 +76,11 @@ struct FoodDetail: Identifiable, Hashable {
     var name: String
     var brand: String
     var barcode: String?
+    // Claude  Date 08/07/2026
+    // The backend's raw id string, carried from FoodItem.remoteId so a correction can
+    // name the exact server row rather than the derived local UUID. nil for foods whose
+    // id already is a real server UUID, and for hand-entered foods. See FoodItem.remoteId.
+    var remoteId: String?
     // Comma-separated, most-general term first, or nil (always nil for verified foods
     // today). Mapped to an icon via `categoryIcon`.
     var category: String?
@@ -105,7 +110,7 @@ struct FoodDetail: Identifiable, Hashable {
     var isCountBased: Bool { servingUnit != nil }
 
     init(id: UUID = UUID(), name: String, brand: String = "", barcode: String? = nil,
-         category: String? = nil, source: FoodTrust,
+         remoteId: String? = nil, category: String? = nil, source: FoodTrust,
          verification: FoodVerification? = nil, servingQuantity: Double? = nil,
          basisUnit: String = "g", per100: Nutrients, micros: Micros = .empty,
          servingUnit: String? = nil) {
@@ -113,6 +118,7 @@ struct FoodDetail: Identifiable, Hashable {
         self.name = name
         self.brand = brand
         self.barcode = barcode
+        self.remoteId = remoteId
         self.category = category
         self.source = source
         self.verification = verification
@@ -180,21 +186,29 @@ struct FoodDetail: Identifiable, Hashable {
     // backend_food_sources_contract.md rather than guessed at here.
     // (last changed 08/04/2026 by Claude: category/micros/verification passthrough.)
     init(from item: FoodItem) {
-        let unit = item.servingUnit.lowercased()
-        let weightBased = (unit == "g" || unit == "ml") && item.servingSize > 0
-        if weightBased {
+        // Resolve the serving unit to a weight/volume FoodUnit when we can. This used to
+        // only match the two literals "g"/"ml"; every other spelling ("oz", "grams",
+        // "cup", "fl oz") fell through to the count path, which was wrong now that FoodUnit
+        // exists. An unrecognized unit ("bar", "slice") is a real count food and still does.
+        if let unit = FoodUnit(userInput: item.servingUnit), item.servingSize > 0 {
+            // One serving expressed in the family's base unit (g or mL). For g/mL this is
+            // just the serving size (perBase 1); for oz/lb/cup/fl oz it converts, so a
+            // "2 oz" serving becomes a 56.7 g weight food whose detail page still offers oz.
+            let baseAmount = item.servingSize * unit.perBase
             self.init(
                 id: item.id, name: item.name, brand: item.brand, barcode: item.barcode,
+                remoteId: item.remoteId,
                 category: item.category, source: FoodTrust(item.source),
                 verification: item.verification,
-                servingQuantity: item.servingQuantity ?? item.servingSize,
-                basisUnit: (unit == "ml") ? "ml" : "g",
-                per100: item.nutrients.scaled(by: 100 / item.servingSize),
+                servingQuantity: item.servingQuantity ?? baseAmount,
+                basisUnit: unit.isVolume ? "ml" : "g",
+                per100: item.nutrients.scaled(by: 100 / baseAmount),
                 micros: item.micros ?? .empty
             )
         } else {
             self.init(
                 id: item.id, name: item.name, brand: item.brand, barcode: item.barcode,
+                remoteId: item.remoteId,
                 category: item.category, source: FoodTrust(item.source),
                 verification: item.verification,
                 servingQuantity: nil, basisUnit: "g",

@@ -94,6 +94,36 @@ enum FoodUnit: String, Codable, Hashable, CaseIterable {
         guard isVolume == other.isVolume else { return nil }
         return amount * perBase / other.perBase
     }
+
+    // Claude  Date 08/07/2026
+    // Resolve a free-typed serving unit ("grams", "OZ", "fl. oz.", "Cups") to a canonical
+    // weight/volume FoodUnit. Used when a hand-entered food's unit is free text: without
+    // this, anything but the two literals "g"/"ml" silently became a count food, so typing
+    // "oz" produced a countable-servings food instead of a weight one. Returns nil for a
+    // genuine count unit ("bar", "slice", "scoop") — the caller keeps that as an opaque
+    // serving noun. Case/space/period-insensitive; covers the common spellings and plurals,
+    // not every conceivable one.
+    init?(userInput raw: String) {
+        let key = raw.lowercased()
+            .replacingOccurrences(of: ".", with: "")
+            .trimmingCharacters(in: .whitespaces)
+        switch key {
+        case "g", "gram", "grams", "gramme", "grammes":
+            self = .gram
+        case "oz", "ounce", "ounces":
+            self = .ounce
+        case "lb", "lbs", "pound", "pounds":
+            self = .pound
+        case "cup", "cups":
+            self = .cup
+        case "floz", "fl oz", "fluid ounce", "fluid ounces", "fluidounce", "fluidounces":
+            self = .fluidOunce
+        case "ml", "mls", "milliliter", "milliliters", "millilitre", "millilitres", "cc":
+            self = .milliliter
+        default:
+            return nil
+        }
+    }
 }
 
 // Claude  Date 08/06/2026
@@ -129,13 +159,27 @@ struct FoodMeasurement: Codable, Hashable {
     // definition can change under the cache (a re-scan flips it to ml, a serving
     // size disappears). A mismatch silently falls back to defaults; never crash,
     // never show a wrong-family unit.
-    func isValid(for food: FoodDetail) -> Bool {
+    func isValid(for basis: MeasurementBasis) -> Bool {
         guard amount > 0 else { return false }
         if let unit {
-            guard !food.isCountBased else { return false }
-            return unit.isVolume == (food.basisUnit == "ml")
+            guard !basis.isCountBased else { return false }
+            return unit.isVolume == (basis.basisUnit == "ml")
         }
-        return food.servingQuantity != nil || food.isCountBased
+        return basis.servingQuantity != nil || basis.isCountBased
+    }
+
+    // Claude  Date 08/06/2026
+    // The scale factor from a food's per-100 reference values to this amount — the one
+    // piece of arithmetic that turns "2 cups" into nutrients. A unit converts through
+    // its base (perBase is 1 for g/mL themselves); a serving is N × the serving's
+    // weight; and for a count food per-100 already IS one serving, so the count is the
+    // factor. Lives here rather than in a view so the detail page and the diary editor
+    // can't disagree about what an amount means.
+    func per100Factor(in basis: MeasurementBasis) -> Double {
+        let amount = max(0, self.amount)
+        if basis.isCountBased { return amount }
+        if let unit { return amount * unit.perBase / 100 }
+        return amount * (basis.servingQuantity ?? 100) / 100
     }
 
     // Claude  Date 08/06/2026
@@ -146,15 +190,68 @@ struct FoodMeasurement: Codable, Hashable {
         return noun + "s"
     }
 
-    // Compact amount: whole numbers show whole, fractions keep up to 2 decimals with
-    // trailing zeros trimmed (0.25 lb, 1.5 servings).
-    private static func compactNumber(_ value: Double) -> String {
+    // Claude  Date 08/06/2026 (was FoodDetailView.number, which now forwards here)
+    // Compact amount: whole numbers show whole, fractional values keep up to
+    // `decimals` places with trailing zeros trimmed. Keeps a real 0 as "0".
+    // The default of 2 suits micros (0.9 µg is a real quantity); macros pass 1.
+    static func number(_ value: Double, decimals: Int = 2) -> String {
         if value == value.rounded() && abs(value) < 1e12 {
             return String(Int(value.rounded()))
         }
-        var s = String(format: "%.2f", value)
+        var s = String(format: "%.\(decimals)f", value)
         while s.hasSuffix("0") { s.removeLast() }
         if s.hasSuffix(".") { s.removeLast() }
         return s
+    }
+
+    private static func compactNumber(_ value: Double) -> String { number(value) }
+}
+
+// Claude  Date 08/06/2026
+// A food's shape for the purposes of dialing an amount: its per-100 nutrients plus
+// the three facts that decide which units and tabs it offers. Snapshotted onto a
+// FoodEntry at log time so the diary's editor can re-dial the amount with the same
+// controls the detail page used — without it, an edit can only multiply a frozen
+// nutrient blob, which is how the old editor ended up calling a whole 250 g portion
+// "one serving".
+//
+// `per100` holds ONE SERVING's nutrients in count mode, mirroring FoodDetail.per100.
+struct MeasurementBasis: Codable, Hashable {
+    var per100: Nutrients
+    // "g" or "ml" — picks the weight or volume unit family.
+    var basisUnit: String
+    // Grams/ml in one serving; nil = no Serving tab (never fabricate one).
+    var servingQuantity: Double?
+    // Non-nil for a food measured in opaque servings ("bar", "cup") with no g/ml
+    // weight — the only amount it can offer is a count.
+    var servingUnit: String?
+
+    var isCountBased: Bool { servingUnit != nil }
+
+    init(per100: Nutrients, basisUnit: String, servingQuantity: Double? = nil,
+         servingUnit: String? = nil) {
+        self.per100 = per100
+        self.basisUnit = basisUnit
+        self.servingQuantity = servingQuantity
+        self.servingUnit = servingUnit
+    }
+
+    init(_ food: FoodDetail) {
+        self.init(per100: food.per100, basisUnit: food.basisUnit,
+                  servingQuantity: food.servingQuantity, servingUnit: food.servingUnit)
+    }
+
+    // The amount a food opens on with no history to restore: one serving whenever that
+    // means something, else a sensible amount of the base unit — the food has no
+    // serving size to borrow, so 100 g / 250 ml it is.
+    var defaultMeasurement: FoodMeasurement {
+        if isCountBased {
+            return FoodMeasurement(amount: 1, unit: nil, servingNoun: servingUnit)
+        }
+        if servingQuantity != nil {
+            return FoodMeasurement(amount: 1, unit: nil, servingNoun: "serving")
+        }
+        return FoodMeasurement(amount: basisUnit == "ml" ? 250 : 100,
+                               unit: FoodUnit.baseUnit(forBasisUnit: basisUnit))
     }
 }

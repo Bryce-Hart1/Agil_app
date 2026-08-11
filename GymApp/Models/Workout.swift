@@ -88,17 +88,32 @@ struct LoggedExercise: Identifiable, Codable, Hashable {
     let id: UUID
     var exerciseId: UUID            // references an Exercise in the library
     var targetRepRange: RepRange?   // optional per-exercise rep-range goal (e.g. 6–8)
-    var note: String?               // optional form cue (e.g. "pause at chest")
+    var note: String?               // a note to your NEXT session (see noteIsCarriedForward)
     var restSeconds: Int?           // rest timer duration (s), carried from a preset
     var sets: [ExerciseSet]
     // Claude  Date 07/01/2026
     // Adaptive-preset weight suggestion for this session (nil for non-adaptive presets
     // and ad-hoc exercises). Synthesized Codable defaults it to nil for old data.
     var adaptive: AdaptiveSuggestion?
+    // Claude  Date 08/11/2026
+    // Where `note` came from, which is what gives the note a one-session lifespan:
+    //
+    //   nil / false — written DURING this session. A note to your future self, not yet
+    //                 delivered. Renders with a filled icon and is copied into the next
+    //                 session of this preset.
+    //   true        — carried in from the previous session. This is its last showing, so
+    //                 it renders as an outline icon and is NOT copied forward again.
+    //
+    // Expiry needs no cleanup pass anywhere: the next session only copies notes that were
+    // fresh, so a carried note simply isn't picked up and dies with its workout. Editing a
+    // carried note clears this back to false, which re-arms it for one more session.
+    // Optional because LoggedExercise uses synthesized Codable — a non-optional would fail
+    // to decode every workout saved before this existed.
+    var noteIsCarriedForward: Bool?
 
     init(id: UUID = UUID(), exerciseId: UUID, targetRepRange: RepRange? = nil,
          note: String? = nil, restSeconds: Int? = nil, sets: [ExerciseSet] = [],
-         adaptive: AdaptiveSuggestion? = nil) {
+         adaptive: AdaptiveSuggestion? = nil, noteIsCarriedForward: Bool? = nil) {
         self.id = id
         self.exerciseId = exerciseId
         self.targetRepRange = targetRepRange
@@ -106,6 +121,7 @@ struct LoggedExercise: Identifiable, Codable, Hashable {
         self.restSeconds = restSeconds
         self.sets = sets
         self.adaptive = adaptive
+        self.noteIsCarriedForward = noteIsCarriedForward
     }
 }
 

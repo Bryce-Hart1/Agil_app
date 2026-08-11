@@ -61,6 +61,14 @@ struct FoodItem: Identifiable, Codable, Hashable {
     // Product barcode (EAN/UPC) when this came from a scan / Open Food Facts. The
     // dedupe key for cached API foods — nil for hand-entered generics.
     var barcode: String?
+    // Claude  Date 08/07/2026
+    // The backend's RAW id string, kept verbatim. `id` above is a UUID — for vault
+    // hits the server sends a non-UUID id ("verified:{barcode}") that stableID hashes
+    // into a derived local UUID, losing the original. This passthrough preserves it so
+    // a correction can name the exact server row (see FoodCorrectionClient) instead of
+    // making the backend re-resolve by barcode. nil for hand-entered foods and for rows
+    // whose id already IS a real UUID (there `id` itself matches the server PK).
+    var remoteId: String?
     // Claude  Date 06/16/2026
     // The reference serving the `nutrients` are measured against, e.g. size 100,
     // unit "g", or size 1 unit "cup". A logged entry records how many of THIS
@@ -87,7 +95,7 @@ struct FoodItem: Identifiable, Codable, Hashable {
     var servingQuantity: Double?
 
     init(id: UUID = UUID(), name: String, brand: String = "", barcode: String? = nil,
-         servingSize: Double = 100, servingUnit: String = "g",
+         remoteId: String? = nil, servingSize: Double = 100, servingUnit: String = "g",
          nutrients: Nutrients = .zero, source: FoodSource = .custom,
          verification: FoodVerification? = nil, category: String? = nil,
          micros: Micros? = nil, servingQuantity: Double? = nil) {
@@ -95,6 +103,7 @@ struct FoodItem: Identifiable, Codable, Hashable {
         self.name = name
         self.brand = brand
         self.barcode = barcode
+        self.remoteId = remoteId
         self.servingSize = servingSize
         self.servingUnit = servingUnit
         self.nutrients = nutrients
@@ -123,7 +132,7 @@ struct FoodItem: Identifiable, Codable, Hashable {
     // Forgiving decode so foods saved before a field existed (or sparse API
     // imports) still load. encode(to:) is synthesized.
     enum CodingKeys: String, CodingKey {
-        case id, name, brand, barcode, servingSize, servingUnit, nutrients, source
+        case id, name, brand, barcode, remoteId, servingSize, servingUnit, nutrients, source
         case verification, category, micros, servingQuantity
     }
 
@@ -167,11 +176,16 @@ struct FoodItem: Identifiable, Codable, Hashable {
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        // id: UUID when it is one, otherwise a stable derivation (see stableID).
+        // id: UUID when it is one, otherwise a stable derivation (see stableID). In the
+        // derived case the raw non-UUID string IS the server id, so keep it as remoteId;
+        // an explicit remoteId key (our own re-persisted foods) wins when present.
         if let uuid = try? c.decode(UUID.self, forKey: .id) {
             id = uuid
+            remoteId = try c.decodeIfPresent(String.self, forKey: .remoteId)
         } else {
-            id = Self.stableID(from: try c.decode(String.self, forKey: .id))
+            let raw = try c.decode(String.self, forKey: .id)
+            id = Self.stableID(from: raw)
+            remoteId = try c.decodeIfPresent(String.self, forKey: .remoteId) ?? raw
         }
         name = try c.decode(String.self, forKey: .name)
         brand = try c.decodeIfPresent(String.self, forKey: .brand) ?? ""

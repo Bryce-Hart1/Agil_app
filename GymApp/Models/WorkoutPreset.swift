@@ -7,7 +7,14 @@ struct PresetItem: Identifiable, Codable, Hashable {
     let id: UUID
     var exerciseId: UUID
     var targetRepRange: RepRange?
-    var note: String?               // optional form cue, carried into started workouts
+    // Claude  Date 08/11/2026
+    // ⚠️ RETIRED — nothing reads or writes this any more. A per-exercise note is now a
+    // message to your next session, which travels through workout history rather than
+    // through the template (see LoggedExercise.noteIsCarriedForward and
+    // AppStore.workout(from:)). The two live note tiers are Exercise.note ("always shows
+    // for this lift") and the preset-wide `notes` below. The property stays only so
+    // presets saved while it was in use still decode; delete it once that data is gone.
+    var note: String?
     // Optional rest duration (seconds) between sets, carried into started workouts
     // where it drives a live countdown timer. nil = no rest timer for this exercise.
     var restSeconds: Int?
@@ -22,9 +29,14 @@ struct PresetItem: Identifiable, Codable, Hashable {
     // no preset, so this never applies to them. Synthesized Codable defaults it to nil.
     var targetSets: Int?
 
-    // Default set count for a freshly added preset exercise (a typical working-set count
-    // for a strength movement). Existing preset items keep whatever they had, incl. nil.
-    static let defaultTargetSets = 3
+    // Claude  Date 07/13/2026 last changed: 08/07/2026 by: Claude
+    // Default set count for a freshly added preset exercise. nil = "Don't specify", which
+    // pre-fills no sets when a workout starts from the preset — you add them as you do
+    // them. (Was 3, a typical working-set count: it put a number the user never chose into
+    // every plan, and three is only "typical" for some of what people actually train.)
+    // Existing preset items keep whatever they had. The premade catalog is unaffected —
+    // every PremadeExercise passes its `sets:` explicitly.
+    static let defaultTargetSets: Int? = nil
 
     init(id: UUID = UUID(), exerciseId: UUID, targetRepRange: RepRange? = nil,
          note: String? = nil, restSeconds: Int? = nil, weightIncrement: Double? = nil,

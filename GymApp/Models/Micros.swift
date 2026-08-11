@@ -120,6 +120,17 @@ struct MicroField: Identifiable {
     /// The per-100 value for this field, in `unit`.
     func value(_ micros: Micros) -> Double? { micros[keyPath: key] }
 
+    // Claude  Date 08/07/2026
+    // Whether this micro counts as reported for the user. A nil value is "not available",
+    // and a genuine 0 (backend/OFF foods routinely send `trans-fat: 0`, `cholesterol: 0`)
+    // is treated the same way — the detail page hides both rather than printing "0 g",
+    // which reads as noise, not information. Single source of truth so the detail page's
+    // show filter and the correction card's "N not reported" count can't disagree.
+    func isReported(in micros: Micros) -> Bool {
+        guard let v = value(micros) else { return false }
+        return v > 0
+    }
+
     static let all: [MicroField] = [
         // Fats & cholesterol
         .init(label: "Saturated fat",        unit: "g",  group: .fats, key: \.saturFat,

@@ -26,14 +26,23 @@ struct NutritionSetup: Codable, Hashable {
     // X doesn't fake completion (and doesn't grant the achievement).
     var acknowledged = false
 
-    /// The two required items. `focusGoalsOpened` is intentionally excluded.
-    var isComplete: Bool { calorieGoalSet && waterGoalSet }
+    // Claude  Date 08/07/2026
+    // The required items. `focusGoalsOpened` is intentionally excluded.
+    //
+    // The water goal only counts when water tracking is ON (Settings → Water). Someone who
+    // turned the tracker off has no water goal to set, and gating on it anyway would leave
+    // the checklist permanently at "1 of 2" — and, because ProfileStats feeds this to the
+    // First Plan achievement, put that badge out of reach for a setting they're entitled
+    // to use. With it off the water item is treated as satisfied and the card asks for one
+    // item instead of two.
+    var isComplete: Bool { calorieGoalSet && (waterGoalSet || !WaterTracking.isEnabled) }
 
     /// How many required items are done, for the card's "1 of 2" caption.
     var completedRequiredCount: Int {
-        (calorieGoalSet ? 1 : 0) + (waterGoalSet ? 1 : 0)
+        guard WaterTracking.isEnabled else { return calorieGoalSet ? 1 : 0 }
+        return (calorieGoalSet ? 1 : 0) + (waterGoalSet ? 1 : 0)
     }
 
     /// Total required items — the denominator of that caption.
-    static let requiredCount = 2
+    static var requiredCount: Int { WaterTracking.isEnabled ? 2 : 1 }
 }
