@@ -64,6 +64,14 @@ final class AppStore: ObservableObject {
         }
     }
     @Published var waterLog: [WaterEntry] { didSet { persistence.save(waterLog, to: Self.waterLogFile) } }
+    // Claude  Date 08/07/2026
+    // The water quick-add chips (see WaterPreset): two built-ins plus up to three the user
+    // names themselves. Use counts live here so "most used first" survives relaunches —
+    // but the diary freezes the display order on appear, so a tap never reshuffles the row
+    // the user is looking at.
+    @Published private(set) var waterPresets: [WaterPreset] {
+        didSet { persistence.save(waterPresets, to: Self.waterPresetsFile) }
+    }
     // Claude  Date 08/06/2026
     // Per-food memory of the last amount+unit logged, keyed by FoodItem/FoodDetail id.
     // Seeds the detail page so re-logging a food you eat often is two taps instead of
@@ -73,6 +81,22 @@ final class AppStore: ObservableObject {
     // the size of the user's food library.
     @Published private(set) var lastMeasurements: [UUID: FoodMeasurement] {
         didSet { persistence.save(lastMeasurements, to: Self.foodMeasurementsFile) }
+    }
+    // Claude  Date 08/07/2026
+    // Recency signal for the Foods library "Recents" ordering: the most recent loggedAt
+    // per foodId, folded from the diary. A food never logged is simply absent, so callers
+    // fall back to insertion order. Derived, not persisted — foodLog is the source of
+    // truth and is already loaded, so there's no separate per-food timestamp (and no
+    // FoodItem schema change) to keep in sync. foodLog is a personal diary, so the fold is
+    // cheap at these sizes.
+    var lastLoggedByFood: [UUID: Date] {
+        var map: [UUID: Date] = [:]
+        for entry in foodLog {
+            guard let id = entry.foodId else { continue }
+            if let existing = map[id], existing >= entry.loggedAt { continue }
+            map[id] = entry.loggedAt
+        }
+        return map
     }
     @Published var nutritionGoals: NutritionGoals {
         didSet {
@@ -166,6 +190,7 @@ final class AppStore: ObservableObject {
     private static let foodsFile = "foods.json"
     private static let foodLogFile = "nutrition_log.json"
     private static let waterLogFile = "water_log.json"
+    private static let waterPresetsFile = "water_presets.json"
     private static let nutritionGoalsFile = "nutrition_goals.json"
     // Claude  Date 07/12/2026 — nutrient focus goals (diary Focus card).
     private static let focusGoalsFile = "nutrient_focus_goals.json"
@@ -201,6 +226,8 @@ final class AppStore: ObservableObject {
         self.foods = loadedFoods.filter { $0.source != .seed }
         self.foodLog = persistence.load(Self.foodLogFile, default: [FoodEntry]())
         self.waterLog = persistence.load(Self.waterLogFile, default: [WaterEntry]())
+        self.waterPresets = persistence.load(Self.waterPresetsFile,
+                                             default: WaterPreset.defaults)
         self.nutritionGoals = persistence.load(Self.nutritionGoalsFile, default: NutritionGoals())
         self.focusGoals = persistence.load(Self.focusGoalsFile, default: [NutrientFocusGoal]())
         self.lastMeasurements = persistence.load(Self.foodMeasurementsFile,
@@ -917,7 +944,8 @@ final class AppStore: ObservableObject {
      on date: Date = Date()) {
         foodLog.append(FoodEntry(foodId: food.id, name: food.displayLabel,
                                  nutrients: consumed, servings: 1, mealType: meal,
-                                 loggedAt: Self.stamp(date), measurement: measurement))
+                                 loggedAt: Self.stamp(date), measurement: measurement,
+                                 basis: MeasurementBasis(food)))
         if let measurement { lastMeasurements[food.id] = measurement }
     }
 
@@ -925,12 +953,20 @@ final class AppStore: ObservableObject {
         foodLog.removeAll { $0.id == id }
     }
 
+    // Claude  Date 06/16/2026 last changed: 08/06/2026 by: Claude
     // Replace a logged entry in place (matched by id), e.g. after correcting its
-    // servings or meal in the editor. The nutrient snapshot is preserved by the
-    // caller — this just writes the edited entry back, which persists via didSet.
+    // amount or meal in the editor. The nutrient snapshot is the caller's to compute —
+    // this just writes the edited entry back, which persists via didSet.
+    //
+    // (A corrected amount also refreshes this food's remembered measurement: an edit is
+    // the user's most recent statement of how they measure this food, and a correction
+    // is usually the thing worth repeating next time.)
     func updateFoodEntry(_ entry: FoodEntry) {
         if let index = foodLog.firstIndex(where: { $0.id == entry.id }) {
             foodLog[index] = entry
+        }
+        if let foodId = entry.foodId, let measurement = entry.measurement {
+            lastMeasurements[foodId] = measurement
         }
     }
 
@@ -941,6 +977,40 @@ final class AppStore: ObservableObject {
 
     func deleteWaterEntry(id: UUID) {
         waterLog.removeAll { $0.id == id }
+    }
+
+    // Claude  Date 08/07/2026
+    // Log a quick-add chip and count the tap. The count only affects ordering the NEXT
+    // time the diary appears — see WaterPreset.
+    func logWater(preset: WaterPreset, on date: Date = Date()) {
+        logWater(milliliters: preset.milliliters, on: date)
+        if let index = waterPresets.firstIndex(where: { $0.id == preset.id }) {
+            waterPresets[index].useCount += 1
+        }
+    }
+
+    // How many of the user's three custom slots are spoken for.
+    var customWaterPresetCount: Int { waterPresets.filter(\.isCustom).count }
+    var canAddWaterPreset: Bool { customWaterPresetCount < WaterPreset.maxCustomCount }
+
+    // Claude  Date 08/07/2026
+    // Save a named custom chip. Name is trimmed and clipped to WaterPreset.maxNameLength
+    // here as well as at the field, so no caller can persist one too long to render.
+    // Returns false when the cap is reached or the input is unusable.
+    @discardableResult
+    func addWaterPreset(name: String, milliliters: Double) -> Bool {
+        guard canAddWaterPreset, milliliters > 0 else { return false }
+        let clipped = String(name.trimmingCharacters(in: .whitespaces)
+            .prefix(WaterPreset.maxNameLength))
+        guard !clipped.isEmpty else { return false }
+        waterPresets.append(WaterPreset(name: clipped, milliliters: milliliters,
+                                        isCustom: true))
+        return true
+    }
+
+    // Built-ins are permanent; only the user's own chips can go.
+    func deleteWaterPreset(id: UUID) {
+        waterPresets.removeAll { $0.id == id && $0.isCustom }
     }
 
     // The derived diary view for one calendar day (totals + per-meal grouping).
@@ -1023,15 +1093,42 @@ final class AppStore: ObservableObject {
     @discardableResult
     func installPremade(_ premade: PremadeWorkout, name: String, symbolName: String) -> WorkoutPreset {
         var created: [Exercise] = []
+        // Claude  Date 08/11/2026
+        // The catalog's form cues used to land on PresetItem.note. That field is retired
+        // (session notes live on workouts now), so they'd vanish on install — and they're
+        // worth keeping: a cue like "pause at chest" describes the LIFT, which is exactly
+        // what the perma note is for. Collected here, applied below.
+        var cues: [(exerciseID: UUID, cue: String)] = []
         let items: [PresetItem] = premade.items.compactMap { item in
             guard let exerciseID = resolveExerciseID(for: item, creating: &created) else { return nil }
+            if let cue = item.note?.trimmingCharacters(in: .whitespacesAndNewlines), !cue.isEmpty {
+                cues.append((exerciseID, cue))
+            }
             return PresetItem(exerciseId: exerciseID,
                               targetRepRange: item.reps,
-                              note: item.note,
                               restSeconds: item.restSeconds,
                               targetSets: item.sets)
         }
         if !created.isEmpty { exercises.append(contentsOf: created) }
+
+        // Claude  Date 08/11/2026
+        // Apply the cues to blank perma notes only — a lift the user has already annotated
+        // keeps THEIR note; a shipped template shouldn't overwrite it. Batched into a single
+        // assignment because `exercises` persists in its didSet (same reason the creations
+        // above are appended in one shot).
+        if !cues.isEmpty {
+            var updated = exercises
+            var changed = false
+            for (exerciseID, cue) in cues {
+                guard let index = updated.firstIndex(where: { $0.id == exerciseID }),
+                      (updated[index].note ?? "")
+                          .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                else { continue }
+                updated[index].note = cue
+                changed = true
+            }
+            if changed { exercises = updated }
+        }
 
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let preset = WorkoutPreset(name: trimmed.isEmpty ? premade.name : trimmed,
@@ -1181,19 +1278,52 @@ final class AppStore: ObservableObject {
     // (07/13) Tag the workout with its source preset and pre-fill item.targetSets sets.
     // (08/04) Carry the preset's own notes onto the workout, so a template's standing
     // instructions are at the top of the page the moment the session starts.
+    // Claude  Date 08/11/2026
+    // (Notes) Each exercise's note is now a message from your LAST session of this preset
+    // rather than a field on the template — see LoggedExercise.noteIsCarriedForward. We
+    // read it out of workout history, which is already persisted, instead of storing it on
+    // PresetItem: "Override Preset" (updatePreset below) rebuilds every PresetItem from the
+    // workout and would silently drop a field it doesn't know to carry.
     func workout(from preset: WorkoutPreset) -> Workout {
-        Workout(exercises: preset.items.map { item in
+        let previous = previousSession(ofPreset: preset.id)
+        return Workout(exercises: preset.items.map { item in
             let range = defaultRepRange(for: item.exerciseId, explicit: item.targetRepRange)
             let adaptive = preset.isAdaptive
                 ? adaptiveSuggestion(for: item.exerciseId, range: range,
                                      increment: smartIncrement(for: item.exerciseId,
                                                                override: item.weightIncrement))
                 : nil
+            let carried = carriedNote(for: item.exerciseId, from: previous)
             return LoggedExercise(exerciseId: item.exerciseId, targetRepRange: range,
-                                  note: item.note, restSeconds: item.restSeconds,
+                                  note: carried, restSeconds: item.restSeconds,
                                   sets: initialSets(for: item, range: range, adaptive: adaptive),
-                                  adaptive: adaptive)
+                                  adaptive: adaptive,
+                                  noteIsCarriedForward: carried != nil ? true : nil)
         }, notes: preset.notes ?? "", presetID: preset.id)
+    }
+
+    // Claude  Date 08/11/2026
+    // The most recent FINISHED session of a preset. An abandoned session is skipped rather
+    // than consuming the note, so leaving a workout unfinished doesn't quietly eat it.
+    private func previousSession(ofPreset id: UUID) -> Workout? {
+        workouts
+            .filter { $0.presetID == id && $0.isFinished }
+            .max { ($0.finishedAt ?? $0.date) < ($1.finishedAt ?? $1.date) }
+    }
+
+    // Claude  Date 08/11/2026
+    // The note to carry into the new session: only one that was WRITTEN in the previous
+    // session. A note that was itself carried has now had its one showing, so it's dropped
+    // here — which is the entire expiry mechanism; nothing deletes it, it just stops being
+    // copied. Matching is by exerciseId, consistent with updatePreset (and sharing its
+    // ambiguity if a preset lists the same lift twice).
+    private func carriedNote(for exerciseId: UUID, from previous: Workout?) -> String? {
+        guard let prior = previous?.exercises.first(where: { $0.exerciseId == exerciseId }),
+              prior.noteIsCarriedForward != true,
+              let note = prior.note,
+              !note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return nil }
+        return note
     }
 
     // Claude  Date 07/13/2026
@@ -1239,10 +1369,15 @@ final class AppStore: ObservableObject {
     // (08/04) The workout's own notes ride along onto the new preset, so starting
     // from it later brings them back. Blank stays nil rather than "" — the preset
     // editor's field bridges nil↔"" and shouldn't persist an empty string.
+    // Claude  Date 08/11/2026
+    // (Notes) A logged exercise's note is a message to the NEXT session, not a property of
+    // the template, so it is deliberately NOT captured here — capturing it would freeze one
+    // session's reminder into the preset forever. It travels through workout history
+    // instead (see workout(from:)).
     func makePreset(from workout: Workout, name: String) -> WorkoutPreset {
         WorkoutPreset(name: name, items: workout.exercises.map {
             PresetItem(exerciseId: $0.exerciseId, targetRepRange: $0.targetRepRange,
-                       note: $0.note, restSeconds: $0.restSeconds,
+                       restSeconds: $0.restSeconds,
                        targetSets: logicalSetCount(of: $0))
         }, notes: workout.notes.isEmpty ? nil : workout.notes)
     }
@@ -1250,7 +1385,7 @@ final class AppStore: ObservableObject {
     // Claude  Date 07/13/2026
     // Overwrite an existing preset from a workout ("Override Preset"): rebuild its items
     // to match the workout's current exercises — which lifts are kept vs removed (and
-    // their order), each lift's rep range, note, rest, and logged set count. The preset's
+    // their order), each lift's rep range, rest, and logged set count. The preset's
     // own identity (id, name, icon, adaptive toggle) is left untouched, and each surviving
     // item keeps its id and adaptive weight-step override (a preset-only field the workout
     // doesn't carry) by matching on exerciseId. No-op if the preset no longer exists.
@@ -1263,10 +1398,11 @@ final class AppStore: ObservableObject {
         let existing = presets[index].items
         presets[index].items = workout.exercises.map { logged in
             let prior = existing.first { $0.exerciseId == logged.exerciseId }
+            // (08/11) The note is not captured — see makePreset. It belongs to the session,
+            // not the template.
             return PresetItem(id: prior?.id ?? UUID(),
                               exerciseId: logged.exerciseId,
                               targetRepRange: logged.targetRepRange,
-                              note: logged.note,
                               restSeconds: logged.restSeconds,
                               weightIncrement: prior?.weightIncrement,
                               targetSets: logicalSetCount(of: logged))
