@@ -36,9 +36,9 @@ enum RingGeometry {
 // elemental_ring_avatar_design.md for the layer spec and elemental_ring_avatar_plan.md
 // for why it frames the avatar rather than replacing it.
 //
-// The core is generic on purpose: the profile card puts the user's chosen AvatarView
-// inside, while the friend card puts initials inside (SharedCard syncs `rank` but not
-// `avatarID`, so a friend's avatar art isn't available on this device).
+// The core is generic on purpose: the profile card puts the rank's own StrategistGlyph
+// inside, while the friend card puts initials inside (SharedCard syncs `rank`, never a
+// picture). It briefly held a configurable avatar/character; that feature is gone.
 //
 // Rank N lights N of the 7 segments — Initiate one, Legend all seven. Colors come from
 // `rank.tier`, so a rank is the same color here, on StrategistEmblem, and on its badges.
@@ -401,9 +401,45 @@ struct CenturionMark: View {
     }
 }
 
+// Claude  Date 08/02/2026 last changed: 08/07/2026 by: Claude
+// Just the rank's chess piece, with no ring of its own — StrategistEmblem always brings its
+// own outline, which would sit inside the RankRing and read as two concentric rings. Same
+// asset-or-SF-Symbol fallback as StrategistEmblem/BadgeView.
+// (Moved here from RankCoinView when the profile-face feature was removed: it was never
+// about the coin, it's the ring's default core, and this is where the ring lives.)
+struct StrategistGlyph: View {
+    let rank: StrategistRank
+    var size: CGFloat = 60
+    var unlocked: Bool = true
+
+    var body: some View {
+        glyph
+            .foregroundStyle(unlocked ? AnyShapeStyle(rank.tier.fillGradient)
+                                      : AnyShapeStyle(Color.gray.opacity(0.5)))
+            .shadow(color: unlocked ? .black.opacity(0.18) : .clear,
+                    radius: size * 0.03, y: 0.5)
+    }
+
+    @ViewBuilder private var glyph: some View {
+        #if canImport(UIKit)
+        if UIImage(named: rank.iconName) != nil {
+            Image(rank.iconName)
+                .renderingMode(.template).resizable().scaledToFit()
+                .frame(width: size, height: size)
+        } else {
+            Image(systemName: rank.fallbackSymbol)
+                .font(.system(size: size, weight: .semibold))
+        }
+        #else
+        Image(systemName: rank.fallbackSymbol)
+            .font(.system(size: size, weight: .semibold))
+        #endif
+    }
+}
+
 // Claude  Date 07/09/2026
 // Convenience core for surfaces with no avatar art — chiefly the friend card, whose
-// SharedCard payload carries `rank` but not `avatarID`. Derives up to two initials from a
+// SharedCard payload carries `rank` but not a picture. Derives up to two initials from a
 // display name, matching the design doc's original "first + last initial" core.
 struct RankRingInitials: View {
     let name: String

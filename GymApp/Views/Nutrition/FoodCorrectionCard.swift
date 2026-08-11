@@ -57,9 +57,11 @@ private struct FoodCorrectionCardBody: View {
 
     private var canReport: Bool { cardSync.backendAuth != nil }
 
-    // How many of the 32 tracked micronutrients this food has no value for.
+    // How many of the 32 tracked micronutrients this food has no usable value for — nil
+    // or a genuine 0, matching exactly what the detail page hides (see MicroField.isReported)
+    // so "N aren't reported" always agrees with the rows on screen.
     private var missingCount: Int {
-        MicroField.all.filter { $0.value(food.micros) == nil }.count
+        MicroField.all.filter { !$0.isReported(in: food.micros) }.count
     }
 
     var body: some View {

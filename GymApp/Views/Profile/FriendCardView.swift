@@ -19,12 +19,7 @@ struct FriendCardView: View {
             pinnedIDs: card.showcasedAchievementIDs,
             memberSince: card.memberSince,
             rank: card.showsRankOnCard ? card.rank : nil,
-            rankProgress: card.rankProgress,
-            // Claude  Date 08/02/2026
-            // A friend's character, when they have one and the backend echoed it. Still no
-            // avatarID — that isn't in the payload by design — so a friend without a
-            // character falls back to initials exactly as before.
-            character: card.character
+            rankProgress: card.rankProgress
         )
     }
 }

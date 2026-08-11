@@ -25,6 +25,32 @@ struct NutritionJournalView: View {
     // only labels and quick-add buttons change with this.
     @AppStorage(WaterUnit.storageKey) private var waterUnitRaw = WaterUnit.milliliters.rawValue
     private var waterUnit: WaterUnit { WaterUnit(rawValue: waterUnitRaw) ?? .milliliters }
+    // Whether the water tracker shows at all (Settings → Water). See WaterTracking.
+    @AppStorage(WaterTracking.storageKey) private var trackWater = WaterTracking.defaultValue
+
+    // Claude  Date 08/07/2026
+    // Custom-water state. Everyday logging is a one-tap quick-add; this backs the sheet
+    // behind the small slider button, where a drink can be dialed in cup / fl oz / mL with
+    // the same MeasurementEditor food uses. `unit == nil` never happens here — the water
+    // basis has no Serving tab, so the editor stays in volume mode. The amount added is
+    // persisted and resurfaces as the first quick-add chip (per-drink memory).
+    @State private var waterMeasurement = FoodMeasurement(amount: 250, unit: .milliliter)
+    @State private var showingCustomWater = false
+    // Name for the chip being saved from the custom sheet ("" = log once, save nothing).
+    @State private var customWaterName = ""
+    @AppStorage("waterLastUnit") private var waterLastUnitRaw = ""
+    @AppStorage("waterLastAmount") private var waterLastAmount = 0.0
+
+    // Claude  Date 08/07/2026
+    // The quick-add row's display order, snapshotted when the diary appears. Chips are
+    // ranked most-used-first, but ranking LIVE would slide a chip out from under the
+    // user's finger the instant they tapped it — so taps update the counts and this
+    // frozen order only catches up on the next appear. Ids not in the snapshot (a chip
+    // created this session) sort to the end rather than jumping the queue.
+    @State private var waterOrder: [UUID] = []
+
+    // A volume-only "food" shape: no serving tab, no count — just the volume unit family.
+    private static let waterBasis = MeasurementBasis(per100: .zero, basisUnit: "ml")
 
     private var day: NutritionDay { store.nutritionDay(for: selectedDate) }
 
@@ -44,7 +70,7 @@ struct NutritionJournalView: View {
                 if !store.focusGoals.isEmpty {
                     focusSection
                 }
-                waterSection
+                if trackWater { waterSection }
                 ForEach(MealType.allCases) { meal in
                     mealSection(meal)
                 }
@@ -156,15 +182,18 @@ struct NutritionJournalView: View {
 
     // MARK: - Water
 
-    // Claude  Date 07/16/2026
-    // The water tracker: amount label in the user's display unit (with animated
-    // digits and a checkmark once the goal is met), the animated WaterBarView fill,
-    // and unit-appropriate quick-add buttons. All logging stays canonical ml.
+    // Claude  Date 07/16/2026 last changed: 08/07/2026 by: Claude
+    // The water tracker: amount label in the user's display unit (with animated digits and
+    // a checkmark once the goal is met), the animated WaterBarView fill, and one-tap
+    // quick-adds. Logging water is the most repeated action in the diary, so the everyday
+    // path is a SINGLE tap — the full unit editor lives behind the small slider button and
+    // opens as a sheet. (Was: the MeasurementEditor inline, which was accurate but far too
+    // much furniture for a "+1 glass" gesture.) All storage stays canonical ml.
     private var waterSection: some View {
         Section("Water") {
             let goal = max(store.nutritionGoals.water, 1)
             let goalMet = day.water >= goal
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 5) {
                     Label("\(waterUnit.text(fromMilliliters: day.water)) / \(waterUnit.text(fromMilliliters: store.nutritionGoals.water)) \(waterUnit.abbreviation)",
                           systemImage: "drop.fill")
@@ -183,51 +212,193 @@ struct NutritionJournalView: View {
                 .animation(.spring(response: 0.4, dampingFraction: 0.8), value: goalMet)
                 .animation(.spring(response: 0.55, dampingFraction: 0.85), value: day.water)
                 WaterBarView(fraction: day.water / goal, accent: theme.current.accent)
-                HStack { //added conversions for cups, bottle (even though a bottle is 500ml)
-                // Claude  Date 08/06/2026 — the cup is FoodUnit.cup.perBase now (240 ml,
-                // the US "legal" cup nutrition labels use) rather than a local 237, so
-                // food and water agree on what a cup is. Was the customary 236.588.
-                    ForEach(waterQuickAdds, id: \.label) { add in
-                        Button(add.label) {
-                            store.logWater(milliliters: add.ml, on: selectedDate)
+                HStack(spacing: 8) {
+                    // The chips scroll horizontally and pass under the pinned custom
+                    // button, so any number of presets fits without the row growing.
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(orderedWaterPresets) { preset in
+                                Button(preset.name) {
+                                    store.logWater(preset: preset, on: selectedDate)
+                                }
+                                .buttonStyle(.bordered)
+                                .contextMenu {
+                                    if preset.isCustom {
+                                        Button(role: .destructive) {
+                                            store.deleteWaterPreset(id: preset.id)
+                                        } label: {
+                                            Label("Delete \(preset.name)", systemImage: "trash")
+                                        }
+                                    }
+                                }
+                            }
                         }
+                        // Bordered buttons draw a hair outside their frame; without this
+                        // the first and last chips clip against the scroll view's edges.
+                        .padding(.horizontal, 2)
                     }
+                    // The escape hatch for an amount the chips don't cover. Icon-sized on
+                    // purpose: it must not compete with the one-tap adds beside it.
+                    Button {
+                        seedWaterMeasurement()
+                        customWaterName = ""
+                        showingCustomWater = true
+                    } label: {
+                        Image(systemName: "slider.horizontal.3")
+                    }
+                    .buttonStyle(.bordered)
+                    .accessibilityLabel("Custom water amount")
                 }
-                .buttonStyle(.bordered)
                 .font(.caption)
             }
+            .onAppear(perform: freezeWaterOrder)
+        }
+        .sheet(isPresented: $showingCustomWater) { customWaterSheet }
+    }
+
+    // Claude  Date 08/07/2026
+    // The chips in the order they're drawn: whatever `waterOrder` froze on appear, with
+    // anything it doesn't know about (a chip added since) appended, most-used first.
+    private var orderedWaterPresets: [WaterPreset] {
+        let rank = Dictionary(uniqueKeysWithValues: waterOrder.enumerated().map { ($1, $0) })
+        return store.waterPresets.enumerated().sorted { lhs, rhs in
+            let l = rank[lhs.element.id], r = rank[rhs.element.id]
+            switch (l, r) {
+            case let (l?, r?) where l != r: return l < r
+            case (_?, nil):                 return true
+            case (nil, _?):                 return false
+            default: break
+            }
+            // Unranked (new this session) or tied: most-used first, then insertion order
+            // so the sequence is deterministic across launches.
+            if lhs.element.useCount != rhs.element.useCount {
+                return lhs.element.useCount > rhs.element.useCount
+            }
+            return lhs.offset < rhs.offset
+        }.map(\.element)
+    }
+
+    // Claude  Date 08/07/2026
+    // Snapshot the most-used-first ranking. Called on appear only — never in response to a
+    // tap — so the row the user is looking at holds still (see WaterPreset).
+    private func freezeWaterOrder() {
+        waterOrder = store.waterPresets.enumerated()
+            .sorted {
+                $0.element.useCount != $1.element.useCount
+                    ? $0.element.useCount > $1.element.useCount
+                    : $0.offset < $1.offset
+            }
+            .map(\.element.id)
+    }
+
+    // Claude  Date 08/07/2026
+    // The custom-amount sheet: the same MeasurementEditor food uses, in volume mode
+    // (cup / fl oz / mL). Naming the amount is optional — leave it blank to log a one-off,
+    // or name it to keep it as a chip (up to WaterPreset.maxCustomCount of them).
+    private var customWaterSheet: some View {
+        NavigationStack {
+            Form {
+                Section("Amount") {
+                    MeasurementEditor(basis: Self.waterBasis,
+                                      measurement: $waterMeasurement,
+                                      accent: theme.current.accent)
+                        .padding(.vertical, 4)
+                }
+                Section {
+                    TextField("Name", text: $customWaterName)
+                        .disabled(!store.canAddWaterPreset)
+                        // Clip at the source: a chip has to stay chip-sized, and trimming
+                        // only on save would let the user type past the limit unaware.
+                        .onChange(of: customWaterName) { value in
+                            if value.count > WaterPreset.maxNameLength {
+                                customWaterName = String(value.prefix(WaterPreset.maxNameLength))
+                            }
+                        }
+                } header: {
+                    Text("Keep as a chip (optional)")
+                } footer: {
+                    Text(store.canAddWaterPreset
+                         ? "\(store.customWaterPresetCount) of \(WaterPreset.maxCustomCount) custom chips used. Up to \(WaterPreset.maxNameLength) characters."
+                         : "All \(WaterPreset.maxCustomCount) custom chips used. Press and hold a chip to delete one.")
+                }
+            }
+            .navigationTitle("Add water")
+            .navigationBarTitleDisplayMode(.inline)
+            .themed(theme.current)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { showingCustomWater = false }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Add") {
+                        addDialedWater()
+                        showingCustomWater = false
+                    }
+                    .fontWeight(.semibold)
+                }
+            }
+        }
+        .presentationDetents([.medium])
+    }
+
+    // Claude  Date 08/07/2026
+    // Restore the last drink the user logged (unit + amount) so a repeat pour is one tap.
+    // With no usable memory yet, open in their display unit at a sensible default. Only a
+    // volume unit is accepted back — the setting could have been some stale/other value.
+    private func seedWaterMeasurement() {
+        if let unit = FoodUnit(rawValue: waterLastUnitRaw), unit.isVolume, waterLastAmount > 0 {
+            waterMeasurement = FoodMeasurement(amount: waterLastAmount, unit: unit)
+        } else {
+            let unit: FoodUnit = waterUnit == .fluidOunces ? .fluidOunce : .milliliter
+            waterMeasurement = FoodMeasurement(amount: unit == .fluidOunce ? 8 : 250, unit: unit)
         }
     }
 
-    // Claude  Date 07/16/2026
-    // Quick-add presets in the display unit (cup/bottle stay in both — they're
-    // objects, not numbers). Values are the canonical ml actually logged.
-    private var waterQuickAdds: [(label: String, ml: Double)] {
-        switch waterUnit {
-        case .milliliters:
-            return [("+250 ml", 250), ("+500 ml", 500),
-                    ("+bottle", 500), ("+cup", FoodUnit.cup.perBase)]
-        case .fluidOunces:
-            return [("+8 oz", 8 * WaterUnit.mlPerFluidOunce),
-                    ("+16 oz", 16 * WaterUnit.mlPerFluidOunce),
-                    ("+bottle", 500), ("+cup", FoodUnit.cup.perBase)]
+    // Claude  Date 08/07/2026
+    // Convert the dialed volume to canonical ml, log it on the selected day, remember the
+    // unit+amount so the sheet reopens where it was left, and — when the user named it —
+    // keep it as a chip. A new chip lands at the END of the row this session (it has no
+    // frozen rank yet); it takes its most-used place on the next appear. `unit` is never
+    // nil here (volume-only basis), but fall back to raw ml rather than trust that.
+    private func addDialedWater() {
+        let unit = waterMeasurement.unit ?? .milliliter
+        let ml = waterMeasurement.amount * unit.perBase
+        guard ml > 0 else { return }
+        store.logWater(milliliters: ml, on: selectedDate)
+        waterLastUnitRaw = unit.rawValue
+        waterLastAmount = waterMeasurement.amount
+        let name = customWaterName.trimmingCharacters(in: .whitespaces)
+        if !name.isEmpty {
+            store.addWaterPreset(name: name, milliliters: ml)
         }
     }
 
     // MARK: - Meals
 
+    // Claude  Date 06/16/2026 last changed: 08/06/2026 by: Claude
+    // One meal's logged entries. Rows are swipe-actioned, not tappable: a whole row
+    // that opens an editor is an easy thing to hit by accident while scrolling, and it
+    // hid Delete behind a gesture that gave no hint it existed. Both actions are on the
+    // trailing edge (the iOS convention), Delete first so a full swipe still deletes.
     private func mealSection(_ meal: MealType) -> some View {
         let entries = day.entries(for: meal)
         let mealKcal = Int(day.totals(for: meal).calories.rounded())
         return Section {
             ForEach(entries) { entry in
-                Button { editingEntry = entry } label: {
-                    FoodEntryRow(entry: entry)
-                }
-                .buttonStyle(.plain)
-            }
-            .onDelete { offsets in
-                offsets.map { entries[$0].id }.forEach(store.deleteFoodEntry)
+                FoodEntryRow(entry: entry)
+                    .swipeActions(edge: .trailing) {
+                        Button(role: .destructive) {
+                            store.deleteFoodEntry(id: entry.id)
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+                        Button {
+                            editingEntry = entry
+                        } label: {
+                            Label("Edit", systemImage: "square.and.pencil")
+                        }
+                        .tint(theme.current.accent)
+                    }
             }
             Button {
                 addingToMeal = meal

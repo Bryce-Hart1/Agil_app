@@ -13,6 +13,42 @@ settings:
     SWIFT_VERSION: "5.0"
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
+
+# Claude  Date 08/04/2026
+# ONE explicit, shared scheme — the app. This exists to stop `xcodegen generate`
+# from costing you your scheme selection.
+#
+# Nothing defined schemes before, so Xcode autocreated one per target: GymApp AND
+# GymAppWidget. Every regeneration recreates the project, Xcode re-autocreates
+# both, and the selection can land on the widget. Running an app-extension scheme
+# makes Xcode install the host app and then try to place and attach to the widget
+# — which is the "stuck adding widget" hang, and it has nothing to do with the app
+# code you were actually trying to debug.
+#
+# Declaring this here writes a real scheme into xcshareddata, so it's stable and
+# first in the list every time. Running it builds the widget too (it's an embedded
+# dependency) — you never need to run the widget's own scheme. Add the widget to
+# the home screen by hand, as a user would.
+#
+# To stop Xcode reinventing the widget scheme: Product > Scheme > Manage Schemes,
+# untick "Autocreate schemes". That setting lives in xcuserdata, which is not
+# generated from this file.
+schemes:
+  GymApp:
+    build:
+      targets:
+        GymApp: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release
+
 targets:
   GymApp:
     type: application
@@ -89,17 +125,16 @@ targets:
         # builds with "Signing requires a development team"). Value = the OU of the
         # "Apple Development: bryce.hart23@gmail.com" certificate.
         DEVELOPMENT_TEAM: 6XTP9P5C7M
-      # Claude  Date 06/30/2026
-      # Backend host per build configuration (feeds AgilBackendBaseURL above).
-      configs:
-        # Debug (simulator + the on-device LAN test): the Mac's LAN IP over cleartext
-        # HTTP. Update this if the Mac's IP changes (a DHCP reservation keeps it fixed).
-        Debug:
-          AGIL_BACKEND_BASE_URL: "http://192.168.12.159:8080"
-        # Release (real server): set your HTTPS host here when you deploy. With HTTPS you
-        # can also drop the ATS exception above.
-        Release:
-          AGIL_BACKEND_BASE_URL: "https://CHANGE-ME.example.com"
+    # Claude  Date 06/30/2026 last changed: 08/04/2026 by: Claude
+    # Backend host per build configuration (feeds AgilBackendBaseURL above).
+    # (08/04) AGIL_BACKEND_BASE_URL moved OUT of `settings: configs:` and into these
+    # xcconfig files, so changing the host is a one-line edit that Xcode picks up on
+    # the next Run — no project.yml change and no `xcodegen generate`.
+    # Do NOT re-add AGIL_BACKEND_BASE_URL under `settings:` below: a target-level
+    # build setting overrides an xcconfig, so it would silently shadow these files.
+    configFiles:
+      Debug: Config/Debug.xcconfig
+      Release: Config/Release.xcconfig
 
   # Claude  Date 07/16/2026
   # Home-screen widget (WidgetKit app extension): today's calories, the first

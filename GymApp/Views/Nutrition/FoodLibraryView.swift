@@ -50,11 +50,22 @@ struct FoodLibraryView: View {
 
     private var trimmedQuery: String { searchText.trimmingCharacters(in: .whitespaces) }
 
-    // Claude  Date 06/18/2026
-    // Recents = the library newest-first (foods are appended on create / first scan, so
-    // reverse-insertion order is "most recently added"), filtered by the search text.
+    // Claude  Date 06/18/2026 last changed: 08/07/2026 by: Claude
+    // Recents = the library ordered by most recently LOGGED first, so re-logging a food
+    // bumps it back to the top (the old behaviour was reverse-insertion order, which never
+    // reordered on re-log). Foods you've never logged have no diary date, so they fall
+    // below the logged ones in reverse-insertion order ("most recently added"). Filtered
+    // by the search text.
     private var recents: [FoodItem] {
-        let base = Array(store.foods.reversed())
+        let lastLogged = store.lastLoggedByFood
+        let base = store.foods.enumerated().sorted { lhs, rhs in
+            switch (lastLogged[lhs.element.id], lastLogged[rhs.element.id]) {
+            case let (l?, r?): return l > r          // both logged → newer first
+            case (_?, nil):    return true           // logged sorts above never-logged
+            case (nil, _?):    return false
+            case (nil, nil):   return lhs.offset > rhs.offset  // reverse-insertion
+            }
+        }.map(\.element)
         let q = trimmedQuery.lowercased()
         guard !q.isEmpty else { return base }
         return base.filter {

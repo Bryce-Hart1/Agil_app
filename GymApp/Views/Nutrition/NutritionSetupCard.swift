@@ -26,6 +26,8 @@ struct NutritionSetupCard: View {
 
     private var setup: NutritionSetup { store.profile.nutritionSetup }
     private var accent: Color { theme.current.accent }
+    // Whether the water goal is part of this checklist at all (Settings → Water).
+    @AppStorage(WaterTracking.storageKey) private var trackWater = WaterTracking.defaultValue
 
     var body: some View {
         Section {
@@ -77,14 +79,17 @@ struct NutritionSetupCard: View {
             )
         }
 
-        NavigationLink {
-            NutritionGoalsView()
-        } label: {
-            checklistRow(
-                title: "Set your water goal",
-                detail: "How much you're aiming to drink each day.",
-                done: setup.waterGoalSet
-            )
+        // Only when the user actually tracks water — see NutritionSetup.isComplete.
+        if trackWater {
+            NavigationLink {
+                NutritionGoalsView()
+            } label: {
+                checklistRow(
+                    title: "Set your water goal",
+                    detail: "How much you're aiming to drink each day.",
+                    done: setup.waterGoalSet
+                )
+            }
         }
 
         bonusRow

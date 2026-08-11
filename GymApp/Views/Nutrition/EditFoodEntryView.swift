@@ -1,10 +1,20 @@
 import SwiftUI
 
-// Claude  Date 06/16/2026
-// Edit an already-logged diary entry: change how many servings and which meal, see
-// the recomputed totals live, then save — or delete the entry. The food's name and
-// per-serving nutrient snapshot are preserved (you're correcting the log, not
-// redefining the food), mirroring the add/log flow in FoodPickerView.
+// Claude  Date 06/16/2026 last changed: 08/06/2026 by: Claude
+// Edit an already-logged diary entry: re-dial the amount with the same controls the
+// food detail page uses, change which meal it belongs to, see the totals recompute
+// live, then save — or delete it. The food's name is preserved (you're correcting the
+// log, not redefining the food).
+//
+// (Was a bare servings stepper. Every entry logged through the detail page stores
+// `servings: 1` with the whole portion folded into `nutrients`, so that stepper was
+// multiplying a total it labelled "per serving" — bumping it to 2 silently doubled a
+// 250 g portion with nothing on screen saying so, and there was no way to say "actually
+// it was 180 g". With the measurement and the food's per-100 basis both on the entry,
+// the amount is now genuinely re-dialable: pick 180 g, or switch to ounces, and the
+// nutrients are recomputed from the basis exactly the way the detail page computes
+// them. Entries logged before those fields existed have no basis to recompute from, so
+// they keep the old stepper — see `FoodEntry.isRedialable`.)
 struct EditFoodEntryView: View {
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var theme: ThemeManager
@@ -12,16 +22,33 @@ struct EditFoodEntryView: View {
 
     let entry: FoodEntry
 
+    // The re-dialable path: the amount as the user is now expressing it.
+    @State private var measurement: FoodMeasurement
+    // The legacy path: a bare multiplier over the frozen nutrient snapshot.
     @State private var servings: Double
     @State private var meal: MealType
 
     init(entry: FoodEntry) {
         self.entry = entry
+        _measurement = State(initialValue: entry.measurement
+                             ?? FoodMeasurement(amount: entry.servings,
+                                                servingNoun: "serving"))
         _servings = State(initialValue: entry.servings)
         _meal = State(initialValue: entry.mealType)
     }
 
-    private var consumed: Nutrients { entry.nutrients.scaled(by: servings) }
+    // Claude  Date 08/06/2026
+    // What the entry would be after the edit. With a basis the nutrients are rebuilt
+    // from the food's per-100 values at the new amount — the same arithmetic
+    // FoodDetailView does — so changing 200 g to 250 g is a real recompute, not a
+    // multiplication of a rounded total. Without one, fall back to scaling the
+    // snapshot.
+    private var consumed: Nutrients {
+        if let basis = entry.basis, entry.measurement != nil {
+            return basis.per100.scaled(by: measurement.per100Factor(in: basis))
+        }
+        return entry.nutrients.scaled(by: servings)
+    }
 
     var body: some View {
         NavigationStack {
@@ -33,9 +60,18 @@ struct EditFoodEntryView: View {
                 }
 
                 Section("Amount") {
-                    Stepper(value: $servings, in: 0.25...50, step: 0.25) {
-                        Text(amountLabel)
+                    if let basis = entry.basis, entry.measurement != nil {
+                        MeasurementEditor(basis: basis, measurement: $measurement,
+                                          accent: theme.current.accent)
+                            .padding(.vertical, 4)
+                    } else {
+                        Stepper(value: $servings, in: 0.25...50, step: 0.25) {
+                            Text("Servings: \(servingsText)")
+                        }
                     }
+                }
+
+                Section("Meal") {
                     Picker("Meal", selection: $meal) {
                         ForEach(MealType.allCases) { Text($0.title).tag($0) }
                     }
@@ -72,37 +108,38 @@ struct EditFoodEntryView: View {
         }
     }
 
+    // Claude  Date 08/06/2026
+    // What was originally logged. For anything logged through the detail page,
+    // `nutrients` is the WHOLE portion and `servings` is 1 — so the old
+    // "Per serving: N kcal" was really the total, and reading it as a serving size made
+    // the control below look like it did something other than what it does.
+    private var loggedCaption: String {
+        let kcal = Int(entry.consumed.calories.rounded())
+        if let original = entry.measurement {
+            return "Logged: \(original.displayText) · \(kcal) kcal"
+        }
+        return "Per serving: \(Int(entry.nutrients.calories.rounded())) kcal"
+    }
+
+    // Claude  Date 06/16/2026 last changed: 08/06/2026 by: Claude
+    // Write the edit back. On the re-dialable path the nutrient snapshot is REPLACED
+    // with the recomputed portion and `servings` pinned to 1, matching exactly what
+    // `logFoodDetail` writes — so an edited entry is indistinguishable from one logged
+    // at that amount in the first place. The new amount also updates this food's
+    // remembered measurement, since it's the most recent statement of how the user
+    // measures it.
     private func save() {
         var updated = entry
-        updated.servings = servings
         updated.mealType = meal
+        if let basis = entry.basis, entry.measurement != nil {
+            updated.nutrients = basis.per100.scaled(by: measurement.per100Factor(in: basis))
+            updated.servings = 1
+            updated.measurement = measurement
+        } else {
+            updated.servings = servings
+        }
         store.updateFoodEntry(updated)
         dismiss()
-    }
-
-    // Claude  Date 08/06/2026
-    // What was originally logged. For anything logged through the food detail page,
-    // `nutrients` is the WHOLE portion and `servings` is 1 — so the old
-    // "Per serving: N kcal" was really the total, and reading it as a serving size
-    // made the stepper below look like it did something different than it does. With
-    // a measurement on the entry we can say what was actually logged.
-    private var loggedCaption: String {
-        let kcal = Int(entry.nutrients.calories.rounded())
-        if let measurement = entry.measurement {
-            return "Logged: \(measurement.displayText) · \(kcal) kcal"
-        }
-        return "Per serving: \(kcal) kcal"
-    }
-
-    // Claude  Date 08/06/2026
-    // The stepper multiplies whatever was logged, so show the result in the user's own
-    // units — stepping a 200 g entry to 1.5 reads "Amount: 300 g", not "Servings: 1.5".
-    // Legacy measurement-less entries keep the bare count.
-    private var amountLabel: String {
-        if let measurement = entry.measurement {
-            return "Amount: \(measurement.scaled(by: servings).displayText)"
-        }
-        return "Servings: \(servingsText)"
     }
 
     private var servingsText: String {

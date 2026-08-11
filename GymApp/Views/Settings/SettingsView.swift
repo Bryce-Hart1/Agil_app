@@ -23,6 +23,7 @@ struct SettingsView: View {
     // Water display unit (same key the diary tracker + goals editor read). Display
     // conversion only — everything stays stored in ml.
     @AppStorage(WaterUnit.storageKey) private var waterUnitRaw = WaterUnit.milliliters.rawValue
+    @AppStorage(WaterTracking.storageKey) private var trackWater = WaterTracking.defaultValue
     // Claude  Date 07/14/2026
     // For "Replay app tour": Settings is pushed on the Profile stack, so pop back
     // first — the tour spotlights root-level chrome (ModeNotch, tab bar) that a
@@ -155,16 +156,24 @@ struct SettingsView: View {
             // (diary tracker, water goal). Logged history is canonical ml, so this is
             // safe to flip back and forth.
             Section {
-                Picker("Units", selection: $waterUnitRaw) {
-                    ForEach(WaterUnit.allCases) { unit in
-                        Text(unit.label).tag(unit.rawValue)
+                // Claude  Date 08/07/2026 — water tracking is opt-out: not everyone who
+                // logs food wants a hydration tracker sitting in their journal. The units
+                // picker is moot when the tracker is hidden, so it goes with it.
+                Toggle("Track water", isOn: $trackWater)
+                if trackWater {
+                    Picker("Units", selection: $waterUnitRaw) {
+                        ForEach(WaterUnit.allCases) { unit in
+                            Text(unit.label).tag(unit.rawValue)
+                        }
                     }
+                    .retintOnThemeChange(theme.current, salt: "waterUnits")
                 }
-                .retintOnThemeChange(theme.current, salt: "waterUnits")
             } header: {
                 Text("Water")
             } footer: {
-                Text("Used wherever water amounts appear — the diary tracker and your daily goal. Logged water is stored in milliliters, so switching units never changes your history.")
+                Text(trackWater
+                     ? "Used wherever water amounts appear — the diary tracker and your daily goal. Logged water is stored in milliliters, so switching units never changes your history."
+                     : "The water tracker is hidden from your journal. Anything you've already logged is kept, and turning this back on brings it right back.")
             }
 
             // Claude  Date 07/14/2026

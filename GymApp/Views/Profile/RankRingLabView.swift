@@ -17,13 +17,14 @@ struct RankRingLabView: View {
     @State private var progress: Double = 0.5
     @State private var showsProgress = true
     @State private var progressFill = false   // false = rank map, true = progress meter
-    // Claude  Date 08/02/2026
-    // (Was a `useAvatar` Bool. Characters made the core a three-way choice, and seeing a
-    // character sit inside the 0.54x core slot is exactly what needs eyeballing.)
-    @State private var coreStyle: CoreStyle = .character
+    // Claude  Date 08/07/2026
+    // The core is a two-way choice again: the rank's own glyph (what the profile card
+    // shows) or initials (what a friend's card shows). The character/avatar options went
+    // with that feature.
+    @State private var coreStyle: CoreStyle = .rank
 
     private enum CoreStyle: String, CaseIterable, Identifiable {
-        case character, avatar, initials
+        case rank, initials
         var id: String { rawValue }
         var title: String { rawValue.capitalized }
     }
@@ -32,79 +33,12 @@ struct RankRingLabView: View {
         List {
             liveSection
             controlsSection
-            characterSection
             gallerySection
             promotionSection
         }
         .navigationTitle("Rank ring lab")
         .navigationBarTitleDisplayMode(.inline)
         .themed(theme.current)
-    }
-
-    // Claude  Date 08/02/2026
-    // Every character knob in one place, writing straight to the real profile — so whatever
-    // you set here is what the card, the friend row and the badge's reverse face all show.
-    // Shuffle is the fast way to sweep combinations; the size row is the legibility check
-    // the compositor's stroke floors and detail gate exist for.
-    private var characterSection: some View {
-        Section {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(alignment: .bottom, spacing: 12) {
-                    ForEach([CGFloat(28), 38, 46, 60, 65, 92, 120], id: \.self) { s in
-                        VStack(spacing: 4) {
-                            CharacterView(character: labCharacterForced, size: s)
-                            Text("\(Int(s))").font(.caption2).foregroundStyle(.secondary)
-                        }
-                    }
-                }
-                .padding(.vertical, 6)
-            }
-            .listRowBackground(Color.black.opacity(0.85))
-
-            ForEach(CharacterSlot.allCases) { slot in
-                Picker(slot.title, selection: optionBinding(slot)) {
-                    ForEach(CharacterCatalog.options(for: slot)) { Text($0.name).tag($0.id) }
-                }
-                .retintOnThemeChange(theme.current, salt: "charslot-\(slot.rawValue)")
-            }
-
-            ForEach(CharacterColorRole.allCases.filter(\.isUserPickable)) { role in
-                Picker(role.title, selection: tokenBinding(role)) {
-                    ForEach(CharacterCatalog.swatches(for: role)) { Text($0.name).tag($0.id) }
-                }
-                .retintOnThemeChange(theme.current, salt: "charrole-\(role.rawValue)")
-            }
-
-            Toggle("Characters enabled", isOn: $store.profile.character.isEnabled)
-
-            Button("Shuffle") {
-                var c = UserCharacter.random()
-                c.isEnabled = store.profile.character.isEnabled
-                store.profile.character = c
-            }
-            .foregroundStyle(theme.current.accent)
-        } header: {
-            Text("Character")
-        } footer: {
-            Text("Writes to your real profile. The size row is the legibility check: below 36pt the brows, mouth and glasses bridge are dropped on purpose.")
-        }
-    }
-
-    private func optionBinding(_ slot: CharacterSlot) -> Binding<String> {
-        Binding(get: { store.profile.character.option(for: slot).id },
-                set: { store.profile.character.set($0, for: slot) })
-    }
-
-    private func tokenBinding(_ role: CharacterColorRole) -> Binding<String> {
-        Binding(get: { store.profile.character.token(for: role) },
-                set: { store.profile.character.set(token: $0, for: role) })
-    }
-
-    /// The character with `isEnabled` forced on, so the lab can inspect it either way.
-    private var labCharacterForced: UserCharacter {
-        var c = store.profile.character
-        c.isEnabled = true
-        return c
     }
 
     // The single ring under test, centered on a neutral card so the aura/glow read.
@@ -194,22 +128,21 @@ struct RankRingLabView: View {
         }
     }
 
+    // Claude  Date 08/07/2026
+    // The two cores that actually ship: the rank glyph (your own card) and initials
+    // (a friend's). Mirrors ProfileShowcaseCard.rankCore so the lab stays representative.
     @ViewBuilder private func core(diameter: CGFloat) -> some View {
-        // Claude  Date 08/02/2026
-        // Routed through ProfileFaceView so the lab exercises the SAME precedence the real
-        // card does — forcing a branch here is just a matter of what we hand it.
-        ProfileFaceView(
-            character: labCharacter,
-            avatarID: coreStyle == .initials ? nil : store.profile.avatarID,
-            name: store.profile.resolvedName,
-            size: diameter
-        )
-    }
-
-    // Force-enabled: the lab inspects the character on demand, whether or not the user
-    // currently has characters switched on.
-    private var labCharacter: UserCharacter? {
-        coreStyle == .character ? labCharacterForced : nil
+        switch coreStyle {
+        case .rank:
+            ZStack {
+                Circle().fill(Color.white.opacity(0.15))
+                StrategistGlyph(rank: rank, size: diameter * 0.62)
+            }
+            .frame(width: diameter, height: diameter)
+            .clipShape(Circle())
+        case .initials:
+            RankRingInitials(name: store.profile.resolvedName, size: diameter)
+        }
     }
 
     private func slider(_ title: String, value: Binding<CGFloat>,

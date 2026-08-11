@@ -86,12 +86,15 @@ private struct PresetEditor: View {
             ForEach($preset.items) { $item in
                 Section {
                     RepRangeRow(targetRepRange: $item.targetRepRange)
-                    // Claude  Date 07/13/2026
+                    // Claude  Date 07/13/2026 last changed: 08/07/2026 by: Claude
                     // Planned set count, picked up front. Starting a workout from this
                     // preset pre-fills this many empty sets (see AppStore.workout(from:)).
-                    // "None" clears it so no sets are pre-filled for this exercise.
+                    // (08/07) "Don't specify" is the default and the first option — plenty
+                    // of training doesn't commit to a set count in advance, and guessing
+                    // three on the user's behalf put a number in the plan they never chose.
+                    // Choosing it pre-fills nothing and you add sets as you do them.
                     Picker(selection: $item.targetSets) {
-                        Text("None").tag(Int?.none)
+                        Text("Don't specify").tag(Int?.none)
                         ForEach(1...8, id: \.self) { count in
                             Text("\(count)").tag(Int?.some(count))
                         }
@@ -104,14 +107,19 @@ private struct PresetEditor: View {
                     // so the value labels pick up the new accent instead of keeping the
                     // old theme's color.
                     .retintOnThemeChange(theme.current, salt: "sets-\(item.id)")
-                    // Claude  Date 08/04/2026
-                    // Two note tiers, replacing the single note field: the perma note
-                    // on the lift itself (edited here, it changes everywhere that lift
-                    // appears) and this template's own note for it. Shared with the
-                    // workout editor so the pair looks identical in both.
+                    // Claude  Date 08/04/2026 last changed: 08/11/2026 by: Claude
+                    // The perma note on the lift itself — edited here, it changes
+                    // everywhere that lift appears. Shared with the workout editor so
+                    // the row looks identical in both.
+                    // (08/07) The session row is off here: you're designing a template,
+                    // not living a session. (08/11) It's now a note to your NEXT session,
+                    // which only exists once you're actually running the preset — so it's
+                    // authored from the workout, never from here. Preset-wide standing
+                    // instructions go in the Notes section at the top of this form.
                     ExerciseNoteFields(exerciseId: item.exerciseId,
-                                       sessionNote: $item.note,
-                                       accent: theme.current.accent)
+                                       sessionNote: .constant(nil),
+                                       accent: theme.current.accent,
+                                       showsSessionNote: false)
                     // Claude  Date 06/12/2026
                     // Rest duration carried into workouts started from this preset.
                     Picker(selection: $item.restSeconds) {
@@ -148,7 +156,12 @@ private struct PresetEditor: View {
                     ExerciseActionsRow {
                         swappingItemID = item.id
                     } onRemove: {
-                        preset.items.removeAll { $0.id == item.id }
+                        // Claude  Date 08/07/2026 — animated so the section visibly
+                        // collapses out; a Remove that just blinked the row away read
+                        // as "did that work?". Same curve as the workout editor.
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            preset.items.removeAll { $0.id == item.id }
+                        }
                     }
                 } header: {
                     HStack {
@@ -221,13 +234,15 @@ private struct PresetEditor: View {
             ExercisePickerView { exercise in
                 // New preset items default to an 8–12 range since rep targets are
                 // the whole point of a preset; it can be cleared or changed.
-                // Claude  Date 07/13/2026
-                // Also default to 3 planned sets so the preset pre-fills sets out of the
-                // box (the picker's "None" clears it). See PresetItem.defaultTargetSets.
-                preset.items.append(
-                    PresetItem(exerciseId: exercise.id, targetRepRange: RepRange(min: 8, max: 12),
-                               targetSets: PresetItem.defaultTargetSets)
-                )
+                // Claude  Date 07/13/2026 last changed: 08/07/2026 by: Claude
+                // Sets start UNSPECIFIED (see PresetItem.defaultTargetSets) — the set
+                // count is the one number a plan often shouldn't commit to up front.
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    preset.items.append(
+                        PresetItem(exerciseId: exercise.id, targetRepRange: RepRange(min: 8, max: 12),
+                                   targetSets: PresetItem.defaultTargetSets)
+                    )
+                }
             }
         }
         // Claude  Date 07/19/2026
@@ -238,13 +253,13 @@ private struct PresetEditor: View {
             ExercisePickerView { exercise in
                 guard let id = swappingItemID,
                       let index = preset.items.firstIndex(where: { $0.id == id }) else { return }
-                // Claude  Date 08/04/2026
-                // The note cleared here is this template's own (session-tier) note,
-                // which described the old lift. The perma note isn't touched: it
-                // lives on the Exercise and resolves by exerciseId, so the row
-                // simply starts showing the new lift's.
+                // Claude  Date 08/04/2026 last changed: 08/11/2026 by: Claude
+                // The weight-step override described the old lift, so it's cleared. The
+                // perma note isn't touched: it lives on the Exercise and resolves by
+                // exerciseId, so the row simply starts showing the new lift's.
+                // (08/11) `note` is no longer cleared — it's a retired field nothing reads;
+                // session notes live on workouts now (see PresetItem.note).
                 preset.items[index].exerciseId = exercise.id
-                preset.items[index].note = nil
                 preset.items[index].weightIncrement = nil
                 swappingItemID = nil
             }

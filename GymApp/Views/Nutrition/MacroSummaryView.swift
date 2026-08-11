@@ -27,7 +27,11 @@ struct MacroSummaryView: View {
     // against a 104pt frame; everything now derives from these two so a resize can't
     // leave the dot floating off the arc.
     private let ringSize: CGFloat = 136
-    private let ringLineWidth: CGFloat = 14
+    // One thick ring split into six arcs — for each macro (protein, carbs, fat) an eaten
+    // arc in its solid hue followed by a remaining arc in a faint tint of the same hue.
+    // Each macro's whole wedge is its share of the day's macro grams, so the ring reads as
+    // three back-to-back mini progress bars wrapped into a circle.
+    private let ringLineWidth: CGFloat = 16
 
     var body: some View {
         VStack(spacing: 14) {
@@ -89,84 +93,73 @@ struct MacroSummaryView: View {
         }
     }
 
-    // MARK: - Calorie ring
+    // MARK: - Macro ring
 
-    // Claude  Date 06/16/2026 last changed: 08/06/2026 by: Claude
-    // Calorie ring: fills toward the goal, showing kcal remaining (or "over" when
-    // the day exceeds the goal). Clamped so the arc never overshoots a full circle.
-    // (Redesigned 07/26: the single accent arc became three stacked macro segments —
-    // carbs, protein, fat — sized by each one's share of the calories eaten, and the
-    // flat track became a staged remainder that reads green while there's room, then
-    // greys down as the day fills up. The dot riding the tip is now stroke-width, so
-    // it doubles as the arc's one rounded cap.)
-    //
-    // Claude  Date 08/06/2026 — every arc now animates in ONE transaction, keyed on
-    // the whole drawn geometry. Two bugs came out of the old arrangement:
-    //
-    //  • The remainder carried its own `.animation(_:value: stage)`. A scoped
-    //    animation modifier governs its subtree outright, so the remainder ignored
-    //    the outer spring and snapped whenever `stage` happened not to change —
-    //    which is most changes. Deleting a food therefore moved the remainder
-    //    instantly while the macro arcs, drawn ON TOP of it, spent the better part of
-    //    a second springing down. The stale arc sitting over the already-correct
-    //    remainder is what read as "the yellow didn't go away."
-    //  • Keying on `sweep` alone meant a change that moved the macro split without
-    //    moving the calorie total (swap 100 kcal of carbs for 100 kcal of fat) redrew
-    //    the segments with no animation at all.
-    //
-    // The spring is also critically damped now (was 0.85). An overshooting spring
-    // interpolates the trim PAST its target, and `trim(from:to:)` with from > to
-    // renders the wrapped path — a full-circle flash every time the day crossed its
-    // goal. Clamping the inputs can't prevent that; only a curve that doesn't
-    // overshoot can.
+    // Claude  Date 06/16/2026 last changed: 08/07/2026 by: Claude
+    // One thick ring, six arcs. The eaten arcs come first, beside each other (protein,
+    // carbs, fat) in solid hues, so the filled part reads as one progress block; then the
+    // remaining arcs (protein, carbs, fat) as faint tints of the same hues. Every arc is
+    // sized by grams as a share of the total goal grams, so the whole circle = the day's
+    // macro-gram budget, the solid block = how much of it is eaten, and each faint arc =
+    // how much of that macro is left. Calories live in the center. Replaces the old
+    // Atwater-segment ring (fat's slice loomed large under a glowing tip dot) and the
+    // three concentric-ring version.
     private var calorieRing: some View {
-        let goal = max(goals.calories, 1)
-        let progress = min(totals.calories / goal, 1)
-        // Grow-in gate: every arc is scaled by this, so the ring sweeps up from
-        // empty on first show and the remainder shrinks back to meet it.
-        let sweep = ringShown ? progress : 0
         let remaining = goals.calories - totals.calories
-        let segments = macroSegments(scaledTo: sweep)
-        let stage = RemainderStage(remainingFraction: 1 - progress)
-
+        let arcs = macroArcs()
         return ZStack {
-            // Unfilled remainder — how much room is left in the day.
-            Circle()
-                .trim(from: sweep, to: 1)
-                .stroke(stage.color,
-                        style: StrokeStyle(lineWidth: ringLineWidth, lineCap: .butt))
-                .rotationEffect(.degrees(-90))
-
-            // Filled portion, one arc per macro. Butt caps so neighbouring
-            // segments meet cleanly instead of overlapping into mud.
-            ForEach(segments) { segment in
+            // Faint base so an empty day still reads as a ring, not a gap.
+            Circle().stroke(Color.secondary.opacity(0.08),
+                            style: StrokeStyle(lineWidth: ringLineWidth))
+            ForEach(arcs) { arc in
                 Circle()
-                    .trim(from: segment.start, to: segment.end)
-                    .stroke(segment.color,
+                    .trim(from: arc.start, to: arc.end)
+                    .stroke(arc.color,
                             style: StrokeStyle(lineWidth: ringLineWidth, lineCap: .butt))
                     .rotationEffect(.degrees(-90))
-                    .shadow(color: segment.color.opacity(0.3), radius: 3)
             }
-
-            // Glowing dot at the tip of the arc, tinted by whichever macro owns
-            // the leading segment. Sized to the stroke so it also rounds the end.
-            if let tip = segments.last, sweep > 0.005 {
-                Circle()
-                    .fill(tip.color)
-                    .frame(width: ringLineWidth, height: ringLineWidth)
-                    .shadow(color: tip.color.opacity(0.8), radius: 3)
-                    .offset(y: -ringSize / 2)
-                    .rotationEffect(.degrees(sweep * 360))
-            }
-
             centerReadout(remaining: remaining)
         }
         .frame(width: ringSize, height: ringSize)
-        .animation(.spring(response: 0.7, dampingFraction: 1),
-                   value: CalorieRingGeometry(sweep: sweep, segments: segments, stage: stage))
+        .animation(.spring(response: 0.7, dampingFraction: 1), value: arcs)
         // The frame is fixed, so an accessibility text size would otherwise push
         // the readout straight through the stroke.
         .dynamicTypeSize(...DynamicTypeSize.accessibility1)
+    }
+
+    // Claude  Date 08/07/2026
+    // The six arcs, laid contiguously from the top: all the eaten arcs first (protein,
+    // carbs, fat) so the solid block sits together as overall progress, then the remaining
+    // arcs in the same order as faint tints. Each length is grams over the total goal
+    // grams; the eaten portion is scaled by the grow-in gate and the remainder grows to
+    // fill the gap, so on first show the ring is all-faint (nothing eaten) and the solids
+    // sweep in. Over-goal is clamped to the goal so the circle always stays whole.
+    private func macroArcs() -> [MacroArc] {
+        let macros: [(color: Color, value: Double, goal: Double)] = [
+            (MacroPalette.protein, totals.protein, goals.protein),
+            (MacroPalette.carbs,   totals.carbs,   goals.carbs),
+            (MacroPalette.fat,     totals.fat,     goals.fat),
+        ]
+        let totalGoal = macros.reduce(0) { $0 + max($1.goal, 0) }
+        guard totalGoal > 0 else { return [] }
+        let grow = ringShown ? 1.0 : 0.0
+        var cursor = 0.0
+        var arcs: [MacroArc] = []
+        // Eaten arcs, beside each other.
+        for (index, m) in macros.enumerated() where m.goal > 0 {
+            let eaten = min(max(m.value, 0), m.goal) / totalGoal * grow
+            arcs.append(MacroArc(id: index, color: m.color,
+                                 start: cursor, end: cursor + eaten))
+            cursor += eaten
+        }
+        // Remaining arcs, same order, faint — each grows to backfill its macro's uneaten part.
+        for (index, m) in macros.enumerated() where m.goal > 0 {
+            let left = (m.goal - min(max(m.value, 0), m.goal) * grow) / totalGoal
+            arcs.append(MacroArc(id: index + 3, color: m.color.opacity(0.18),
+                                 start: cursor, end: cursor + left))
+            cursor += left
+        }
+        return arcs
     }
 
     // Claude  Date 07/26/2026
@@ -200,40 +193,6 @@ struct MacroSummaryView: View {
         .frame(maxWidth: ringSize - ringLineWidth * 2 - 12)
     }
 
-    // Claude  Date 07/26/2026
-    // Splits the filled arc into carbs → protein → fat, proportioned by each
-    // macro's share of the calories eaten (Atwater densities from NutritionGoals).
-    // The three are normalized to `sweep` rather than drawn at their own kcal
-    // length: totals.calories is tracked separately and won't exactly equal the
-    // macro sum (rounding, alcohol, half-filled entries), and the arc's *length*
-    // has to stay honest against the calorie goal even when the proportions come
-    // from the macros. A day with calories but no macros logged falls back to a
-    // single accent arc so the ring doesn't read as empty.
-    private func macroSegments(scaledTo sweep: Double) -> [RingSegment] {
-        guard sweep > 0 else { return [] }
-        let carbKcal    = totals.carbs   * NutritionGoals.kcalPerGramCarbs
-        let proteinKcal = totals.protein * NutritionGoals.kcalPerGramProtein
-        let fatKcal     = totals.fat     * NutritionGoals.kcalPerGramFat
-        let macroKcal = carbKcal + proteinKcal + fatKcal
-        guard macroKcal > 0 else {
-            return [RingSegment(id: 0, color: accent, start: 0, end: sweep)]
-        }
-
-        let parts: [(color: Color, kcal: Double)] = [
-            (MacroPalette.carbs, carbKcal),
-            (MacroPalette.protein, proteinKcal),
-            (MacroPalette.fat, fatKcal)
-        ]
-        var cursor: Double = 0
-        var result: [RingSegment] = []
-        for (index, part) in parts.enumerated() where part.kcal > 0 {
-            let end = cursor + sweep * (part.kcal / macroKcal)
-            result.append(RingSegment(id: index, color: part.color, start: cursor, end: end))
-            cursor = end
-        }
-        return result
-    }
-
     // MARK: - Extra nutrients
 
     // Claude  Date 07/12/2026
@@ -258,56 +217,16 @@ struct MacroSummaryView: View {
     }
 }
 
-// Claude  Date 07/26/2026 last changed: 08/06/2026 by: Claude
-// One colored slice of the calorie ring's filled arc. `start`/`end` are fractions
-// of the full circle, already scaled for the grow-in, so the view just trims to them.
-// `id` is the macro's fixed position (0 carbs, 1 protein, 2 fat), NOT the index in
-// the emitted array — a macro that drops to zero leaves the array, and reusing array
-// indices would slide the survivors onto each other's views.
-// (Equatable so the ring can key one animation on its whole geometry.)
-private struct RingSegment: Identifiable, Equatable {
+// Claude  Date 08/07/2026
+// One arc of the macro ring: a fraction range [start, end] of the full circle in a fixed
+// color. `id` is the arc's fixed slot (macro index × 2, +1 for its faint remainder) so a
+// macro dropping to a zero-length arc doesn't slide the others onto its view. Equatable so
+// the ring animates all six arcs in one transaction.
+private struct MacroArc: Identifiable, Equatable {
     let id: Int
     let color: Color
     let start: Double
     let end: Double
-}
-
-// Claude  Date 08/06/2026
-// Everything the ring draws, as one comparable value. The ring's arcs have to move
-// together or not at all — see the note on `calorieRing` — so they hang off a single
-// `.animation(_:value:)` keyed on this rather than on the calorie sweep alone.
-// (Named for the calorie ring specifically: `RingGeometry` is already the rank
-// ring's layout constants over in RankRing.swift.)
-private struct CalorieRingGeometry: Equatable {
-    let sweep: Double
-    let segments: [RingSegment]
-    let stage: RemainderStage
-}
-
-// Claude  Date 07/26/2026
-// How much of the calorie goal is still unspent, as the three bands that color the
-// ring's unfilled remainder. Only `plenty` is a signal — the other two are grey
-// tones of different weight, deliberately, so a new user doesn't read the middle
-// band as a warning. All three sit far below the macro segments in saturation so
-// the remainder never competes with the part that's actually filled in.
-private enum RemainderStage {
-    case plenty     // more than half the day's calories still available
-    case moderate   // 10–50% left
-    case low        // under 10% left
-
-    init(remainingFraction: Double) {
-        if remainingFraction > 0.5 { self = .plenty }
-        else if remainingFraction >= 0.1 { self = .moderate }
-        else { self = .low }
-    }
-
-    var color: Color {
-        switch self {
-        case .plenty:   return MacroPalette.fiber.opacity(0.18)
-        case .moderate: return Color.secondary.opacity(0.12)
-        case .low:      return Color.secondary.opacity(0.25)
-        }
-    }
 }
 
 // Claude  Date 07/12/2026 last changed: 07/12/2026 by: Claude
@@ -343,18 +262,36 @@ struct MacroBar: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
+            // Claude  Date 08/07/2026 — the name and the "left" figure are fixedSize: with
+            // three pieces of monospaced text in a column this narrow, SwiftUI's first
+            // instinct is to WRAP, which broke "Protein" across two lines mid-word. Pinning
+            // those two makes the eaten/goal pair the one flexible element, and it scales
+            // down instead of anything wrapping.
             HStack(spacing: 4) {
                 Text(label).font(.caption).fontWeight(.medium)
-                Spacer()
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+                Spacer(minLength: 4)
                 if goal > 0 && value >= goal {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.caption2)
                         .foregroundStyle(tint)
                         .transition(.scale.combined(with: .opacity))
+                } else if goal > 0 {
+                    // How much of this macro is still left today, in its own hue — the
+                    // number that pairs with the ring's faint remaining track.
+                    Text("\(Int((goal - value).rounded())) left")
+                        .font(.caption2).fontWeight(.medium)
+                        .foregroundStyle(tint)
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
                 }
-                Text("\(Int(value.rounded())) / \(Int(goal)) g")
+                Text("\(Int(value.rounded()))/\(Int(goal)) g")
                     .font(.caption2).foregroundStyle(.secondary)
                     .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
             }
             GeometryReader { geo in
                 let fraction = goal > 0 ? min(value / goal, 1) : 0

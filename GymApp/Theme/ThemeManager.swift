@@ -21,46 +21,33 @@ final class ThemeManager: ObservableObject {
     // IDs of paid profile-card styles the user has bought (see CardStyle). Tracked
     // here alongside theme purchases so all coin spending flows through coinsSpent.
     @Published var unlockedCardStyleIDs: Set<String> { didSet { save() } }
-    // Claude  Date 06/30/2026
-    // IDs of paid profile avatars the user has bought (see Avatar). Same pattern as
-    // card styles — the free ones aren't listed; ownership feeds coinsSpent.
-    @Published var unlockedAvatarIDs: Set<String> { didSet { save() } }
-    // Claude  Date 08/02/2026
-    // IDs of paid character options the user has bought (see CharacterOption). Every option
-    // ships at price 0 today, so this stays empty and contributes nothing to coinsSpent —
-    // but the gate exists from day one on purpose: a priced option with no ownership set
-    // would be silently free, and that's the kind of bug you only notice after shipping it.
-    @Published var unlockedCharacterOptionIDs: Set<String> { didSet { save() } }
 
     private let persistence: PersistenceService
     private static let file = "theme.json"
 
-    // Claude  Date 06/13/2026 last changed: 08/02/2026 by: Claude
-    // Added unlockedThemeIDs + unlockedCardStyleIDs, then unlockedAvatarIDs, then
-    // unlockedCharacterOptionIDs. Custom decode so theme.json files written before any of
-    // these existed still load (absent → no purchases) without wiping selection/customs.
+    // Claude  Date 06/13/2026 last changed: 08/07/2026 by: Claude
+    // Added unlockedThemeIDs + unlockedCardStyleIDs. Custom decode so theme.json files
+    // written before either existed still load (absent → no purchases) without wiping
+    // selection/customs. (08/07: unlockedAvatarIDs and unlockedCharacterOptionIDs went with
+    // the profile-face feature. Old theme.json files still carry both keys; they're ignored
+    // on decode, and any coins they represented return to the user's balance because
+    // coinsSpent is derived from what's still purchasable.)
     private struct Stored: Codable {
         var selectedID: UUID
         var customThemes: [AppTheme]
         var unlockedThemeIDs: Set<UUID>
         var unlockedCardStyleIDs: Set<String>
-        var unlockedAvatarIDs: Set<String>
-        var unlockedCharacterOptionIDs: Set<String>
 
         init(selectedID: UUID, customThemes: [AppTheme],
-             unlockedThemeIDs: Set<UUID> = [], unlockedCardStyleIDs: Set<String> = [],
-             unlockedAvatarIDs: Set<String> = [], unlockedCharacterOptionIDs: Set<String> = []) {
+             unlockedThemeIDs: Set<UUID> = [], unlockedCardStyleIDs: Set<String> = []) {
             self.selectedID = selectedID
             self.customThemes = customThemes
             self.unlockedThemeIDs = unlockedThemeIDs
             self.unlockedCardStyleIDs = unlockedCardStyleIDs
-            self.unlockedAvatarIDs = unlockedAvatarIDs
-            self.unlockedCharacterOptionIDs = unlockedCharacterOptionIDs
         }
 
         enum CodingKeys: String, CodingKey {
-            case selectedID, customThemes, unlockedThemeIDs, unlockedCardStyleIDs, unlockedAvatarIDs,
-                 unlockedCharacterOptionIDs
+            case selectedID, customThemes, unlockedThemeIDs, unlockedCardStyleIDs
         }
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -68,8 +55,6 @@ final class ThemeManager: ObservableObject {
             customThemes = try c.decodeIfPresent([AppTheme].self, forKey: .customThemes) ?? []
             unlockedThemeIDs = try c.decodeIfPresent(Set<UUID>.self, forKey: .unlockedThemeIDs) ?? []
             unlockedCardStyleIDs = try c.decodeIfPresent(Set<String>.self, forKey: .unlockedCardStyleIDs) ?? []
-            unlockedAvatarIDs = try c.decodeIfPresent(Set<String>.self, forKey: .unlockedAvatarIDs) ?? []
-            unlockedCharacterOptionIDs = try c.decodeIfPresent(Set<String>.self, forKey: .unlockedCharacterOptionIDs) ?? []
         }
     }
 
@@ -83,8 +68,6 @@ final class ThemeManager: ObservableObject {
         self.customThemes = stored.customThemes
         self.unlockedThemeIDs = stored.unlockedThemeIDs
         self.unlockedCardStyleIDs = stored.unlockedCardStyleIDs
-        self.unlockedAvatarIDs = stored.unlockedAvatarIDs
-        self.unlockedCharacterOptionIDs = stored.unlockedCharacterOptionIDs
         grantFoundersCards()
     }
 
@@ -128,16 +111,16 @@ final class ThemeManager: ObservableObject {
         theme.price == 0 || unlockedThemeIDs.contains(theme.id)
     }
 
-    // Claude  Date 06/13/2026 last changed: 06/13/2026 by: Claude
+    // Claude  Date 06/13/2026 last changed: 08/07/2026 by: Claude
     // Coins already spent = prices of every paid item we own (themes + card
     // styles). Derived (not stored) so it can never drift from what's owned.
+    // (08/07: the avatar and character terms went with that feature. Because this is
+    // derived, anyone who had bought an avatar simply gets those coins back in their
+    // balance — there's no stored total to migrate.)
     var coinsSpent: Int {
         let themeSpent = allThemes.filter { unlockedThemeIDs.contains($0.id) }.reduce(0) { $0 + $1.price }
         let cardSpent = CardStyle.all.filter { unlockedCardStyleIDs.contains($0.id) }.reduce(0) { $0 + $1.price }
-        let avatarSpent = Avatar.all.filter { unlockedAvatarIDs.contains($0.id) }.reduce(0) { $0 + $1.price }
-        let characterSpent = CharacterCatalog.options
-            .filter { unlockedCharacterOptionIDs.contains($0.id) }.reduce(0) { $0 + $1.price }
-        return themeSpent + cardSpent + avatarSpent + characterSpent
+        return themeSpent + cardSpent
     }
 
     // Claude  Date 06/13/2026
@@ -190,36 +173,6 @@ final class ThemeManager: ObservableObject {
         return true
     }
 
-    // Claude  Date 06/30/2026
-    // Avatar equivalents of isUnlocked / purchase. Free avatars are always unlocked;
-    // paid ones are recorded in unlockedAvatarIDs once bought.
-    func isAvatarUnlocked(_ avatar: Avatar) -> Bool {
-        avatar.price == 0 || unlockedAvatarIDs.contains(avatar.id)
-    }
-
-    @discardableResult
-    func purchaseAvatar(_ avatar: Avatar, balance: Int) -> Bool {
-        if isAvatarUnlocked(avatar) { return true }
-        guard balance >= avatar.price else { return false }
-        unlockedAvatarIDs.insert(avatar.id)
-        return true
-    }
-
-    // Claude  Date 08/02/2026
-    // Character-option equivalents. Identical shape to the avatar pair above, so the
-    // economy has exactly one way of working across themes, cards, avatars and characters.
-    func isCharacterOptionUnlocked(_ option: CharacterOption) -> Bool {
-        option.price == 0 || unlockedCharacterOptionIDs.contains(option.id)
-    }
-
-    @discardableResult
-    func purchaseCharacterOption(_ option: CharacterOption, balance: Int) -> Bool {
-        if isCharacterOptionUnlocked(option) { return true }
-        guard balance >= option.price else { return false }
-        unlockedCharacterOptionIDs.insert(option.id)
-        return true
-    }
-
     /// Insert a new custom theme or update an existing one with the same id.
     func addOrUpdate(_ theme: AppTheme) {
         if let index = customThemes.firstIndex(where: { $0.id == theme.id }) {
@@ -239,9 +192,7 @@ final class ThemeManager: ObservableObject {
     private func save() {
         persistence.save(
             Stored(selectedID: selectedID, customThemes: customThemes,
-                   unlockedThemeIDs: unlockedThemeIDs, unlockedCardStyleIDs: unlockedCardStyleIDs,
-                   unlockedAvatarIDs: unlockedAvatarIDs,
-                   unlockedCharacterOptionIDs: unlockedCharacterOptionIDs),
+                   unlockedThemeIDs: unlockedThemeIDs, unlockedCardStyleIDs: unlockedCardStyleIDs),
             to: Self.file
         )
         syncWidgetSnapshot()

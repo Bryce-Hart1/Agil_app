@@ -1,91 +1,58 @@
 import SwiftUI
 
-// Claude  Date 06/12/2026 last changed: 08/02/2026 by: Claude
+// Claude  Date 06/12/2026 last changed: 08/07/2026 by: Claude
 // (07/22) Rebuilt as a tap-to-edit screen: the live profile card fills the view and each
-// part of it is tappable — tap the avatar/rank, name, badges, or the header palette chip
-// and the matching editor slides up as a bottom sheet. The old Form of stacked sections is
-// gone; every control now lives behind the element it changes. The pickers themselves
-// (card styles, avatars, coin/buy flow) are unchanged — just relocated into the sheets.
+// part of it is tappable — tap the background or the badges and the matching editor slides
+// up as a bottom sheet. The old Form of stacked sections is gone; every control now lives
+// behind the element it changes.
 //
-// (08/02) Two tabs now: CARD (the tap-to-edit card above) and CHARACTER (the full-screen
-// customizer). The character has far too many knobs — 7 slots, 5 colour roles, a live
-// preview — to live only behind a face tap on a bottom sheet; it needs a room of its own,
-// and it needs to be findable without knowing the card is tappable. Both tabs and the face
-// tap all drive the SAME CharacterCustomizerView, so there's one editor, not two.
-// Temporary home while the build settles — if the character grows past what a tab here can
-// hold, this lifts out to its own destination off the Profile hub with no changes to the
-// customizer itself.
+// (08/07) Back to a single screen. This briefly carried a second CHARACTER tab for the
+// customizable profile face; that feature is gone, and with it the face tap on the card —
+// the picture is the rank emblem now, which is earned rather than edited.
 struct EditProfileCardView: View {
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var theme: ThemeManager
 
     // Which element's editor is currently presented (nil = none).
     @State private var target: EditTarget?
-    @State private var section: EditSection = .card
 
     private var stats: ProfileStats {
         ProfileStats(workouts: store.workouts, exercises: store.exercises)
     }
 
-    // Claude  Date 08/02/2026
-    // The two halves of this screen. Not an enum of sheets like EditTarget — these are
-    // top-level modes, so they're a segmented control rather than a presentation.
-    private enum EditSection: String, CaseIterable, Identifiable {
-        case card, character
-        var id: String { rawValue }
-        var title: String { self == .card ? "Card" : "Character" }
-    }
-
-    // Claude  Date 07/22/2026
-    // The tappable regions of the card, each mapped to a bottom sheet. `.rank` shares the
-    // avatar sheet (the rank ring frames the avatar, so they're edited together). Name is
-    // deliberately absent — renaming lives in Settings › Change Name, not on the card.
+    // Claude  Date 07/22/2026 last changed: 08/07/2026 by: Claude
+    // The tappable regions of the card, each mapped to a bottom sheet. Name is deliberately
+    // absent — renaming lives in Settings › Change Name, not on the card. (08/07: `.avatar`
+    // is gone with the face feature; the card's picture is the rank emblem, which is earned
+    // rather than edited, so that region is no longer tappable.)
     private enum EditTarget: String, Identifiable {
-        case style, avatar, badges
+        case style, badges
         var id: String { rawValue }
     }
 
+    // Claude  Date 08/07/2026
+    // One section again. This was a Card/Character segmented pair while the character
+    // customizer needed a room of its own; with that gone a one-option picker would be
+    // pure chrome, so the card tab IS the screen.
     var body: some View {
-        VStack(spacing: 0) {
-            Picker("Section", selection: $section) {
-                ForEach(EditSection.allCases) { Text($0.title).tag($0) }
+        cardTab
+            .background(theme.current.background.ignoresSafeArea())
+            .navigationTitle("Edit Profile Card")
+            .navigationBarTitleDisplayMode(.inline)
+            .themed(theme.current)
+            .sheet(item: $target) { target in
+                switch target {
+                case .style:
+                    CardStylePickerSheet()
+                        .environmentObject(store)
+                        .environmentObject(theme)
+                        .presentationDetents([.medium, .large])
+                case .badges:
+                    NavigationStack { FeaturedBadgesView() }
+                        .environmentObject(store)
+                        .environmentObject(theme)
+                }
             }
-            .pickerStyle(.segmented)
-            .padding(.horizontal, 16)
-            .padding(.top, 8)
-            .padding(.bottom, 6)
-            .retintOnThemeChange(theme.current, salt: "edit-profile-section")
-
-            switch section {
-            case .card:      cardTab
-            case .character: CharacterCustomizerView()
-            }
-        }
-        .background(theme.current.background.ignoresSafeArea())
-        .navigationTitle(section == .card ? "Edit Profile Card" : "Your Character")
-        .navigationBarTitleDisplayMode(.inline)
-        .themed(theme.current)
-        .sheet(item: $target) { target in
-            switch target {
-            case .style:
-                CardStylePickerSheet()
-                    .environmentObject(store)
-                    .environmentObject(theme)
-                    .presentationDetents([.medium, .large])
-            case .avatar:
-                // Claude  Date 08/02/2026
-                // (Was AvatarPickerSheet. Now the same customizer the Character tab shows,
-                // wrapped in sheet chrome — which is why it wants the full height.)
-                FaceEditorSheet()
-                    .environmentObject(store)
-                    .environmentObject(theme)
-                    .presentationDetents([.large])
-            case .badges:
-                NavigationStack { FeaturedBadgesView() }
-                    .environmentObject(store)
-                    .environmentObject(theme)
-            }
-        }
     }
 
     // The original tap-to-edit card, unchanged. The GeometryReader now measures the space
@@ -102,13 +69,10 @@ struct EditProfileCardView: View {
                         memberSince: stats.memberSince,
                         rank: store.strategistRank,
                         rankProgress: store.strategistProgress,
-                        avatarID: store.profile.avatarID,
-                        character: store.profile.character,
                         ringFillMode: .rankProgress,
                         catalog: store.achievementCatalog,
                         edit: ProfileCardEditActions(
                             background: { target = .style },
-                            avatar: { target = .avatar },
                             badges: { target = .badges }
                         )
                     )
@@ -173,7 +137,7 @@ private struct CardStylePickerSheet: View {
 }
 
 // MARK: - Rows (shared by the sheets above)
-// (The avatar sheet + its cell moved to FaceEditorSheet.swift on 08/02/2026.)
+// (The avatar sheet + its cell were deleted with the profile-face feature on 08/07/2026.)
 
 // Claude  Date 06/13/2026 last changed: 06/13/2026 by: Claude
 // One card-style row: a swatch (color fill or image thumbnail) + name, with a

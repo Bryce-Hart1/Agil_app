@@ -34,6 +34,13 @@ struct NewFoodView: View {
     @State private var barcode: String
     @State private var servingSize: Double = 100
     @State private var servingUnit = "g"
+    // Claude  Date 08/07/2026
+    // Restaurant-only: how the item is measured, and its weight when the user chooses to
+    // weigh it. A restaurant food is logged per ITEM by default (there's no honest
+    // per-gram basis for a Chipotle bowl), so `serving` needs no input; `grams` is the
+    // opt-in alternative for someone who actually puts the item on a scale.
+    @State private var restaurantMeasure: RestaurantMeasure = .serving
+    @State private var restaurantGrams: Double = 0
     @State private var calories: Double = 0
     @State private var protein: Double = 0
     @State private var carbs: Double = 0
@@ -78,6 +85,20 @@ struct NewFoodView: View {
     private var trimmedBarcode: String { barcode.filter(\.isNumber) }
     private var hasBarcode: Bool { !trimmedBarcode.isEmpty }
     private var canSubmit: Bool { cardSync.backendAuth != nil }
+
+    // Claude  Date 08/07/2026
+    // How a restaurant item is measured. Servings is the honest default — a menu reports
+    // per item, not per gram — with grams as the deliberate opt-in for someone weighing it.
+    private enum RestaurantMeasure: String, CaseIterable, Identifiable {
+        case serving, grams
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .serving: return "Servings"
+            case .grams:   return "Grams"
+            }
+        }
+    }
 
     // Claude  Date 08/04/2026
     // The three kinds a hand-entered food can be, and the two backend curation flags
@@ -133,12 +154,50 @@ struct NewFoodView: View {
                 kindSection
                 if kind.hasBarcode { barcodeSection }
 
-                Section("Serving") {
-                    LabeledContent("Size") {
-                        TextField("Size", value: $servingSize, format: .number)
-                            .keyboardType(.decimalPad).multilineTextAlignment(.trailing)
+                Section {
+                    if kind == .restaurant {
+                        // Restaurant food is measured per ITEM — a menu doesn't publish a
+                        // per-gram basis, and inventing one would be a lie. Servings is the
+                        // default and needs no input at all; weighing the item is the
+                        // deliberate alternative, so the gram field only appears if asked
+                        // for (it used to sit here permanently as a cramped optional row).
+                        Picker("Measured in", selection: $restaurantMeasure) {
+                            ForEach(RestaurantMeasure.allCases) { measure in
+                                Text(measure.title).tag(measure)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        if restaurantMeasure == .grams {
+                            // Not LabeledContent: it splits the row evenly and lets the
+                            // label truncate, so the monospaced "Grams per item" clipped to
+                            // "Grams per it…". Pinning the label and capping the field keeps
+                            // the whole phrase readable down to SE width.
+                            HStack {
+                                Text("Grams per item")
+                                    .lineLimit(1)
+                                    .fixedSize(horizontal: true, vertical: false)
+                                Spacer(minLength: 8)
+                                TextField("0", value: $restaurantGrams, format: .number)
+                                    .keyboardType(.decimalPad)
+                                    .multilineTextAlignment(.trailing)
+                                    .frame(maxWidth: 90)
+                            }
+                        }
+                    } else {
+                        LabeledContent("Size") {
+                            TextField("Size", value: $servingSize, format: .number)
+                                .keyboardType(.decimalPad).multilineTextAlignment(.trailing)
+                        }
+                        TextField("Unit (g, ml, cup…)", text: $servingUnit)
                     }
-                    TextField("Unit (g, ml, cup…)", text: $servingUnit)
+                } header: {
+                    Text("Serving")
+                } footer: {
+                    if kind == .restaurant {
+                        Text(restaurantMeasure == .serving
+                             ? "One serving is one menu item. Log it by the item — that's how the restaurant reports it."
+                             : "Use this only if you weigh the item. The numbers below are still for one whole item.")
+                    }
                 }
 
                 Section {
@@ -147,7 +206,7 @@ struct NewFoodView: View {
                     macroField("Carbs (g)", value: $carbs)
                     macroField("Fat (g)", value: $fat)
                 } header: {
-                    Text("Nutrition per serving")
+                    Text(kind == .restaurant ? "Nutrition per item" : "Nutrition per serving")
                 }
 
                 Section("Extras (optional)") {
@@ -362,7 +421,29 @@ struct NewFoodView: View {
     // step; when it fails the food is already safe and the alert says so rather than
     // implying the entry was lost.
     private func save() async {
-        let unit = servingUnit.trimmingCharacters(in: .whitespaces)
+        // Resolve the reference serving to store on the food.
+        //  • Restaurant: per item. With a known weight, store it as that many grams so the
+        //    detail page opens on Serving and offers grams as a secondary tab; without one,
+        //    a count-only "serving" (no meaningless per-gram basis).
+        //  • Otherwise: canonicalize a recognized weight/volume unit ("grams"→"g",
+        //    "Cups"→"cup") so the food lands in the right family; an unrecognized word is a
+        //    count unit ("bar"), kept verbatim (empty → "serving").
+        let sizeToStore: Double
+        let unit: String
+        if kind == .restaurant {
+            if restaurantMeasure == .grams, restaurantGrams > 0 {
+                sizeToStore = restaurantGrams
+                unit = "g"
+            } else {
+                sizeToStore = 1
+                unit = "serving"
+            }
+        } else {
+            let typedUnit = servingUnit.trimmingCharacters(in: .whitespaces)
+            unit = FoodUnit(userInput: typedUnit)?.rawValue
+                ?? (typedUnit.isEmpty ? "serving" : typedUnit)
+            sizeToStore = servingSize > 0 ? servingSize : 1
+        }
         // Only a packaged product carries a barcode. A code typed before switching
         // kinds stays in the field (so switching back doesn't lose it) but never
         // reaches the saved food — the kind is the authority on whether one exists.
@@ -373,8 +454,8 @@ struct NewFoodView: View {
             name: trimmedName,
             brand: brand.trimmingCharacters(in: .whitespaces),
             barcode: code.isEmpty ? nil : code,
-            servingSize: servingSize > 0 ? servingSize : 1,
-            servingUnit: unit.isEmpty ? "serving" : unit,
+            servingSize: sizeToStore,
+            servingUnit: unit,
             nutrients: Nutrients(calories: calories, protein: protein, carbs: carbs,
                                  fat: fat, fiber: fiber, sugar: sugar, sodium: sodium),
             source: kind.localSource,

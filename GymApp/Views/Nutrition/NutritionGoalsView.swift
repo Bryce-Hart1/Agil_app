@@ -16,6 +16,8 @@ struct NutritionGoalsView: View {
     // below edits it through a converting binding.
     @AppStorage(WaterUnit.storageKey) private var waterUnitRaw = WaterUnit.milliliters.rawValue
     private var waterUnit: WaterUnit { WaterUnit(rawValue: waterUnitRaw) ?? .milliliters }
+    // Whether a water goal is worth asking for at all (Settings → Water).
+    @AppStorage(WaterTracking.storageKey) private var trackWater = WaterTracking.defaultValue
 
     // Claude  Date 07/12/2026
     // The calculator's split choices. The named presets carry fixed percentages of
@@ -79,10 +81,14 @@ struct NutritionGoalsView: View {
             // Claude  Date 07/16/2026
             // Edited in the user's display unit; stored canonically in ml (the get
             // rounds to a tenth so "3000 ml" reads "101.4", not "101.44201…").
-            Section {
-                goalField("Water (\(waterUnit.abbreviation))", value: waterGoalBinding)
-            } header: {
-                Text("Water")
+            // Nothing to aim for when the tracker is hidden (Settings → Water). The stored
+            // goal is left alone, so turning tracking back on restores it untouched.
+            if trackWater {
+                Section {
+                    goalField("Water (\(waterUnit.abbreviation))", value: waterGoalBinding)
+                } header: {
+                    Text("Water")
+                }
             }
         }
         .navigationTitle("Goals")

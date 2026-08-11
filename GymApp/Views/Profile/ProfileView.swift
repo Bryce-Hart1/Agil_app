@@ -35,14 +35,6 @@ struct ProfileView: View {
                             memberSince: stats.memberSince,
                             rank: store.strategistRank,
                             rankProgress: store.strategistProgress,
-                            avatarID: store.profile.avatarID,
-                            character: store.profile.character,
-                            // Claude  Date 08/02/2026
-                            // Only YOUR card's picture is a coin you can turn over — see
-                            // RankCoinView. Edit mode makes that circle a tap-to-edit
-                            // target, and a friend's character usually isn't on this
-                            // device, so neither of those opts in.
-                            coinFace: true,
                             ringFillMode: .rankProgress,
                             catalog: store.achievementCatalog
                         )
@@ -302,13 +294,13 @@ struct ProfileView: View {
 //
 // Claude 08/03/2026: `rank` is gone. It routed to the avatar's editor, so the card carried
 // TWO pencils — one on the ring, one on the rank title right beneath it — opening the same
-// sheet. It made sense while that sheet was AvatarPickerSheet and carried the rank toggle;
-// once it became the character customizer (08/02) the rank chip was promising rank editing
-// and delivering a face editor. Nothing equips a rank from the card any more, so the title
-// is now plain text, like the name above it.
+// sheet. Nothing equips a rank from the card any more, so the title is plain text.
+//
+// Claude 08/07/2026: `avatar` is gone too, with the face feature. The picture is the rank
+// emblem now — earned, not configured — so there is nothing to edit there and the ring
+// carries no pencil.
 struct ProfileCardEditActions {
     var background: () -> Void = {}
-    var avatar: () -> Void = {}   // the avatar art + rank ring cluster
     var badges: () -> Void = {}
 }
 
@@ -328,20 +320,6 @@ struct ProfileShowcaseCard: View {
     // fills its ring toward the next rank.
     var rank: StrategistRank? = nil
     var rankProgress: Double = 1
-    // Claude  Date 06/30/2026 last changed: 08/02/2026 by: Claude
-    // The face at the top of the card, as the two inputs ProfileFaceView decides between:
-    // the customizable character wins when it's present and enabled, otherwise the stock
-    // avatar, otherwise initials. Both are optional because a friend's card may have
-    // neither — SharedCard carries `character` but deliberately never `avatarID`, so a
-    // friend who turned characters off still renders as initials, exactly as before.
-    var avatarID: String? = nil
-    var character: UserCharacter? = nil
-    // Claude  Date 08/02/2026
-    // Opt in to the two-sided coin: the picture turns over between your rank's chess piece
-    // (heads, the default) and your character (tails). Off everywhere by default — the edit
-    // card needs that circle as a tap-to-edit target, and a friend's character usually
-    // isn't on this device. Requires an equipped rank; with no ring there's no coin.
-    var coinFace: Bool = false
     // Claude  Date 07/09/2026
     // How the rank ring reads. Your OWN card uses .rankProgress (the ring fills toward your
     // next rank — a personal "how close am I" meter). Friends viewing your card keep the
@@ -399,45 +377,45 @@ struct ProfileShowcaseCard: View {
             .shadow(color: shadowColor.opacity(0.4), radius: 12, y: 6)
     }
 
-    // Claude  Date 07/09/2026 last changed: 08/02/2026 by: Claude
-    // The picture at the top of the card. When a rank is equipped it's framed by the
-    // RankRing (rank earns the frame, coins buy what's inside); with no rank it's the
-    // plain face as before. The ring's core is the character/avatar on your own card,
-    // or initials on a friend's card (their avatarID doesn't sync — see avatarID above).
-    // (08/02) With `coinFace` the ringed version becomes a two-sided coin — rank chess
-    // piece on heads, your character on tails. It needs the ring to be a coin at all, so
-    // the no-rank branch stays a plain face.
+    // Claude  Date 07/09/2026 last changed: 08/07/2026 by: Claude
+    // The picture at the top of the card: the rank's chess piece inside the RankRing, or
+    // initials when no rank is equipped (there's no emblem to draw without one).
+    //
+    // (08/07) This used to be a three-way face — customizable character, stock avatar, or
+    // initials — and on your own card a two-sided coin that turned over to show the
+    // character. All of that is gone; what's left is what the coin's HEADS side always was.
+    // The picture is now purely earned rather than bought or configured, which is the point.
     private let ringSize: CGFloat = 120
 
     @ViewBuilder private var cardAvatar: some View {
         if let rank {
-            if coinFace {
-                RankCoinView(rank: rank, progress: rankProgress, size: ringSize,
-                             fillMode: ringFillMode, character: character,
-                             avatarID: avatarID, name: name)
-            } else {
-                RankRing(rank: rank, progress: rankProgress, size: ringSize,
-                         fillMode: ringFillMode) {
-                    avatarCore(diameter: RingGeometry.coreDiameter(for: ringSize))
-                }
+            RankRing(rank: rank, progress: rankProgress, size: ringSize,
+                     fillMode: ringFillMode) {
+                rankCore(rank: rank,
+                         diameter: RingGeometry.coreDiameter(for: ringSize))
             }
         } else {
-            avatarCore(diameter: 92)
+            RankRingInitials(name: name, size: 92)
         }
     }
 
-    // Claude  Date 07/09/2026 last changed: 08/02/2026 by: Claude
-    // (Was a hand-rolled avatar-or-initials switch. ProfileFaceView now owns that decision
-    // — and the character case it grew — so this is a straight hand-off.)
-    @ViewBuilder private func avatarCore(diameter: CGFloat) -> some View {
-        ProfileFaceView(character: character, avatarID: avatarID, name: name, size: diameter)
+    // Claude  Date 08/07/2026
+    // The ring's centre: the rank's glyph on a faint backing disc — lifted verbatim from
+    // the old coin's heads face, so the card looks exactly as it did before any tap.
+    @ViewBuilder private func rankCore(rank: StrategistRank, diameter: CGFloat) -> some View {
+        ZStack {
+            Circle().fill(Color.white.opacity(0.15))
+            StrategistGlyph(rank: rank, size: diameter * 0.62)
+        }
+        .frame(width: diameter, height: diameter)
+        .clipShape(Circle())
     }
 
     private var content: some View {
         VStack(spacing: 16) {
             header
 
-            editable(edit?.avatar, chip: .bottomTrailing) { cardAvatar }
+            cardAvatar
 
             // Claude  Date 07/22/2026
             // The name is intentionally NOT editable from the card — renaming carries

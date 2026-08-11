@@ -227,14 +227,24 @@ private struct WorkoutEditor: View {
                     // The perma note needs nothing here: it lives on the Exercise and is
                     // looked up by exerciseId, so it re-resolves to the new lift's own.
                     ExerciseLogSection(logged: $logged, accent: theme.current.accent,
+                                       isPresetBacked: workout.presetID != nil,
                                        focusedField: $focusedField) { exercise in
                         logged.exerciseId = exercise.id
                         logged.targetRepRange = store.defaultRepRange(for: exercise.id)
                         logged.sets.removeAll()
                         logged.note = nil
+                        // (08/11) Clear the provenance flag with the note it describes,
+                        // or the next note typed here would inherit "expiring".
+                        logged.noteIsCarriedForward = nil
                         logged.adaptive = nil
                     } onRemove: {
-                        workout.exercises.removeAll { $0.id == logged.id }
+                        // Claude  Date 08/07/2026 — animated so the section visibly
+                        // collapses out. Removing a lift mid-workout used to happen
+                        // instantly, which left you unsure whether the tap registered or
+                        // which entry actually went.
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            workout.exercises.removeAll { $0.id == logged.id }
+                        }
                     }
                 } header: {
                     HStack {
@@ -436,9 +446,12 @@ private struct WorkoutEditor: View {
                 // Requeue with a rep range already set — the exercise's history-preferred
                 // range (most-used of its last 3), or the 8–12 default. So a lift never
                 // lands in the workout without a target.
-                workout.exercises.append(
-                    LoggedExercise(exerciseId: exercise.id,
-                                   targetRepRange: store.defaultRepRange(for: exercise.id)))
+                // Claude  Date 08/07/2026 — animated in, mirroring the animated removal.
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    workout.exercises.append(
+                        LoggedExercise(exerciseId: exercise.id,
+                                       targetRepRange: store.defaultRepRange(for: exercise.id)))
+                }
             }
         }
         // Claude  Date 06/18/2026
@@ -542,6 +555,11 @@ private struct ExerciseLogSection: View {
     @EnvironmentObject private var theme: ThemeManager
     @Binding var logged: LoggedExercise
     let accent: Color
+    // Claude  Date 08/11/2026
+    // Whether this workout came from a preset. The session note is a message to your next
+    // session OF THAT PRESET, so an ad-hoc workout has nowhere to send one and doesn't
+    // offer the row at all (see ExerciseNoteFields.showsSessionNote).
+    let isPresetBacked: Bool
     // Claude  Date 07/21/2026
     // The editor's set-field focus, passed straight through to each SetRow so the
     // keyboard accessory bar knows which value it's stepping.
@@ -556,13 +574,17 @@ private struct ExerciseLogSection: View {
     var body: some View {
         RepRangeRow(targetRepRange: $logged.targetRepRange)
 
-        // Claude  Date 08/04/2026
-        // Two note tiers, replacing the single "Note (form cues…)" field: the perma
-        // note on the lift itself and the session note on this logged entry. See
-        // ExerciseNoteFields — shared with the preset editor so both read the same.
+        // Claude  Date 08/04/2026 last changed: 08/11/2026 by: Claude
+        // Two note tiers: the perma note on the lift itself and the session note — a
+        // message to your next session of this preset. See ExerciseNoteFields.
+        // (08/11) Editing clears the carried-forward flag, which both fills the icon back
+        // in and re-arms the note for one more session.
         ExerciseNoteFields(exerciseId: logged.exerciseId,
                            sessionNote: $logged.note,
-                           accent: accent)
+                           accent: accent,
+                           showsSessionNote: isPresetBacked,
+                           sessionNoteIsExpiring: logged.noteIsCarriedForward == true,
+                           onEditSessionNote: { logged.noteIsCarriedForward = false })
 
         // Claude  Date 06/12/2026 last changed: 07/16/2026 by: Claude
         // Optional rest timer for ANY exercise — preset items arrive with a duration,
@@ -657,16 +679,23 @@ private struct ExerciseLogSection: View {
     // Swipe-delete: for unilateral exercises, removing one side also removes its
     // pair partner so a set never ends up half-deleted. (The activity ledger is
     // append-only, so any already-earned credit for those sides is kept.)
+    // Claude  Date 08/07/2026 — explicitly animated: swipe-to-delete animates the row you
+    // swiped on its own, but the PARTNER row removed alongside it is not part of that
+    // gesture and would otherwise vanish instantly.
     private func deleteSets(at offsets: IndexSet) {
         guard isUnilateral else {
-            logged.sets.remove(atOffsets: offsets)
+            withAnimation(.easeInOut(duration: 0.25)) {
+                logged.sets.remove(atOffsets: offsets)
+            }
             return
         }
         var toRemove = Set(offsets)
         for index in offsets {
             if let partner = partnerIndex(of: index) { toRemove.insert(partner) }
         }
-        logged.sets.remove(atOffsets: IndexSet(toRemove))
+        withAnimation(.easeInOut(duration: 0.25)) {
+            logged.sets.remove(atOffsets: IndexSet(toRemove))
+        }
     }
 
     // Claude  Date 06/14/2026
