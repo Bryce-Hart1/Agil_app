@@ -39,9 +39,11 @@ struct FoodCorrectionClient {
     // On identity, which is easy to get wrong: `food.id` is NOT always the backend's
     // primary key. Verified-vault rows arrive with ids like "verified:{barcode}", which
     // FoodItem hashes into a stable local UUID (see FoodItem.stableID) — that derived
-    // value means nothing to the server. So the payload carries the barcode, name, brand
-    // and origin alongside the id and the backend resolves in that order. Don't try to
-    // reconstruct the raw server id here; the app never kept it.
+    // value means nothing to the server. `food.remoteId` now preserves the original raw
+    // id, so we send it when present and fall back to the (real-UUID) `food.id` otherwise;
+    // the backend still resolves foodId → barcode → name+brand, so a stale or missing id
+    // degrades gracefully. The payload keeps carrying barcode/name/brand/origin for that
+    // fallback chain.
     func report(_ food: FoodDetail, reason: FoodCorrectionReason,
                 auth: BackendAuth) async throws -> Receipt {
         let url = BackendClient.baseURL
@@ -50,7 +52,7 @@ struct FoodCorrectionClient {
 
         let trimmedBrand = food.brand.trimmingCharacters(in: .whitespaces)
         let body = Payload(
-            foodId: food.id.uuidString,
+            foodId: food.remoteId ?? food.id.uuidString,
             barcode: food.barcode,
             name: food.name,
             brand: trimmedBrand.isEmpty ? nil : trimmedBrand,

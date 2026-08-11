@@ -148,21 +148,15 @@ final class CardSyncService: ObservableObject {
             displayName: store.profile.resolvedName,
             cardStyleID: store.profile.cardStyleID,
             // Claude  Date 08/02/2026
-            // Always true now: the profile picture is a two-sided coin whose heads face IS
-            // the rank (see RankCoinView), so the ring is structural rather than optional
-            // and the old "Show rank on card" toggle is gone. The wire field stays so the
-            // backend contract is unchanged, and so a future client could opt out again.
+            // Always true now: the profile picture IS the rank (the ring frames the rank's
+            // own glyph), so the ring is structural rather than optional and the old "Show
+            // rank on card" toggle is gone. The wire field stays so the backend contract is
+            // unchanged, and so a future client could opt out again.
             showsRankOnCard: true,
             rank: store.strategistRank,
             rankProgress: store.strategistProgress,
             showcasedAchievementIDs: store.profile.showcasedAchievementIDs,
             memberSince: stats.memberSince,
-            // Claude  Date 08/02/2026
-            // Characters-off sends nil rather than a disabled config, so turning them off
-            // actually withdraws the face from the payload. Note the first launch after this
-            // shipped re-pushes once for free: the cached last_pushed_card.json decodes with
-            // character == nil and so won't match the new snapshot in the Equatable dedupe.
-            character: store.profile.character.isEnabled ? store.profile.character : nil,
             updatedAt: nil,
             // Server-owned — never sent from the client (ignored on PUT).
             friendCode: nil
