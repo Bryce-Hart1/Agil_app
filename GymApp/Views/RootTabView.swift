@@ -298,6 +298,11 @@ struct RootTabView: View {
         // backwards, and the one full-screen interruption this feature exists to
         // remove. Opening the badge now runs celebration → card reveal, in order.
         .onChange(of: store.openedAchievementIDs) { _ in syncRewardCards(reveal: true) }
+        // Claude  Date 08/03/2026
+        // Keep the wallet's earned high-water mark current as workouts and
+        // achievements land. noteEarned only ever raises it, so this is also what
+        // makes deleting a workout stop costing you coins you'd already banked.
+        .onChange(of: store.totalCoinsEarned) { earned in theme.noteEarned(earned) }
     }
 
     // Claude  Date 07/23/2026 last changed: 07/24/2026 by: Claude

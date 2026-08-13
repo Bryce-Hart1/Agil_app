@@ -4,13 +4,27 @@ import SwiftUI
 /// (instant), search Open Food Facts online (on submit), or create a custom food on
 /// the fly. Picking anything opens the serving/confirm step. Online foods are cached
 /// into the library on pick so they're available offline next time.
+///
+/// Claude  Date 08/11/2026
+/// It has a second mode: passing `onPickIngredient` instead of a meal/date turns the
+/// same screen into the recipe builder's ingredient picker — identical search, but a
+/// pick returns an amount-dialed RecipeIngredient to the caller rather than writing to
+/// the diary. Sharing the view is the point: the local + backend search, the offline
+/// prompt, barcode scanning and custom-food creation are all things an ingredient
+/// search needs, and a second copy of them would drift.
 struct FoodPickerView: View {
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var theme: ThemeManager
     @Environment(\.dismiss) private var dismiss
 
-    let meal: MealType
-    let date: Date
+    var meal: MealType = .other
+    var date: Date = Date()
+    // Non-nil = ingredient-picking mode (see the note above). Recipes themselves are
+    // hidden in this mode: a recipe made of recipes is a nesting problem the frozen
+    // ingredient snapshot has no answer for.
+    var onPickIngredient: ((RecipeIngredient) -> Void)? = nil
+
+    private var isPickingIngredient: Bool { onPickIngredient != nil }
 
     // Claude  Date 06/16/2026 last changed: 06/30/2026 by: Claude
     // The food client (protocol-typed so it could be mocked). Owned by the view —
@@ -25,8 +39,12 @@ struct FoodPickerView: View {
     @AppStorage("offlineFoodMode") private var offlineMode = false
 
     @State private var searchText = ""
-    @State private var path: [FoodItem] = []
+    // Claude  Date 08/11/2026
+    // Type-erased because the stack now pushes two things: a FoodItem (the serving/
+    // confirm step) and a Recipe (its detail page).
+    @State private var path = NavigationPath()
     @State private var showingNewFood = false
+    @State private var showingNewRecipe = false
     // Claude  Date 06/18/2026
     // Barcode scan state: whether the scanner sheet is up, and the code carried into
     // "Create custom food" when a scan found nothing.
@@ -56,6 +74,29 @@ struct FoodPickerView: View {
         return matches.sorted { $0.name < $1.name }
     }
 
+    // Claude  Date 08/11/2026
+    // The user's recipes matching the query, most recently logged first (recipes log
+    // through the food pipeline, so `lastLoggedByFood` already knows about them —
+    // see Recipe.asFoodItem). These get their own section at the very top of the list:
+    // a recipe is something the user deliberately built, so when one matches it's
+    // almost certainly what they meant.
+    private var matchingRecipes: [Recipe] {
+        guard !isPickingIngredient else { return [] }
+        let q = trimmedQuery.lowercased()
+        let matches = q.isEmpty ? store.recipes : store.recipes.filter {
+            $0.name.lowercased().contains(q)
+        }
+        let lastLogged = store.lastLoggedByFood
+        return matches.enumerated().sorted { lhs, rhs in
+            switch (lastLogged[lhs.element.id], lastLogged[rhs.element.id]) {
+            case let (l?, r?): return l > r
+            case (_?, nil):    return true
+            case (nil, _?):    return false
+            case (nil, nil):   return lhs.offset > rhs.offset
+            }
+        }.map(\.element)
+    }
+
     var body: some View {
         NavigationStack(path: $path) {
             List {
@@ -72,6 +113,23 @@ struct FoodPickerView: View {
                     } label: {
                         Label("Create custom food", systemImage: "plus.circle")
                     }
+                    if !isPickingIngredient {
+                        Button { showingNewRecipe = true } label: {
+                            Label("Create recipe", systemImage: "list.bullet.rectangle")
+                        }
+                    }
+                }
+                // Recipes first — above your own foods, which are themselves above the
+                // server-ranked "All foods" list (whose order the client never touches).
+                if !matchingRecipes.isEmpty {
+                    Section("Recipes") {
+                        ForEach(matchingRecipes) { recipe in
+                            Button { path.append(recipe) } label: {
+                                FoodPickRow(food: recipe.asFoodItem)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
                 }
                 if !results.isEmpty {
                     Section("My foods") {
@@ -87,7 +145,7 @@ struct FoodPickerView: View {
             .searchable(text: $searchText, prompt: "Search foods")
             .onSubmit(of: .search) { runOnlineSearch() }
             .onChange(of: searchText) { _ in resetOnlineSearch() }
-            .navigationTitle("Add to \(meal.title)")
+            .navigationTitle(isPickingIngredient ? "Add ingredient" : "Add to \(meal.title)")
             .navigationBarTitleDisplayMode(.inline)
             .themed(theme.current)
             // Claude  Date 07/16/2026 last changed: 08/06/2026 by: Claude
@@ -101,16 +159,31 @@ struct FoodPickerView: View {
             // `FoodDetail(from:)` preserves the FoodItem's id, and the path always holds
             // the item the store actually returned (cacheFood dedupes scans by barcode
             // and can hand back a different row), so `detail.id` is the right cache key.
+            //
+            // Claude  Date 08/11/2026 — in ingredient-picking mode the same tap leads to
+            // the amount step instead, which hands a finished RecipeIngredient back to the
+            // builder rather than writing to the diary.
             .navigationDestination(for: FoodItem.self) { food in
-                let detail = FoodDetail(from: food)
-                FoodDetailView(food: detail, initialMeal: meal,
-                               initialMeasurement: store.lastMeasurements[detail.id]) {
-                    chosenMeal, consumed, measurement in
-                    store.logFoodDetail(detail, consumed: consumed,
-                                        measurement: measurement,
-                                        meal: chosenMeal, on: date)
-                    dismiss()
+                if let onPickIngredient {
+                    IngredientAmountView(food: food) { ingredient in
+                        onPickIngredient(ingredient)
+                        dismiss()
+                    }
+                } else {
+                    let detail = FoodDetail(from: food)
+                    FoodDetailView(food: detail, initialMeal: meal,
+                                   initialMeasurement: store.lastMeasurements[detail.id]) {
+                        chosenMeal, consumed, measurement in
+                        store.logFoodDetail(detail, consumed: consumed,
+                                            measurement: measurement,
+                                            meal: chosenMeal, on: date)
+                        dismiss()
+                    }
                 }
+            }
+            .navigationDestination(for: Recipe.self) { recipe in
+                RecipeDetailView(recipe: recipe, initialMeal: meal, date: date,
+                                 onLogged: { dismiss() })
             }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -121,6 +194,12 @@ struct FoodPickerView: View {
                 NewFoodView(initialName: scannedBarcode == nil ? searchText : "",
                             initialBarcode: scannedBarcode) { created in
                     // Straight into logging the food just created.
+                    path.append(created)
+                }
+            }
+            // Straight into the new recipe's page, same as a freshly created food.
+            .sheet(isPresented: $showingNewRecipe) {
+                RecipeBuilderView(initialName: trimmedQuery) { created in
                     path.append(created)
                 }
             }

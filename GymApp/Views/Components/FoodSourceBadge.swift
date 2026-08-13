@@ -41,7 +41,7 @@ struct FoodSourceBadge: View {
     private var stackedVerification: FoodVerification? {
         guard let verification else { return nil }
         switch source {
-        case .verified, .userSubmitted:
+        case .verified, .userSubmitted, .recipe:
             return nil
         case .generic, .restaurant:
             return verification

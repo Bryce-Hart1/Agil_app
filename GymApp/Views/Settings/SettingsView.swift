@@ -249,24 +249,34 @@ struct SettingsView: View {
                 Text("Gallery previews every badge + rank (tap to play its celebration). Force achievements toggles any badge on or off individually, bypassing your real progress. Unlock all fills in every badge so the card and book populate. Mark all unopened resets which badges you've watched, so they queue up as new in the Achievement Book; Reset wipes progress and re-earns it from your history. Unlock Founders cards plays the founders unlock celebration (a preview of the future in-app purchase).")
             }
 
-            // Claude  Date 06/16/2026
+            // Claude  Date 06/16/2026 last changed: 08/03/2026 by: Claude
             // Alpha dev-only coin grants, so the wallet can be topped up to test the
-            // shop + animated card purchases without grinding workouts. Spendable
-            // balance is the shared pool (earned − spent), shown live here.
+            // shop + animated card purchases without grinding workouts.
+            //
+            // 08/03: now #if DEBUG. Coins are sold for real money as of this build, so
+            // a free "Add 2,000 coins" button in a shipped app is both a giveaway of
+            // the thing being sold and something App Review would reasonably object to.
+            #if DEBUG
             Section {
                 LabeledContent("Coins") {
-                    Text("\(theme.balance(earned: store.totalCoinsEarned))")
+                    Text("\(theme.balance)")
                         .monospacedDigit()
                         .foregroundStyle(theme.current.accent)
                 }
                 Button("Add 500 coins") { store.grantDevCoins(500) }
                 Button("Add 2,000 coins") { store.grantDevCoins(2_000) }
-                Button("Reset dev coins", role: .destructive) { store.resetDevCoins() }
+                // Clears the wallet too — the earned high-water mark means dropping
+                // the dev grant alone would no longer bring the balance back down.
+                Button("Reset dev coins", role: .destructive) {
+                    store.resetDevCoins()
+                    theme.debugResetWallet()
+                }
             } header: {
                 Text("Developer coins (alpha)")
             } footer: {
-                Text("Adds free coins to the spendable balance for testing the Shop and animated profile cards. Reset clears only the dev grant — coins earned from workouts and achievements are untouched.")
+                Text("Adds free coins to the spendable balance for testing the Shop and animated profile cards. Reset clears only the dev grant — coins earned from workouts and achievements are untouched. Debug builds only.")
             }
+            #endif
 
             #if DEBUG
             // Claude  Date 07/09/2026

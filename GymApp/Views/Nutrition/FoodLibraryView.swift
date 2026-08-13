@@ -27,6 +27,11 @@ struct FoodLibraryView: View {
 
     @State private var searchText = ""
     @State private var showingNewFood = false
+    @State private var showingNewRecipe = false
+    // Claude  Date 08/11/2026
+    // The recipe whose detail page is up, and the one being edited in the builder.
+    @State private var detailRecipe: Recipe?
+    @State private var editingRecipe: Recipe?
     // Claude  Date 08/04/2026
     // Backend search state: results in SERVER order (ranking is server-side — the
     // blended relevance × trust score — so the client must never re-sort), an
@@ -73,6 +78,25 @@ struct FoodLibraryView: View {
         }
     }
 
+    // Claude  Date 08/11/2026
+    // The user's recipes, filtered by the query and ordered by the same "most recently
+    // logged first" rule Recents uses — recipes log through the food pipeline, so
+    // `lastLoggedByFood` covers them without any extra bookkeeping (see Recipe.asFoodItem).
+    private var matchingRecipes: [Recipe] {
+        let lastLogged = store.lastLoggedByFood
+        let base = store.recipes.enumerated().sorted { lhs, rhs in
+            switch (lastLogged[lhs.element.id], lastLogged[rhs.element.id]) {
+            case let (l?, r?): return l > r
+            case (_?, nil):    return true
+            case (nil, _?):    return false
+            case (nil, nil):   return lhs.offset > rhs.offset
+            }
+        }.map(\.element)
+        let q = trimmedQuery.lowercased()
+        guard !q.isEmpty else { return base }
+        return base.filter { $0.name.lowercased().contains(q) }
+    }
+
     // Claude  Date 08/04/2026
     // Backend results minus anything already in your library, so the same food never
     // appears twice in one search. Barcode is the reliable key; id catches cached
@@ -105,7 +129,23 @@ struct FoodLibraryView: View {
                 // makes sense with no query — mid-search, an empty local section just
                 // means "nothing of yours matched", and the search section speaks for
                 // itself.
-                if recents.isEmpty && trimmedQuery.isEmpty {
+                // Claude  Date 08/11/2026
+                // Recipes take the top of the list — a dish the user built themselves
+                // outranks anything found for them.
+                if !matchingRecipes.isEmpty {
+                    Section("Recipes") {
+                        ForEach(matchingRecipes) { recipe in
+                            Button { detailRecipe = recipe } label: {
+                                FoodLibraryRow(food: recipe.asFoodItem)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .onDelete { offsets in
+                            offsets.map { matchingRecipes[$0] }.forEach(store.deleteRecipe)
+                        }
+                    }
+                }
+                if recents.isEmpty && trimmedQuery.isEmpty && matchingRecipes.isEmpty {
                     Text("No foods yet. Tap + to add one, or log a food from a barcode / search to see it here.")
                         .foregroundStyle(.secondary)
                 } else if !recents.isEmpty {
@@ -168,18 +208,57 @@ struct FoodLibraryView: View {
                     }
                     .accessibilityLabel("Scan barcode")
                 }
+                // Claude  Date 08/11/2026 — the + now offers both things you can create
+                // here. A menu rather than two buttons: a second toolbar glyph would
+                // shift the centered ModeNotch pill again (see the note above).
                 ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        scannedBarcode = nil
-                        showingNewFood = true
+                    Menu {
+                        Button {
+                            scannedBarcode = nil
+                            showingNewFood = true
+                        } label: {
+                            Label("Create custom food", systemImage: "plus.circle")
+                        }
+                        Button {
+                            showingNewRecipe = true
+                        } label: {
+                            Label("Create recipe", systemImage: "list.bullet.rectangle")
+                        }
                     } label: {
                         Image(systemName: "plus")
                     }
-                    .accessibilityLabel("Add a food")
+                    .accessibilityLabel("Add a food or recipe")
                 }
             }
             .sheet(isPresented: $showingNewFood, onDismiss: { scannedBarcode = nil }) {
                 NewFoodView(initialBarcode: scannedBarcode)
+            }
+            .sheet(isPresented: $showingNewRecipe) {
+                RecipeBuilderView()
+            }
+            // Claude  Date 08/11/2026
+            // The recipe detail page — same sheet shape the food detail page uses here
+            // (this view owns the NavigationStack and the Done button). "Edit" swaps to
+            // the builder, presented just after this sheet closes to avoid a sheet-swap
+            // race, the same trick the scanner paths above use.
+            .sheet(item: $detailRecipe) { recipe in
+                NavigationStack {
+                    RecipeDetailView(recipe: recipe, onEdit: {
+                        detailRecipe = nil
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                            editingRecipe = recipe
+                        }
+                    })
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { detailRecipe = nil }
+                        }
+                    }
+                }
+                .themed(theme.current)
+            }
+            .sheet(item: $editingRecipe) { recipe in
+                RecipeBuilderView(editing: recipe)
             }
             // Claude  Date 06/18/2026 last changed: 07/14/2026 by: Claude
             // Scan-to-Recents: a found product is cached into the library (no logging,

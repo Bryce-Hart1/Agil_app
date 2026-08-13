@@ -1,33 +1,36 @@
 import SwiftUI
 
-// Claude  Date 06/13/2026 last changed: 06/17/2026 by: Claude
-// The Shop — reworked into a Fortnite-style FEATURED tab.
+// Claude  Date 06/13/2026 last changed: 08/03/2026 by: Claude
+// The Shop — a Fortnite-style FEATURED tab.
 //
 // Concept (Bryce, 6/17/26): instead of one long static list, the shop shows a
-// small daily line-up — a couple of themes and a few profile cards — chosen by a
-// date-seeded random pick (see DailyShop). The same items appear for everyone on
-// a given day with no backend, and a live countdown shows when it rolls over.
-// Rarer items surface less often, which gives the catalogue some scarcity.
+// small line-up chosen by a date-seeded random pick (see DailyShop). The same items
+// appear for everyone on a given day with no backend, and a live countdown shows
+// when it rolls over. Rarer items surface less often, which gives the catalogue
+// some scarcity.
 //
-// This is an outline pass: layout + wiring are real, but the artwork mocks, copy,
-// rarity tiers for themes, and "what stays permanently buyable" are all meant to
-// be tweaked. A "Browse all" drawer keeps every item reachable for now so nothing
-// gets locked behind the rotation while we iterate.
+// A "Browse all" drawer keeps every item reachable so nothing gets locked behind
+// the rotation while we iterate.
 //
-// Balance is still derived live: lifetime earned (store.totalCoinsEarned) minus
-// what's been spent (ThemeManager.coinsSpent). No stored wallet. Local-only.
+// Claude  Date 08/03/2026
+// Two cadences now: four items that turn over daily and two that hold for the week
+// (see DailyShop.lineup). Coins can also be bought with real money, so the balance
+// lives in the navigation bar where it's always visible and always tappable, and an
+// item you can't afford offers a way to top up.
 struct ShopView: View {
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var theme: ThemeManager
+    @EnvironmentObject private var coinStore: CoinStore
 
     // The item shown full-size in the preview sheet (tap a tile to set it).
     @State private var previewItem: ShopItem?
+    @State private var showingCoinShop = false
 
-    // Today's featured line-up — a pure function of the date, recomputed on render.
-    private var rotation: DailyShop.Rotation { DailyShop.rotation() }
+    // Both line-ups — a pure function of the date, recomputed on render.
+    private var lineup: DailyShop.Lineup { DailyShop.lineup() }
 
-    // Spendable balance (earned − everything spent on themes + card styles).
-    private var balance: Int { theme.balance(earned: store.totalCoinsEarned) }
+    // Spendable balance (earned high-water + purchased − spent; see Wallet).
+    private var balance: Int { theme.balance }
 
     // Every item, for the "Browse all" drawer (free base items included).
     // Claude  Date 07/12/2026 last changed: 07/23/2026 by: Claude
@@ -40,15 +43,45 @@ struct ShopView: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 20) {
-                header
-                featuredSection
+            VStack(spacing: 24) {
+                rotationSection(
+                    title: "Featured",
+                    cadence: "Rotates daily",
+                    rotation: lineup.daily
+                )
+                rotationSection(
+                    title: "This Week",
+                    cadence: "Rotates weekly",
+                    rotation: lineup.weekly
+                )
                 browseAllSection
             }
             .padding()
         }
         .navigationTitle("Shop")
         .themed(theme.current)
+        // Claude  Date 08/03/2026
+        // Balance in the top right, where it stays put while the grid scrolls — it
+        // used to be a row at the top of the content and scrolled away exactly when
+        // you were deciding whether you could afford something. Tapping it opens the
+        // coin shop. (.topBarTrailing is @available(iOS 14) + @backDeployed, so it's
+        // fine at the 16.1 deployment target.)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { showingCoinShop = true } label: {
+                    Label("\(balance.formatted())", systemImage: "circle.hexagongrid.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .monospacedDigit()
+                }
+                .tint(theme.current.accent)
+                .accessibilityLabel("\(balance) coins. Tap to get more.")
+            }
+        }
+        .sheet(isPresented: $showingCoinShop) {
+            CoinShopView()
+                .environmentObject(theme)
+                .environmentObject(coinStore)
+        }
         // Claude  Date 06/17/2026 last changed: 08/03/2026 by: Claude
         // fullScreenCover, not a sheet. The old .sheet opened at a .medium detent that
         // was shorter than the detail content's intrinsic height, so the description
@@ -64,56 +97,45 @@ struct ShopView: View {
                 canAfford: balance >= item.price,
                 balance: balance,
                 onBuy: { buy(item) },
-                onEquip: { equip(item) }
+                onEquip: { equip(item) },
+                onGetCoins: { showingCoinShop = true }
             )
             .environmentObject(theme)
+            .environmentObject(coinStore)
         }
     }
 
-    // MARK: - Header (balance + refresh countdown)
+    // MARK: - Rotation sections
 
-    private var header: some View {
-        HStack {
-            Label("\(balance)", systemImage: "circle.hexagongrid.fill")
-                .font(.headline)
-                .monospacedDigit()
-                .foregroundStyle(theme.current.accent)
-
-            Spacer()
-
-            // Claude  Date 06/17/2026
-            // Live "refreshes in …" countdown to the next local midnight. Ticks once
-            // a second; when it hits zero the rotation (date-derived) rolls over on
-            // its own the next time the view renders.
-            TimelineView(.periodic(from: .now, by: 1)) { context in
-                Label(countdown(to: rotation.refreshesAt, now: context.date),
-                      systemImage: "clock")
-                    .font(.subheadline.weight(.medium))
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .padding()
-        .background(theme.current.surface, in: RoundedRectangle(cornerRadius: 14))
-    }
-
-    // MARK: - Featured grid
-
-    private var featuredSection: some View {
+    // Claude  Date 08/03/2026
+    // One section per cadence — "Featured" (4, daily) and "This Week" (2, weekly).
+    // The live countdown now sits in the section header next to the cadence label,
+    // because with two rotations running there's no one number a shared header could
+    // show. Ticks once a second; when it hits zero the line-up (date-derived) rolls
+    // over on its own the next time the view renders.
+    private func rotationSection(title: String, cadence: String,
+                                 rotation: DailyShop.Rotation) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline) {
-                Text("Featured")
+                Text(title)
                     .font(.title2.weight(.bold))
                 Spacer()
-                Text("Rotates daily")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                VStack(alignment: .trailing, spacing: 1) {
+                    Text(cadence)
+                        .font(.caption)
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                        Text(countdown(to: rotation.refreshesAt, now: context.date))
+                            .font(.caption.weight(.medium))
+                            .monospacedDigit()
+                    }
+                }
+                .foregroundStyle(.secondary)
             }
 
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 14),
                                 GridItem(.flexible(), spacing: 14)],
                       spacing: 14) {
-                ForEach(rotation.featured) { item in
+                ForEach(rotation.items) { item in
                     FeaturedItemCard(
                         item: item,
                         isOwned: isOwned(item),
@@ -167,13 +189,16 @@ struct ShopView: View {
         }
     }
 
-    // Buy (if affordable) and immediately equip — mirrors the old shop's behaviour.
+    // Claude  Date 06/17/2026 last changed: 08/03/2026 by: Claude
+    // Buy (if affordable) and immediately equip. The balance is no longer passed in:
+    // ThemeManager owns the wallet now and checks affordability itself, so there's
+    // one place that can authorise a spend.
     private func buy(_ item: ShopItem) {
         switch item {
         case .theme(let t):
-            if theme.purchase(t, balance: balance) { theme.select(t) }
+            if theme.purchase(t) { theme.select(t) }
         case .card(let c):
-            if theme.purchaseCardStyle(c, balance: balance) { store.profile.cardStyleID = c.id }
+            if theme.purchaseCardStyle(c) { store.profile.cardStyleID = c.id }
         }
     }
 
@@ -184,9 +209,15 @@ struct ShopView: View {
         }
     }
 
-    // "5h 03m 12s" until the given instant.
+    // Claude  Date 06/17/2026 last changed: 08/03/2026 by: Claude
+    // "5h 03m 12s", or "6d 04h 12m" once there's more than a day left. The day
+    // branch exists for the weekly rotation — without it a fresh week reads
+    // "163h 04m 12s", which nobody can parse at a glance.
     private func countdown(to end: Date, now: Date) -> String {
         let secs = max(0, Int(end.timeIntervalSince(now)))
+        if secs >= 86_400 {
+            return String(format: "%dd %02dh %02dm", secs / 86_400, (secs % 86_400) / 3600, (secs % 3600) / 60)
+        }
         return String(format: "%dh %02dm %02ds", secs / 3600, (secs % 3600) / 60, secs % 60)
     }
 }
@@ -307,6 +338,7 @@ private struct ShopItemDetailView: View {
     let balance: Int
     let onBuy: () -> Void
     let onEquip: () -> Void
+    let onGetCoins: () -> Void
 
     @EnvironmentObject private var theme: ThemeManager
     @Environment(\.dismiss) private var dismiss
@@ -416,6 +448,23 @@ private struct ShopItemDetailView: View {
                 Text("You need \((item.price - balance).formatted()) more coins.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
+                // Claude  Date 08/03/2026
+                // The top-up path, shown only when you're actually short. Deliberately
+                // a secondary .bordered control rather than a prominent one: coins are
+                // meant to be earned by training, and this is an app that exists to get
+                // you to train. Offering the shortcut is fair; leading with it isn't.
+                Button {
+                    dismiss()
+                    onGetCoins()
+                } label: {
+                    Label("Get Coins", systemImage: "cart")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.regular)
+                .tint(theme.current.accent)
             }
 
             // The clear way out. Required, not decorative: a full-screen cover can't
@@ -542,4 +591,5 @@ private struct ThemeMiniMock: View {
     NavigationStack { ShopView() }
         .environmentObject(AppStore())
         .environmentObject(ThemeManager())
+        .environmentObject(CoinStore())
 }
