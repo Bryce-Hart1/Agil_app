@@ -8,22 +8,49 @@ import WidgetKit
 /// Owns the available themes (built-in presets + user-created custom ones) and
 /// the current selection. Persists custom themes and the selected id to
 /// `theme.json`. Injected app-wide as an `@EnvironmentObject`.
+///
+// Claude  Date 08/03/2026
+// This type is now "cosmetics AND wallet": it also owns the coin balance (see
+// Wallet). That pairing is deliberate rather than tidy — the spend ledger and the
+// unlock sets must never disagree, and keeping them in one struct written by one
+// atomic save makes a desync structurally impossible. A separate wallet.json could
+// be half-written relative to theme.json and leave someone charged for an item they
+// don't own.
 @MainActor
 final class ThemeManager: ObservableObject {
     @Published var customThemes: [AppTheme] { didSet { save() } }
     @Published var selectedID: UUID { didSet { save() } }
     // Claude  Date 06/13/2026
     // IDs of *paid* themes the user has bought. Free themes (price 0) are never
-    // listed here — see isUnlocked. This is the only purchase state we store;
-    // the spendable balance is derived (earned coins − coinsSpent).
+    // listed here — see isUnlocked.
     @Published var unlockedThemeIDs: Set<UUID> { didSet { save() } }
     // Claude  Date 06/13/2026
     // IDs of paid profile-card styles the user has bought (see CardStyle). Tracked
-    // here alongside theme purchases so all coin spending flows through coinsSpent.
+    // here alongside theme purchases so all coin spending flows through one wallet.
     @Published var unlockedCardStyleIDs: Set<String> { didSet { save() } }
+
+    // Claude  Date 08/03/2026
+    // The coin wallet: earned high-water mark, purchased coins, and the spend ledger.
+    // private(set) because nothing outside this class may move money — go through
+    // purchase(_:), creditPurchasedCoins(...) or noteEarned(_:).
+    @Published private(set) var wallet: Wallet { didSet { save() } }
+
+    // Claude  Date 08/03/2026
+    // Set when theme.json existed but could not be decoded. In safe mode we refuse
+    // to write anything, because the alternative is overwriting the user's only good
+    // copy — including their paid balance — with the defaults we fell back to. Also
+    // blocks purchases: spending against a balance we know is wrong is worse than
+    // telling the user something is broken.
+    @Published private(set) var isSafeMode = false
 
     private let persistence: PersistenceService
     private static let file = "theme.json"
+
+    // Claude  Date 08/03/2026
+    // Set while a multi-field change is in flight (e.g. "record the spend AND grant
+    // the item") so the individual didSets don't each write a partial state. See
+    // `batched`.
+    private var suppressSave = false
 
     // Claude  Date 06/13/2026 last changed: 08/07/2026 by: Claude
     // Added unlockedThemeIDs + unlockedCardStyleIDs. Custom decode so theme.json files
@@ -32,43 +59,97 @@ final class ThemeManager: ObservableObject {
     // the profile-face feature. Old theme.json files still carry both keys; they're ignored
     // on decode, and any coins they represented return to the user's balance because
     // coinsSpent is derived from what's still purchasable.)
-    private struct Stored: Codable {
+    struct Stored: Codable {
         var selectedID: UUID
         var customThemes: [AppTheme]
         var unlockedThemeIDs: Set<UUID>
         var unlockedCardStyleIDs: Set<String>
+        // Claude  Date 08/03/2026
+        // Optional so a theme.json written before the wallet existed still loads;
+        // nil is the signal to run the one-time migration in init().
+        var wallet: Wallet?
 
         init(selectedID: UUID, customThemes: [AppTheme],
-             unlockedThemeIDs: Set<UUID> = [], unlockedCardStyleIDs: Set<String> = []) {
+             unlockedThemeIDs: Set<UUID> = [], unlockedCardStyleIDs: Set<String> = [],
+             wallet: Wallet? = nil) {
             self.selectedID = selectedID
             self.customThemes = customThemes
             self.unlockedThemeIDs = unlockedThemeIDs
             self.unlockedCardStyleIDs = unlockedCardStyleIDs
+            self.wallet = wallet
         }
 
         enum CodingKeys: String, CodingKey {
-            case selectedID, customThemes, unlockedThemeIDs, unlockedCardStyleIDs
+            case selectedID, customThemes, unlockedThemeIDs, unlockedCardStyleIDs, wallet
         }
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
-            selectedID = try c.decode(UUID.self, forKey: .selectedID)
+            // Claude  Date 08/03/2026
+            // decodeIfPresent, not decode (was a hard decode until 08/03). A single
+            // malformed selectedID used to throw the whole decode, which cost the
+            // user every unlock they'd bought. Falling back to Classic loses a
+            // preference; throwing lost their purchases.
+            selectedID = try c.decodeIfPresent(UUID.self, forKey: .selectedID) ?? AppTheme.classic.id
             customThemes = try c.decodeIfPresent([AppTheme].self, forKey: .customThemes) ?? []
             unlockedThemeIDs = try c.decodeIfPresent(Set<UUID>.self, forKey: .unlockedThemeIDs) ?? []
             unlockedCardStyleIDs = try c.decodeIfPresent(Set<String>.self, forKey: .unlockedCardStyleIDs) ?? []
+            wallet = try c.decodeIfPresent(Wallet.self, forKey: .wallet)
         }
     }
 
     init(persistence: PersistenceService = PersistenceService()) {
         self.persistence = persistence
-        let stored = persistence.load(
-            Self.file,
-            default: Stored(selectedID: AppTheme.classic.id, customThemes: [])
-        )
+
+        // Claude  Date 08/03/2026
+        // loadStrict rather than load: a decode failure must NOT silently become
+        // "you own nothing and have no coins", because the very next save() would
+        // make that permanent. On failure we start from defaults but lock writes.
+        var stored = Stored(selectedID: AppTheme.classic.id, customThemes: [])
+        var safeMode = false
+        do {
+            if let loaded: Stored = try persistence.loadStrict(Self.file) { stored = loaded }
+        } catch {
+            print("⚠️ theme.json failed to decode: \(error). Entering safe mode — no writes.")
+            safeMode = true
+        }
+
         self.selectedID = stored.selectedID
         self.customThemes = stored.customThemes
         self.unlockedThemeIDs = stored.unlockedThemeIDs
         self.unlockedCardStyleIDs = stored.unlockedCardStyleIDs
+        self.isSafeMode = safeMode
+
+        // Claude  Date 08/03/2026
+        // One-time migration for files written before the wallet existed: rebuild a
+        // spend ledger from what the user already owns, priced at today's catalogue.
+        // That is exactly what the old derived `coinsSpent` was computing, so the
+        // visible balance doesn't move — it just stops being recomputed, which is
+        // what makes future repricing safe. earnedHighWater fills in on the first
+        // noteEarned() call from the app (see GymAppApp).
+        if let existing = stored.wallet {
+            self.wallet = existing
+        } else {
+            self.wallet = Self.migratedWallet(themeIDs: stored.unlockedThemeIDs,
+                                              cardIDs: stored.unlockedCardStyleIDs,
+                                              customThemes: stored.customThemes)
+        }
+
         grantFoundersCards()
+    }
+
+    // Claude  Date 08/03/2026
+    // Synthesise the ledger the old derived model implied. Static so it can run
+    // before `self` is fully initialised.
+    private static func migratedWallet(themeIDs: Set<UUID>, cardIDs: Set<String>,
+                                       customThemes: [AppTheme]) -> Wallet {
+        var wallet = Wallet()
+        for theme in (AppTheme.builtIns + customThemes) where themeIDs.contains(theme.id) && theme.price > 0 {
+            wallet.spend(itemID: ShopItem.theme(theme).id, price: theme.price)
+        }
+        for card in CardStyle.all where cardIDs.contains(card.id) && card.price > 0 {
+            wallet.spend(itemID: ShopItem.card(card).id, price: card.price)
+        }
+        return wallet
     }
 
     // Claude  Date 07/12/2026 last changed: 07/12/2026 by: Claude
@@ -111,35 +192,78 @@ final class ThemeManager: ObservableObject {
         theme.price == 0 || unlockedThemeIDs.contains(theme.id)
     }
 
-    // Claude  Date 06/13/2026 last changed: 08/07/2026 by: Claude
-    // Coins already spent = prices of every paid item we own (themes + card
-    // styles). Derived (not stored) so it can never drift from what's owned.
-    // (08/07: the avatar and character terms went with that feature. Because this is
-    // derived, anyone who had bought an avatar simply gets those coins back in their
-    // balance — there's no stored total to migrate.)
-    var coinsSpent: Int {
-        let themeSpent = allThemes.filter { unlockedThemeIDs.contains($0.id) }.reduce(0) { $0 + $1.price }
-        let cardSpent = CardStyle.all.filter { unlockedCardStyleIDs.contains($0.id) }.reduce(0) { $0 + $1.price }
-        return themeSpent + cardSpent
+    // MARK: - Wallet
+
+    // Claude  Date 06/13/2026 last changed: 08/03/2026 by: Claude
+    // Coins already spent. Read off the ledger now instead of being recomputed by
+    // re-pricing everything you own against the live catalogue. That old approach
+    // meant repricing or removing an item retroactively changed every user's balance
+    // — and it actually happened when avatars were removed on 08/07 and everyone got
+    // those coins back. The ledger records what was paid, so the catalogue is free
+    // to move afterwards.
+    var coinsSpent: Int { wallet.spentTotal }
+
+    // Claude  Date 06/13/2026 last changed: 08/03/2026 by: Claude
+    // The spendable balance. No max(0,…) clamp any more: every term of the wallet is
+    // monotonic, so it can't go negative on its own, and the clamp was capable of
+    // absorbing coins the user had paid real money for.
+    var balance: Int { wallet.balance }
+
+    // Claude  Date 08/03/2026
+    // Feed in the lifetime-earned total (AppStore.totalCoinsEarned) so the wallet can
+    // raise its high-water mark. Called at launch and whenever the earned total
+    // changes; safe to call repeatedly, and it never lowers anything — deleting a
+    // workout no longer takes coins away from you.
+    func noteEarned(_ earned: Int) {
+        guard earned > wallet.earnedHighWater else { return }
+        wallet.noteEarned(earned)
     }
 
-    // Claude  Date 06/13/2026
-    // The spendable balance given a lifetime-earned total (Coins.earned). Clamped
-    // at 0 so deleting workouts (which lowers earned) can't show a negative wallet;
-    // already-owned items stay owned regardless.
-    func balance(earned: Int) -> Int {
-        max(0, earned - coinsSpent)
-    }
-
-    // Claude  Date 06/13/2026
-    // Buy a theme if the caller's current balance covers its price. Returns true
-    // on success (or if already unlocked). Records ownership only — the balance
-    // recomputes itself from coinsSpent, so there's nothing to decrement.
+    // Claude  Date 08/03/2026
+    // Credit a verified StoreKit purchase. Returns false if this transaction id was
+    // already credited (StoreKit re-delivers) or if we're in safe mode. The caller
+    // must not finish() the transaction unless this returned true — see CoinStore.
     @discardableResult
-    func purchase(_ theme: AppTheme, balance: Int) -> Bool {
+    func creditPurchasedCoins(transactionID: UInt64, coins: Int) -> Bool {
+        guard !isSafeMode else { return false }
+        return wallet.credit(transactionID: transactionID, coins: coins)
+    }
+
+    // Claude  Date 08/03/2026
+    // Replace the wallet with the result of merging in a copy from iCloud. Only ever
+    // called by CloudWalletSync; the merge itself is max/union, so this can't lose
+    // coins or unlocks.
+    func mergeWallet(_ incoming: Wallet, unlockedThemes: Set<UUID>, unlockedCards: Set<String>) {
+        guard !isSafeMode else { return }
+        let merged = wallet.merged(with: incoming)
+        // Nothing new — don't write, don't reload the widget, don't push back to
+        // iCloud. Merges run on every launch and every external change, and the
+        // common case is that both sides already agree.
+        guard merged != wallet
+                || !unlockedThemes.isSubset(of: unlockedThemeIDs)
+                || !unlockedCards.isSubset(of: unlockedCardStyleIDs) else { return }
+        batched {
+            wallet = merged
+            unlockedThemeIDs.formUnion(unlockedThemes)
+            unlockedCardStyleIDs.formUnion(unlockedCards)
+        }
+    }
+
+    // MARK: - Buying
+
+    // Claude  Date 06/13/2026 last changed: 08/03/2026 by: Claude
+    // Buy a theme. The balance is no longer passed in by the caller — the wallet
+    // lives here now, so the affordability check can't be bypassed by a caller that
+    // computes it differently. Returns true on success (or if already unlocked).
+    @discardableResult
+    func purchase(_ theme: AppTheme) -> Bool {
         if isUnlocked(theme) { return true }
-        guard balance >= theme.price else { return false }
-        unlockedThemeIDs.insert(theme.id)
+        guard !isSafeMode, balance >= theme.price else { return false }
+        // One write, so the receipt and the item can never be persisted apart.
+        batched {
+            wallet.spend(itemID: ShopItem.theme(theme).id, price: theme.price)
+            unlockedThemeIDs.insert(theme.id)
+        }
         return true
     }
 
@@ -166,10 +290,13 @@ final class ThemeManager: ObservableObject {
     func grantCardStyle(_ id: String) -> Bool { unlockedCardStyleIDs.insert(id).inserted }
 
     @discardableResult
-    func purchaseCardStyle(_ style: CardStyle, balance: Int) -> Bool {
+    func purchaseCardStyle(_ style: CardStyle) -> Bool {
         if isCardStyleUnlocked(style) { return true }
-        guard balance >= style.price else { return false }
-        unlockedCardStyleIDs.insert(style.id)
+        guard !isSafeMode, balance >= style.price else { return false }
+        batched {
+            wallet.spend(itemID: ShopItem.card(style).id, price: style.price)
+            unlockedCardStyleIDs.insert(style.id)
+        }
         return true
     }
 
@@ -189,14 +316,52 @@ final class ThemeManager: ObservableObject {
         }
     }
 
-    private func save() {
-        persistence.save(
-            Stored(selectedID: selectedID, customThemes: customThemes,
-                   unlockedThemeIDs: unlockedThemeIDs, unlockedCardStyleIDs: unlockedCardStyleIDs),
-            to: Self.file
-        )
-        syncWidgetSnapshot()
+    // Claude  Date 08/03/2026
+    // Run several wallet/unlock mutations as ONE persisted change. Without this,
+    // "record the spend" and "grant the item" are two didSets and therefore two
+    // writes, and a crash in between leaves the user charged for something they
+    // don't own. Reentrant-safe: a nested call doesn't clear the flag early.
+    private func batched(_ body: () -> Void) {
+        let wasSuppressed = suppressSave
+        suppressSave = true
+        body()
+        suppressSave = wasSuppressed
+        if !wasSuppressed { save() }
     }
+
+    /// The current on-disk shape, also used as the iCloud payload.
+    var snapshot: Stored {
+        Stored(selectedID: selectedID, customThemes: customThemes,
+               unlockedThemeIDs: unlockedThemeIDs, unlockedCardStyleIDs: unlockedCardStyleIDs,
+               wallet: wallet)
+    }
+
+    private func save() {
+        guard !suppressSave else { return }
+        // Claude  Date 08/03/2026
+        // Safe mode: we failed to read this file, so writing would replace data we
+        // couldn't parse with defaults we invented. Refuse.
+        guard !isSafeMode else { return }
+        persistence.save(snapshot, to: Self.file)
+        syncWidgetSnapshot()
+        onWalletChanged?(self)
+    }
+
+    #if DEBUG
+    // Claude  Date 08/03/2026
+    // Debug-only wallet reset. Needed because the earned total is now held at a
+    // high-water mark: "Reset dev coins" lowers AppStore.devBonusCoins but can no
+    // longer lower the balance on its own, which is the whole point of the mark.
+    func debugResetWallet() {
+        wallet = Wallet()
+    }
+    #endif
+
+    // Claude  Date 08/03/2026
+    // Called after every successful save. CloudWalletSync hooks in here to push the
+    // wallet to iCloud; kept as a closure so ThemeManager doesn't have to know that
+    // iCloud exists (and so tests can leave it nil).
+    var onWalletChanged: ((ThemeManager) -> Void)?
 
     // Claude  Date 07/16/2026
     // Push the active theme into the widget's shared snapshot (App Group) so the

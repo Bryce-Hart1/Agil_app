@@ -28,6 +28,9 @@ enum FoodSourcePalette {
     static let restaurant = Color(hex: "#7C3AED")
     /// Foods the user typed in themselves.
     static let userSubmitted = Color(hex: "#F97316")
+    /// User-built recipes. Teal — distinct from every other source tint and from the
+    /// stacked verification colors, since a recipe never carries a verification badge.
+    static let recipe = Color(hex: "#14B8A6")
 
     /// Stacked badge: a human has vouched for these numbers. Green, the universal
     /// "checked" color, and never used as a source tint so the two axes stay
