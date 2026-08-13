@@ -54,6 +54,23 @@ struct PersistenceService {
         }
     }
 
+    // Claude  Date 08/03/2026
+    // The strict twin of `load`. `load` swallows every decode error and hands back
+    // the default, which is right for a preferences file and *wrong* for anything
+    // that represents money: a single corrupt byte in theme.json would silently
+    // report a zero balance, and the next save() would atomically write that zero
+    // over the only good copy. This throws instead, so the caller can refuse to
+    // write rather than destroying the file it failed to read.
+    //
+    // Returns nil when the file simply doesn't exist yet (first launch) — that's a
+    // normal state, not an error.
+    func loadStrict<T: Codable>(_ filename: String, as type: T.Type = T.self) throws -> T? {
+        let fileURL = url(for: filename)
+        guard FileManager.default.fileExists(atPath: fileURL.path) else { return nil }
+        let raw = try Data(contentsOf: fileURL)
+        return try decoder.decode(DataFile<T>.self, from: raw).data
+    }
+
     /// Save a value as JSON using an atomic write (so a crash mid-write can't
     /// leave a half-written file).
     func save<T: Codable>(_ value: T, to filename: String) {

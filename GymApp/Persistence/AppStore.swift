@@ -45,6 +45,12 @@ final class AppStore: ObservableObject {
     // `nutritionGoals` holds the daily targets the diary fills toward. Each auto-
     // saves on change via its own JSON file.
     @Published var foods: [FoodItem] { didSet { persistence.save(foods, to: Self.foodsFile) } }
+    // Claude  Date 08/11/2026
+    // User-built recipes (see Recipe): named ingredient lists that log into the diary as
+    // one per-serving entry. Separate from `foods` because a recipe is an aggregate with
+    // its own editable parts, not a library food — it only becomes FoodItem-shaped at the
+    // moment it's searched or logged (Recipe.asFoodItem). Local-only, never submitted.
+    @Published var recipes: [Recipe] { didSet { persistence.save(recipes, to: Self.recipesFile) } }
     // Claude  Date 06/17/2026
     // Local barcode → product cache (see BarcodeCache). Separate from `foods` so it
     // can be evicted freely without touching the curated library; consulted by
@@ -188,6 +194,8 @@ final class AppStore: ObservableObject {
     private static let rankFile = "strategist_rank.json"
     // Claude  Date 06/16/2026 — nutrition data files.
     private static let foodsFile = "foods.json"
+    // Claude  Date 08/11/2026 — user-built recipes.
+    private static let recipesFile = "recipes.json"
     private static let foodLogFile = "nutrition_log.json"
     private static let waterLogFile = "water_log.json"
     private static let waterPresetsFile = "water_presets.json"
@@ -224,6 +232,7 @@ final class AppStore: ObservableObject {
         // diary/water logs start empty; goals fall back to defaults.
         let loadedFoods = persistence.load(Self.foodsFile, default: [FoodItem]())
         self.foods = loadedFoods.filter { $0.source != .seed }
+        self.recipes = persistence.load(Self.recipesFile, default: [Recipe]())
         self.foodLog = persistence.load(Self.foodLogFile, default: [FoodEntry]())
         self.waterLog = persistence.load(Self.waterLogFile, default: [WaterEntry]())
         self.waterPresets = persistence.load(Self.waterPresetsFile,
@@ -882,6 +891,26 @@ final class AppStore: ObservableObject {
 
     func deleteFood(_ food: FoodItem) {
         foods.removeAll { $0.id == food.id }
+    }
+
+    // Claude  Date 08/11/2026
+    // Recipe CRUD, mirroring the food library above. A recipe logs through the ordinary
+    // food path (`logFood(recipe.asFoodItem, …)`), so there's no recipe-specific logging
+    // method here — the diary only ever sees a FoodEntry.
+    @discardableResult
+    func addRecipe(_ recipe: Recipe) -> Recipe {
+        recipes.append(recipe)
+        return recipe
+    }
+
+    func updateRecipe(_ recipe: Recipe) {
+        if let index = recipes.firstIndex(where: { $0.id == recipe.id }) {
+            recipes[index] = recipe
+        }
+    }
+
+    func deleteRecipe(_ recipe: Recipe) {
+        recipes.removeAll { $0.id == recipe.id }
     }
 
     // Claude  Date 06/16/2026
