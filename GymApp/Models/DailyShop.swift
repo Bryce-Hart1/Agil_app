@@ -19,59 +19,116 @@ enum DailyShop {
 
     // MARK: - Tunable knobs (the whole concept lives here)
 
-    /// How many themes / cards are featured each day.
-    static let themeCount = 2
-    static let cardCount  = 3
+    // Claude  Date 06/17/2026 last changed: 08/03/2026 by: Claude
+    // Six featured slots: 4 that turn over daily, 2 that hold for the week. The
+    // weekly pair exists because items cost real money to skip toward now — at
+    // 3,000 coins a legendary is roughly twelve weeks of training, and a line-up
+    // that vanishes at midnight gives nobody time to decide or to save up. The
+    // weekly slots are the ones you can actually plan around.
+    static let dailyCount  = 4
+    static let weeklyCount = 2
 
-    // MARK: - Pools (paid items only — free base items are always available
+    // MARK: - Pool (paid items only — free base items are always available
     // elsewhere, so they don't take up a precious featured slot).
 
-    static var themePool: [ShopItem] {
+    // Claude  Date 06/17/2026 last changed: 08/03/2026 by: Claude
+    // ONE mixed pool now, instead of separate theme/card pools with fixed slot
+    // counts. Either cadence can surface either kind, so a week can be two themes,
+    // two cards, or one of each — which is the point of mixing. Ordering is fixed
+    // (themes then cards, each in declaration order) because the weighted pick draws
+    // in pool order and determinism depends on that order never wobbling.
+    static var pool: [ShopItem] {
         AppTheme.builtIns.filter { $0.price > 0 }.map(ShopItem.theme)
-    }
-    static var cardPool: [ShopItem] {
-        CardStyle.all.filter { $0.price > 0 }.map(ShopItem.card)
+            + CardStyle.all.filter { $0.price > 0 }.map(ShopItem.card)
     }
 
     // MARK: - Rotation
 
-    // Claude  Date 06/17/2026
-    // The featured line-up for a given day plus when it rolls over. `date` is the
-    // start of the shop day; `refreshesAt` is the next local midnight, which the
-    // UI counts down to. (Day boundaries are local-time, matching "on 6-17-26"
-    // thinking — users in different timezones flip at their own midnight.)
+    // Claude  Date 06/17/2026 last changed: 08/03/2026 by: Claude
+    // One cadence's line-up plus when it rolls over. `start` is the beginning of the
+    // shop period (local midnight, or the start of the shop week); `refreshesAt` is
+    // when it flips, which the UI counts down to. Boundaries are local-time, so
+    // users in different timezones flip at their own midnight.
     struct Rotation {
-        let date: Date
-        let themes: [ShopItem]
-        let cards: [ShopItem]
+        let start: Date
+        let items: [ShopItem]
         let refreshesAt: Date
-
-        /// Themes first, then cards — a single list for the featured grid.
-        var featured: [ShopItem] { themes + cards }
     }
 
-    static func rotation(for date: Date = .now, calendar: Calendar = .current) -> Rotation {
+    /// Both cadences, computed together so they can't offer the same item at once.
+    struct Lineup {
+        let daily: Rotation
+        let weekly: Rotation
+    }
+
+    // Claude  Date 08/03/2026
+    // The whole shop for a moment in time.
+    //
+    // Order matters: the WEEKLY pair is drawn first, then the daily four are drawn
+    // from the pool minus that pair. If it were the other way round the weekly slots
+    // would churn every day (as the daily exclusion shifted under them), which is the
+    // one thing a weekly slot must not do. As a consequence the daily line-up does
+    // change when the week flips even mid-week — that's correct: the pool it draws
+    // from genuinely changed.
+    static func lineup(for date: Date = .now, calendar: Calendar = .current) -> Lineup {
+        let weekly = weeklyRotation(for: date, calendar: calendar)
+
         let day = calendar.startOfDay(for: date)
-        // One generator stream for the whole day so the pick is fully deterministic.
-        var gen = SeededShopGenerator(seed: seed(for: day, calendar: calendar))
-        let themes = weightedPick(themePool, count: themeCount, using: &gen)
-        let cards  = weightedPick(cardPool,  count: cardCount,  using: &gen)
-        let refreshesAt = calendar.date(byAdding: .day, value: 1, to: day) ?? day
-        return Rotation(date: day, themes: themes, cards: cards, refreshesAt: refreshesAt)
+        var gen = SeededShopGenerator(seed: daySeed(for: day, calendar: calendar))
+        let remaining = pool.filter { item in !weekly.items.contains(where: { $0.id == item.id }) }
+        let dailyItems = weightedPick(remaining, count: dailyCount, using: &gen)
+        let dailyRefresh = calendar.date(byAdding: .day, value: 1, to: day) ?? day
+
+        return Lineup(
+            daily: Rotation(start: day, items: dailyItems, refreshesAt: dailyRefresh),
+            weekly: weekly
+        )
+    }
+
+    // Claude  Date 08/03/2026
+    // The weekly pair. Weeks are Monday-anchored to match the coin-earning week in
+    // Coins.earned (which also forces firstWeekday = 2), so "this week's shop" and
+    // "this week's coin streak" mean the same seven days everywhere.
+    private static func weeklyRotation(for date: Date, calendar: Calendar) -> Rotation {
+        var cal = calendar
+        cal.firstWeekday = 2 // Monday, same as Coins.earned
+        let start = cal.dateInterval(of: .weekOfYear, for: date)?.start ?? cal.startOfDay(for: date)
+        // A generator of its own — sharing one with the daily pick would make the
+        // weekly result depend on which day you asked.
+        var gen = SeededShopGenerator(seed: weekSeed(for: date, calendar: cal))
+        let items = weightedPick(pool, count: weeklyCount, using: &gen)
+        let refreshesAt = cal.date(byAdding: .weekOfYear, value: 1, to: start) ?? start
+        return Rotation(start: start, items: items, refreshesAt: refreshesAt)
     }
 
     // MARK: - Seeding
 
-    // Claude  Date 06/17/2026
+    // Claude  Date 06/17/2026 last changed: 08/03/2026 by: Claude
     // Turn a calendar day into a stable 64-bit seed. YYYYMMDD (e.g. 20260617) is
     // unique per day and identical on every device; SplitMix64.next() then mixes it
     // so the resulting shop has no visible day-to-day pattern.
-    static func seed(for date: Date, calendar: Calendar = .current) -> UInt64 {
+    static func daySeed(for date: Date, calendar: Calendar = .current) -> UInt64 {
         let c = calendar.dateComponents([.year, .month, .day], from: date)
         let y = UInt64(c.year  ?? 2026)
         let m = UInt64(c.month ?? 1)
         let d = UInt64(c.day   ?? 1)
         return y &* 10_000 &+ m &* 100 &+ d
+    }
+
+    // Claude  Date 08/03/2026
+    // The weekly twin. Two details that are easy to get wrong:
+    //
+    //   - `.yearForWeekOfYear`, NOT `.year`. They disagree in the days either side of
+    //     New Year (Dec 31 2026 can belong to week 1 of 2027), and using `.year`
+    //     there would make the shop flip mid-week.
+    //   - The XOR constant domain-separates this stream from the daily one, so a
+    //     week seed can never collide with some day's seed and hand out the same
+    //     line-up twice.
+    static func weekSeed(for date: Date, calendar: Calendar = .current) -> UInt64 {
+        let c = calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: date)
+        let y = UInt64(c.yearForWeekOfYear ?? 2026)
+        let w = UInt64(c.weekOfYear ?? 1)
+        return (y &* 100 &+ w) ^ 0x5745_454B_5F41_4749  // "WEEK_AGI"
     }
 
     // MARK: - Weighted sampling (without replacement)

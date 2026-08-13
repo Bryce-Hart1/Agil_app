@@ -17,6 +17,12 @@ enum FoodSource: String, Codable, Hashable {
     case openFoodFacts
     case usda
     case restaurant
+    // Claude  Date 08/11/2026
+    // A user-built recipe surfacing through the food pipeline (see Recipe.asFoodItem).
+    // Never produced by `init(wireValue:)` — recipes are local-only and the backend has
+    // no notion of them, so a "recipe" string on the wire would be a bug, not a case
+    // to honor.
+    case recipe
 
     // Claude  Date 08/04/2026
     // Tolerant wire mapping. The backend has stamped values this enum never had

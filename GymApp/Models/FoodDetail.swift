@@ -13,6 +13,7 @@ enum FoodTrust: String, Codable, Hashable {
     case generic
     case restaurant
     case userSubmitted
+    case recipe
 
     var label: String {
         switch self {
@@ -21,6 +22,7 @@ enum FoodTrust: String, Codable, Hashable {
         case .generic:       return "Generic"
         case .restaurant:    return "Restaurant"
         case .userSubmitted: return "My food"
+        case .recipe:        return "Recipe"
         }
     }
 
@@ -31,6 +33,7 @@ enum FoodTrust: String, Codable, Hashable {
         case .generic:       return "basket.fill"
         case .restaurant:    return "fork.knife"
         case .userSubmitted: return "person.crop.circle"
+        case .recipe:        return "list.bullet.rectangle"
         }
     }
 
@@ -41,6 +44,7 @@ enum FoodTrust: String, Codable, Hashable {
         case .generic:       return FoodSourcePalette.generic
         case .restaurant:    return FoodSourcePalette.restaurant
         case .userSubmitted: return FoodSourcePalette.userSubmitted
+        case .recipe:        return FoodSourcePalette.recipe
         }
     }
 
@@ -56,6 +60,7 @@ enum FoodTrust: String, Codable, Hashable {
         case .usda:          self = .generic
         case .restaurant:    self = .restaurant
         case .custom:        self = .userSubmitted
+        case .recipe:        self = .recipe
         }
     }
 }
