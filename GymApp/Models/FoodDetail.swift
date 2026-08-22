@@ -134,9 +134,19 @@ struct FoodDetail: Identifiable, Hashable {
         self.servingUnit = servingUnit
     }
 
-    // Claude  Date 07/14/2026
+    // Claude  Date 08/22/2026 — display casing, see String.foodDisplayCased.
+    var displayName: String { name.foodDisplayCased }
+    var displayBrand: String { brand.foodDisplayCased }
+
+    // Claude  Date 07/14/2026 last changed: 08/22/2026 by: Claude
     // Name with brand appended when present (matches FoodItem.displayLabel).
     var displayLabel: String {
+        displayBrand.trimmingCharacters(in: .whitespaces).isEmpty
+            ? displayName : "\(displayName) · \(displayBrand)"
+    }
+
+    // The stored-casing label for the diary snapshot — see FoodItem.snapshotLabel.
+    var snapshotLabel: String {
         brand.trimmingCharacters(in: .whitespaces).isEmpty ? name : "\(name) · \(brand)"
     }
 

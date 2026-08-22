@@ -120,10 +120,54 @@ struct FoodItem: Identifiable, Codable, Hashable {
         self.servingQuantity = servingQuantity
     }
 
-    // Claude  Date 06/16/2026
-    // Name with the brand appended when present, for list/search labels.
+    // Claude  Date 08/22/2026
+    // What to PRINT for this food, as opposed to what's stored. See
+    // String.foodDisplayCased at the bottom of this file for why these exist.
+    var displayName: String { name.foodDisplayCased }
+    var displayBrand: String { brand.foodDisplayCased }
+
+    // Claude  Date 06/16/2026 last changed: 08/22/2026 by: Claude
+    // Name with the brand appended when present, for list/search labels. Cased for
+    // display — anything PERSISTING a label wants `snapshotLabel` instead.
     var displayLabel: String {
+        displayBrand.trimmingCharacters(in: .whitespaces).isEmpty
+            ? displayName : "\(displayName) · \(displayBrand)"
+    }
+
+    // Claude  Date 08/22/2026
+    // The same label with the stored casing left alone, for the three places that FREEZE
+    // a label into saved data: the diary entry snapshot, logFoodDetail, and a recipe
+    // ingredient. Display casing is a rendering choice and this app's house style today;
+    // baking it into nutrition_log.json / recipes.json would make it permanent and
+    // un-revisable for every row written from here on. Those files keep what the source
+    // actually said, and FoodEntry.displayName / RecipeIngredient.displayName case it on
+    // the way out like everything else.
+    var snapshotLabel: String {
         brand.trimmingCharacters(in: .whitespaces).isEmpty ? name : "\(name) · \(brand)"
+    }
+
+    // Claude  Date 08/18/2026
+    // What to multiply PER-SERVING values by to get per-100, or nil when this food has no
+    // per-100 basis at all. `nutrients` are stored per serving while `micros` are per-100
+    // (see the field docs above), so anything writing micros from a per-serving form has
+    // to cross that gap — and both sides of the app have to cross it the same way.
+    //
+    // The gram weight of a serving, not the serving NUMBER, is the basis: a "2 oz" serving
+    // is 56.7 g, so the factor is 100/56.7, not 100/2. That mirrors how FoodDetail derives
+    // `baseAmount`. A count serving ("bar", "slice") has no weight to work from — nil, and
+    // FoodDetail correspondingly shows that food per serving rather than inventing a
+    // per-100 view.
+    var per100Factor: Double? {
+        Self.per100Factor(servingSize: servingSize, servingUnit: servingUnit)
+    }
+
+    /// The same factor from a serving that isn't on a FoodItem yet — the new-food form
+    /// needs it while it's still deciding what to save.
+    static func per100Factor(servingSize: Double, servingUnit: String) -> Double? {
+        guard let unit = FoodUnit(userInput: servingUnit), servingSize > 0 else { return nil }
+        let baseAmount = servingSize * unit.perBase
+        guard baseAmount > 0 else { return nil }
+        return 100 / baseAmount
     }
 
     // Claude  Date 06/16/2026
@@ -225,4 +269,18 @@ struct FoodItem: Identifiable, Codable, Hashable {
         micros = try c.decodeIfPresent(Micros.self, forKey: .micros)
         servingQuantity = try c.decodeIfPresent(Double.self, forKey: .servingQuantity)
     }
+}
+
+// Claude  Date 08/22/2026
+// Case normalization for food names, in one place. Names reach the app title-cased from
+// the backend ("Chicken Burrito Bowl"), however OFF's contributors felt that day, and
+// free-form from the user's own keyboard — so the same shelf can read three ways down
+// one list. Lowercase is the house style.
+//
+// The real fix is normalization in the DB; this is the net for whatever slips through,
+// and it is DISPLAY-ONLY. Nothing stored, submitted or corrected goes through here: what
+// the user typed is what the server should receive, and keeping the stored value intact
+// is what makes this reversible once the DB side lands.
+extension String {
+    var foodDisplayCased: String { lowercased() }
 }

@@ -61,6 +61,11 @@ struct FoodEntry: Identifiable, Codable, Hashable {
         self.basis = basis
     }
 
+    // Claude  Date 08/22/2026
+    // The diary row's label. `name` is a snapshot frozen at log time, so entries written
+    // before the house lowercase style still render in it. See String.foodDisplayCased.
+    var displayName: String { name.foodDisplayCased }
+
     // Claude  Date 08/06/2026
     // Whether this entry can have its amount re-dialed with the full unit controls.
     // Requires both halves of the redesign: what the user picked, and what the food's
@@ -89,7 +94,7 @@ struct FoodEntry: Identifiable, Codable, Hashable {
     // capturing the food's name/nutrients into the snapshot.
     static func from(_ food: FoodItem, servings: Double, mealType: MealType,
                      loggedAt: Date = Date()) -> FoodEntry {
-        FoodEntry(foodId: food.id, name: food.displayLabel, nutrients: food.nutrients,
+        FoodEntry(foodId: food.id, name: food.snapshotLabel, nutrients: food.nutrients,
                   servings: servings, mealType: mealType, loggedAt: loggedAt)
     }
 }

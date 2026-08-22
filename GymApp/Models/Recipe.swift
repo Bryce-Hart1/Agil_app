@@ -34,6 +34,9 @@ struct RecipeIngredient: Identifiable, Codable, Hashable {
         self.basis = basis
     }
 
+    // Claude  Date 08/22/2026 — display casing, see String.foodDisplayCased.
+    var displayName: String { name.foodDisplayCased }
+
     // Claude  Date 08/11/2026
     // Build an ingredient from a food's shape + a dialed amount, doing the per-100 →
     // consumed scaling in ONE place (the same arithmetic FoodDetailView's log bar runs).
@@ -75,6 +78,9 @@ struct Recipe: Identifiable, Codable, Hashable {
         self.ingredients = ingredients
         self.servingsYield = servingsYield
     }
+
+    // Claude  Date 08/22/2026 — display casing, see String.foodDisplayCased.
+    var displayName: String { name.foodDisplayCased }
 
     /// Everything in the pot.
     var totalNutrients: Nutrients {
