@@ -178,6 +178,46 @@ struct Workout: Identifiable, Codable, Hashable {
         exercises.reduce(0) { $0 + $1.sets.filter { $0.completedAt != nil }.count }
     }
 
+    // Claude  Date 07/01/2026 last changed: 08/21/2026 by: Claude
+    // How long the session actually took. Elapsed = the real wall-clock span
+    // (startedAt → finishedAt), so warm-up, rest between sets, the stretch after your
+    // last set, and any time the app spent backgrounded all count. The fallback — first
+    // checked set to last checked set — undercounts all of that (and reads 0 for a
+    // single-set session), so it's only used for workouts finished before these stamps
+    // existed. nil when neither is available: an untouched workout has no honest
+    // duration to show, and callers hide the label rather than print "<1 min".
+    //
+    // (08/21) Moved down here from WorkoutSummary, which now reads it. The History rows
+    // and the editor header want this number too, and building a WorkoutSummary per row
+    // would scan the exercise library and the whole activity ledger to get it.
+    var elapsed: TimeInterval? {
+        if let finished = finishedAt {
+            return max(0, finished.timeIntervalSince(startedAt))
+        }
+        let times = exercises.flatMap { $0.sets.compactMap(\.completedAt) }
+        guard let first = times.min(), let last = times.max() else { return nil }
+        return last.timeIntervalSince(first)
+    }
+
+    // Claude  Date 08/21/2026
+    // `elapsed` rendered for display, or nil when there's nothing to show.
+    var elapsedText: String? {
+        elapsed.map(Workout.durationText)
+    }
+
+    // Claude  Date 06/16/2026 last changed: 08/21/2026 by: Claude
+    // "1h 5m" / "42 min" / "<1 min" — compact duration. (08/21) The one formatter for
+    // session length, so the performance card, the monthly recap, the History rows and
+    // the editor header can't drift apart in how they word it.
+    static func durationText(_ seconds: TimeInterval) -> String {
+        let minutes = Int(seconds) / 60
+        let h = minutes / 60
+        let m = minutes % 60
+        if h > 0 { return "\(h)h \(m)m" }
+        if m > 0 { return "\(m) min" }
+        return "<1 min"
+    }
+
     // Claude  Date 06/16/2026
     // Custom decode so workouts saved before `isFinished` existed load as FINISHED
     // (true) — they predate the active-session concept, so they shouldn't suddenly

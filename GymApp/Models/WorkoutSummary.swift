@@ -97,7 +97,6 @@ struct WorkoutSummary: Identifiable, Hashable {
 
         let histories = BestSetScoring.histories(from: history, exercises: exercises)
 
-        var times: [Date] = []
         var volume = 0.0
         var sets = 0
         var exercisesWithSets = Set<UUID>()
@@ -112,13 +111,15 @@ struct WorkoutSummary: Identifiable, Hashable {
                 sets += 1
                 volume += Double(set.reps) * set.weight
                 exercisesWithSets.insert(logged.exerciseId)
-                if let t = set.completedAt { times.append(t) }
 
                 let score = BestSetScoring.score(weight: set.weight, reps: set.reps,
                                                  isBodyweight: isBodyweight)
                 let isPR = past?.allTimeBest.map { score > $0 } ?? false
                 candidates.append(BestSet(
-                    exerciseName: ex?.name ?? "Exercise",
+                    // Claude  Date 08/18/2026
+                    // brandedName, not displayLabel: BestSet carries isUnilateral itself
+                    // and renders " per side", so displayLabel would say it twice.
+                    exerciseName: ex?.brandedName ?? "Exercise",
                     reps: set.reps,
                     weight: set.weight,
                     estimatedOneRepMax: BestSetScoring.e1RM(weight: set.weight, reps: set.reps),
@@ -136,19 +137,13 @@ struct WorkoutSummary: Identifiable, Hashable {
         exerciseCount = exercisesWithSets.count
         bestSet = Self.pickBest(from: candidates)
 
-        // Claude  Date 06/16/2026 last changed: 07/01/2026 by: Claude
-        // Elapsed = the real session span (startedAt → finishedAt), so warm-up, rest
-        // between sets, the stretch after your last set, and any time the app spent
-        // backgrounded all count. The old measure — first checked set to last checked
-        // set — undercounted all of that (and read 0 for a single-set session). Falls
-        // back to that set-span for workouts finished before these stamps existed.
-        if let finished = workout.finishedAt {
-            duration = max(0, finished.timeIntervalSince(workout.startedAt))
-        } else if let first = times.min(), let last = times.max() {
-            duration = last.timeIntervalSince(first)
-        } else {
-            duration = 0
-        }
+        // Claude  Date 06/16/2026 last changed: 08/21/2026 by: Claude
+        // The real session span, with its fallback ladder — see Workout.elapsed, which
+        // now owns both. (08/21) Moved there because the History rows and the editor
+        // header show this number too, and they can't afford to build a WorkoutSummary
+        // for it. nil means the workout has no honest duration; the card has a slot to
+        // fill either way, so it reads "<1 min".
+        duration = workout.elapsed ?? 0
     }
 
     // Claude  Date 07/21/2026
@@ -192,14 +187,9 @@ struct WorkoutSummary: Identifiable, Hashable {
         return strongest(candidates, by: \.score)
     }
 
-    // Claude  Date 06/16/2026
-    // "1h 5m" / "42 min" / "<1 min" — compact duration for the card.
-    var durationText: String {
-        let minutes = Int(duration) / 60
-        let h = minutes / 60
-        let m = minutes % 60
-        if h > 0 { return "\(h)h \(m)m" }
-        if m > 0 { return "\(m) min" }
-        return "<1 min"
-    }
+    // Claude  Date 06/16/2026 last changed: 08/21/2026 by: Claude
+    // "1h 5m" / "42 min" / "<1 min" — compact duration for the card. (08/21) The
+    // formatting itself moved to Workout.durationText, so every surface that shows a
+    // session length words it identically.
+    var durationText: String { Workout.durationText(duration) }
 }
