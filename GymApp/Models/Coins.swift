@@ -64,4 +64,48 @@ enum Coins {
             .filter { unlockedIDs.contains($0.id) }
             .reduce(0) { $0 + $1.reward }
     }
+
+    // Claude  Date 08/23/2026
+    // Compact balance string for width-constrained chrome — at most FOUR characters, so
+    // the ModeNotch pill can carry the balance without its width depending on how rich
+    // you are. "25", "300", "3.5k", "999k", "1.2m".
+    //
+    // Truncates, never rounds up. That matters because this is money: showing "4k" for a
+    // balance of 3,999 in a shop where something costs 4,000 is a lie the user finds out
+    // about at the worst possible moment. Floor can only ever understate.
+    //
+    // Full, grouped numbers (`.formatted()`) stay everywhere there's room for them — the
+    // Shop's own chip, the Profile Shop row, CoinShopView — so this is the exception, not
+    // the house style.
+    static func compact(_ amount: Int) -> String {
+        let value = max(0, amount)
+        switch value {
+        case ..<1_000:
+            return "\(value)"                                  // 0…999
+        case ..<10_000:
+            return abbreviated(value, per: 1_000, unit: "k")    // 1k…9.9k
+        case ..<1_000_000:
+            return "\(value / 1_000)k"                          // 10k…999k
+        case ..<10_000_000:
+            return abbreviated(value, per: 1_000_000, unit: "m") // 1m…9.9m
+        default:
+            return "\(value / 1_000_000)m"                      // 10m+
+        }
+    }
+
+    /// One-decimal abbreviation with the trailing ".0" dropped, floored at the tenth.
+    private static func abbreviated(_ value: Int, per unit: Int, unit suffix: String) -> String {
+        let tenths = value / (unit / 10)
+        let whole = tenths / 10
+        let frac = tenths % 10
+        return frac == 0 ? "\(whole)\(suffix)" : "\(whole).\(frac)\(suffix)"
+    }
+
+    // Claude  Date 08/23/2026
+    // The third earning rule lives in its own file: DailyCheckIn.earned(from:) pays
+    // +20 for each distinct day the app was opened, capped at 5 days a week. It's
+    // separate because it carries a whole feature's day/week model (the toast award and
+    // the Shop's week strip) rather than just a sum, but it plugs into exactly the same
+    // place — AppStore.totalCoinsEarned — and obeys the same monotonicity rule as the
+    // two above. See DailyCheckIn.swift.
 }
