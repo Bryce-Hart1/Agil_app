@@ -38,6 +38,14 @@ struct NewExerciseView: View {
     // Bodyweight lift flag (pull-up, dip…). When on, logged sets record ADDED weight
     // and the workout editor shows it as "+N lb" rather than a raw load.
     @State private var isBodyweight: Bool
+    // Claude  Date 08/18/2026
+    // How the lift is loaded — the nameplate, and the gate on whether the Brand field
+    // below is offered at all (a barbell is a barbell whoever made it).
+    @State private var equipmentType: EquipmentType?
+    // Claude  Date 08/18/2026
+    // The machine's manufacturer, e.g. "Hammer Strength". Blank = the generic lift.
+    // Normalized against the library on save, so casing can't split one brand in two.
+    @State private var brand: String
     @State private var showingMoverHelp = false
 
     // Claude  Date 07/09/2026
@@ -63,9 +71,36 @@ struct NewExerciseView: View {
         _primaryMover = State(initialValue: editing?.primaryMover ?? "")
         _isUnilateral = State(initialValue: editing?.isUnilateral ?? false)
         _isBodyweight = State(initialValue: editing?.isBodyweight ?? false)
+        _equipmentType = State(initialValue: editing?.equipmentType)
+        _brand = State(initialValue: editing?.brand ?? "")
     }
 
     private var trimmedName: String { name.trimmingCharacters(in: .whitespaces) }
+
+    // Claude  Date 08/18/2026
+    // Branding is only offered for equipment where the manufacturer actually changes how
+    // the lift behaves. Unknown equipment stays permissive (see Exercise.canBeBranded) —
+    // every lift created before this field existed is nil.
+    private var canBeBranded: Bool { equipmentType?.isBrandable ?? true }
+
+    private var canonicalBrand: String {
+        canBeBranded ? store.normalizedBrand(brand) : ""
+    }
+
+    // Claude  Date 08/18/2026
+    // Whether this name + brand pair already exists on some OTHER lift. addBrandVariant
+    // guards its own path, but this form can reach the same collision, and two identical
+    // rows in the library would be impossible to tell apart afterwards.
+    private var duplicateExists: Bool {
+        guard !trimmedName.isEmpty else { return false }
+        return store.exercises.contains {
+            $0.id != editing?.id
+                && $0.name.caseInsensitiveCompare(trimmedName) == .orderedSame
+                && $0.brand.caseInsensitiveCompare(canonicalBrand) == .orderedSame
+        }
+    }
+
+    private var canSave: Bool { !trimmedName.isEmpty && !duplicateExists }
 
     // MARK: - Cascading options (all derived from the library)
 
@@ -173,6 +208,27 @@ struct NewExerciseView: View {
 
                 moverSection
 
+                // Claude  Date 08/18/2026
+                // Equipment drives the nameplate chip beside the lift's name and gates the
+                // Brand field below it. "Unspecified" is a real option, not an oversight:
+                // it's what every lift created before this field existed reads as.
+                Section {
+                    Picker("Equipment", selection: $equipmentType) {
+                        Text("Unspecified").tag(EquipmentType?.none)
+                        ForEach(EquipmentType.allCases, id: \.self) { type in
+                            Text(type.title).tag(EquipmentType?.some(type))
+                        }
+                    }
+                } header: {
+                    Text("Equipment")
+                } footer: {
+                    Text("How the lift is loaded. Machines, cables and Smith machines can carry a brand, since the same movement can feel completely different from one manufacturer to another.")
+                }
+
+                if canBeBranded {
+                    brandSection
+                }
+
                 Section {
                     Toggle("Unilateral", isOn: $isUnilateral)
                 } footer: {
@@ -202,7 +258,7 @@ struct NewExerciseView: View {
                                 .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.borderedProminent)
-                        .disabled(trimmedName.isEmpty)
+                        .disabled(!canSave)
                         .listRowBackground(Color.clear)
 
                         Button(action: saveAsNew) {
@@ -211,7 +267,7 @@ struct NewExerciseView: View {
                                 .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.bordered)
-                        .disabled(trimmedName.isEmpty)
+                        .disabled(!canSave)
                         .listRowBackground(Color.clear)
                     } footer: {
                         Text("“Save” updates this lift everywhere it's used. “Save as New Lift” keeps the original and adds a separate copy with these changes.")
@@ -231,7 +287,7 @@ struct NewExerciseView: View {
                 // instead, so it's a deliberate pick rather than a single ambiguous button.
                 if editing == nil {
                     ToolbarItem(placement: .confirmationAction) {
-                        Button("Save", action: saveAsNew).disabled(trimmedName.isEmpty)
+                        Button("Save", action: saveAsNew).disabled(!canSave)
                     }
                 }
             }
@@ -256,6 +312,41 @@ struct NewExerciseView: View {
                 Text("The primary mover is the main muscle a lift drives — e.g. Quadriceps for a squat, or Latissimus Dorsi for a lat pulldown. It's shown under each exercise in your library. It's optional: leave it blank if you're unsure, or start typing to pick a muscle from the suggestions.")
             }
         }
+    }
+
+    // Claude  Date 08/18/2026
+    // The brand field. Typing here and hitting "Save" re-labels THIS lift (its history
+    // follows its id); "Save as New Lift" is the way to start a separate branded one —
+    // which is what the Add Brand sheet does in one step from the library and picker.
+    @ViewBuilder private var brandSection: some View {
+        Section {
+            TextField("Brand (optional)", text: $brand)
+                .textInputAutocapitalization(.words)
+                .autocorrectionDisabled()
+            // Brands already in the library — one tap, and no second spelling of one.
+            ForEach(store.brandSuggestions(matching: brand), id: \.self) { suggestion in
+                Button {
+                    brand = suggestion
+                } label: {
+                    Label(suggestion, systemImage: "arrow.up.left.circle")
+                        .font(.subheadline)
+                }
+            }
+        } header: {
+            Text("Brand")
+        } footer: {
+            Text(brandFooter)
+        }
+    }
+
+    private var brandFooter: String {
+        if duplicateExists {
+            return "You already have this lift. Pick a different brand, or use the one you have."
+        }
+        if editing != nil, canonicalBrand != (editing?.brand ?? "") {
+            return "“Save” re-labels this lift, and its existing history comes with it. To keep the original and track this machine separately, use “Save as New Lift”."
+        }
+        return "The manufacturer of the machine — or the gym's name, if you don't know it. A branded lift tracks its own history."
     }
 
     // Claude  Date 07/09/2026
@@ -376,15 +467,23 @@ struct NewExerciseView: View {
         existing.isUnilateral = isUnilateral
         existing.primaryMover = fields.mover
         existing.isBodyweight = isBodyweight
+        existing.equipmentType = equipmentType
+        // Cleared when the equipment can't be branded, so a lift switched from Machine to
+        // Free Weight doesn't keep a stale manufacturer no field is showing any more.
+        existing.brand = canBeBranded ? brand : ""
         store.updateExercise(existing)
         onCreate(existing)
         dismiss()
     }
 
-    // Claude  Date 07/13/2026
+    // Claude  Date 07/13/2026 last changed: 08/18/2026 by: Claude
     // "Save as New Lift" (and the create flow) — add a brand-new, separate exercise from
-    // the current form, leaving any edited original untouched. No liftType is passed;
-    // custom lifts are never big-3 (stays nil).
+    // the current form, leaving any edited original untouched.
+    // (08/18) When there IS an edit target, its liftType/quality now ride along. This is
+    // the main way to make a branded copy of a curated lift, and stripping those tags
+    // silently cost a copy of Barbell Back Squat its big-3 badge credit and its Optimal
+    // tag. A lift created from scratch still passes nil for both — custom lifts aren't
+    // big-3 — because `editing` is nil there.
     private func saveAsNew() {
         let fields = resolvedFields()
         let created = store.addExercise(
@@ -392,8 +491,13 @@ struct NewExerciseView: View {
             region: region,
             category: fields.category,
             isUnilateral: isUnilateral,
+            liftType: editing?.liftType,
             primaryMover: fields.mover,
-            isBodyweight: isBodyweight
+            quality: editing?.quality,
+            isBodyweight: isBodyweight,
+            note: editing?.note,
+            brand: canBeBranded ? brand : "",
+            equipmentType: equipmentType
         )
         onCreate(created)
         dismiss()

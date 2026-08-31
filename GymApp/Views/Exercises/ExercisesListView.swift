@@ -13,6 +13,10 @@ struct ExercisesListView: View {
     // The library exercise being edited via a row's swipe action (nil = none). Drives
     // the same NewExerciseView editor the workout/preset pencils use.
     @State private var editingExercise: Exercise?
+    // Claude  Date 08/18/2026
+    // The lift being branded via the row's context menu (nil = none) — drives the
+    // Add Brand sheet, which adds a separate branded copy rather than editing this one.
+    @State private var brandingBase: Exercise?
 
     var body: some View {
         // Claude  Date 06/14/2026 last changed: 07/13/2026 by: Claude
@@ -24,6 +28,26 @@ struct ExercisesListView: View {
                 Section(group.region.title) {
                     ForEach(group.exercises) { exercise in
                         ExerciseRow(exercise: exercise, accent: theme.current.accent)
+                            // Claude  Date 08/18/2026
+                            // Branding lives in the context menu, not a third swipe button:
+                            // the trailing rack is already at Delete + Edit, and a third
+                            // action shrinks all three past comfortable tapping. Hidden for
+                            // free weights and bodyweight movements, where the manufacturer
+                            // doesn't change how the lift behaves.
+                            .contextMenu {
+                                if exercise.canBeBranded {
+                                    Button {
+                                        brandingBase = exercise
+                                    } label: {
+                                        Label("Add Brand…", systemImage: "tag")
+                                    }
+                                }
+                                Button {
+                                    editingExercise = exercise
+                                } label: {
+                                    Label("Edit", systemImage: "pencil")
+                                }
+                            }
                             .swipeActions(edge: .trailing) {
                                 Button(role: .destructive) {
                                     store.deleteExercise(exercise)
@@ -57,19 +81,33 @@ struct ExercisesListView: View {
         .sheet(item: $editingExercise) { exercise in
             NewExerciseView(editing: exercise)
         }
+        // Claude  Date 08/18/2026
+        // Nothing to navigate to afterwards: the new branded lift lands in this same
+        // list, directly under the generic (exercisesByRegion sorts on brand last).
+        .sheet(item: $brandingBase) { exercise in
+            AddBrandVariantView(base: exercise)
+        }
     }
 }
 
-// Claude  Date 06/09/2026 last changed: 07/09/2026 by: Claude
-// One exercise row: name, muscle subtitle (sub-group · primary mover), and a small
-// "Unilateral" badge when set.
+// Claude  Date 06/09/2026 last changed: 08/18/2026 by: Claude
+// One exercise row: name (+ brand) with its equipment nameplate, muscle subtitle
+// (sub-group · primary mover), and a small "Unilateral" badge when set.
 private struct ExerciseRow: View {
     let exercise: Exercise
     let accent: Color
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(exercise.name)
+            // Claude  Date 08/18/2026
+            // displayLabel + the equipment nameplate. Branded versions of one lift sit
+            // together in this list, so the brand is what tells them apart. The
+            // "Unilateral" capsule stays on the subtitle line below so the two don't
+            // read as one run-on tag row.
+            HStack(spacing: 6) {
+                Text(exercise.displayLabel)
+                EquipmentBadge(type: exercise.equipmentType)
+            }
             HStack(spacing: 6) {
                 Text(exercise.muscleSubtitle)
                 if exercise.isUnilateral {
