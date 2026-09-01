@@ -36,6 +36,21 @@ enum WorkoutNotifications {
         }
     }
 
+    // Claude  Date 08/13/2026
+    // Async pair used by NotificationRequestView, the pre-permission screen that
+    // explains what we'd notify about before iOS shows its one-and-only dialog.
+    static func authorizationStatus() async -> UNAuthorizationStatus {
+        await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
+    }
+
+    /// Unconditional — the caller is expected to have pre-asked and checked
+    /// `authorizationStatus() == .notDetermined` first. Returns false on denial and
+    /// on the (harmless) no-op when iOS has already been asked once.
+    static func requestAuthorization() async -> Bool {
+        let center = UNUserNotificationCenter.current()
+        return (try? await center.requestAuthorization(options: [.alert, .sound])) ?? false
+    }
+
     // Schedule (replacing any pending one). Silently no-ops without permission.
     static func scheduleStillRunningReminder(in seconds: TimeInterval = idleDelay) {
         let center = UNUserNotificationCenter.current()
