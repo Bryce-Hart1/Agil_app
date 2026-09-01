@@ -10,9 +10,9 @@ import SwiftUI
 // earn one legitimately is worse. This screen writes the unlocked set directly via
 // AppStore.devSetAchievements, so any combination is reachable in two taps.
 //
-// Deliberately NOT behind #if DEBUG: it sits with the other "Developer (alpha)"
+// Deliberately NOT behind #if DEBUG: it sits with the other "Developer (beta)"
 // tools, which all ship in release builds so they work on a real device during the
-// alpha. Gate the whole section when that stops being true.
+// beta. Gate the whole section when that stops being true.
 struct AchievementForceView: View {
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var theme: ThemeManager
