@@ -194,37 +194,12 @@ struct OnboardingView: View {
         .animation(.spring(response: 0.4, dampingFraction: 0.8), value: step)
     }
 
+    // Claude  Date 08/13/2026
+    // Moved to OnboardingChrome.StepHeader so the review/notification ask pages
+    // share it (including the load-bearing fixedSize note). This thin wrapper keeps
+    // the call sites below reading the same as before.
     private func stepHeader(icon: String, title: String, subtitle: String?) -> some View {
-        VStack(spacing: 12) {
-            // Claude  Date 07/12/2026
-            // Icon now sits in a soft accent-tinted circle instead of floating bare,
-            // giving each step a visual anchor that matches the glow background.
-            ZStack {
-                Circle()
-                    .fill(accent.opacity(0.15))
-                    .frame(width: 84, height: 84)
-                Image(systemName: icon)
-                    .font(.system(size: 40))
-                    .foregroundStyle(accent)
-            }
-            // Claude  Date 07/27/2026
-            // fixedSize(vertical:) is load-bearing, not polish: these sit in a VStack
-            // with Spacers, and a Spacer outranks a Text for leftover height. Without
-            // it the VStack hands Text its *minimum* height — one line — and the
-            // headings truncate mid-word ("calibrate your streng…") even when there's
-            // visible empty space above and below. Fixing the size makes the text
-            // inflexible so the Spacers absorb the slack instead.
-            Text(title)
-                .font(.system(.title2, design: .rounded).bold())
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-            if let subtitle {
-                Text(subtitle)
-                    .font(.subheadline).foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
+        StepHeader(icon: icon, title: title, subtitle: subtitle, accent: accent)
     }
 
     // Claude  Date 07/12/2026 last changed: 07/23/2026 by: Claude
@@ -305,16 +280,11 @@ struct OnboardingView: View {
         .foregroundStyle(.primary)
     }
 
+    // Claude  Date 08/13/2026
+    // Body moved to OnboardingChrome.AskBullet — same shape, now shared with the
+    // ask pages that list their reasons the same way.
     private func coinBullet(_ icon: String, _ text: String) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: icon)
-                .foregroundStyle(accent)
-                .frame(width: 24)
-            Text(text)
-                .font(.subheadline)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
-        }
+        AskBullet(icon, text, accent: accent)
     }
 
     // MARK: - Controls
@@ -335,32 +305,21 @@ struct OnboardingView: View {
                 .foregroundStyle(.primary)
             }
 
-            // Claude  Date 07/12/2026
-            // Primary CTA: gradient capsule with a trailing icon and an accent glow.
-            // .borderedProminent grays itself out when disabled; a plain-style button
-            // doesn't, so the disabled look is applied manually via opacity.
-            Button(action: advance) {
-                HStack(spacing: 8) {
-                    Text(step == .coins ? "Start Lifting" : "Continue")
-                        .fontWeight(.semibold)
-                    Image(systemName: step == .coins
-                          ? "figure.strengthtraining.traditional" : "arrow.right")
-                        .font(.subheadline.bold())
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 16)
-                .background(
-                    LinearGradient(colors: [accent, accent.opacity(0.75)],
-                                   startPoint: .topLeading, endPoint: .bottomTrailing),
-                    in: Capsule()
-                )
-                .foregroundStyle(.white)
-                .shadow(color: accent.opacity(continueDisabled ? 0 : 0.4), radius: 10, y: 5)
-            }
-            .buttonStyle(.plain)
-            .disabled(continueDisabled)
-            .opacity(continueDisabled ? 0.45 : 1)
-            .animation(.easeInOut(duration: 0.2), value: continueDisabled)
+            // Claude  Date 07/12/2026 last changed: 08/13/2026 by: Claude
+            // Primary CTA now lives in OnboardingChrome.PrimaryCTAButton (gradient
+            // capsule, trailing icon, accent glow, manual disabled opacity) so the
+            // ask pages get the identical button. The haptic moved with it: advance()
+            // no longer ticks, or tapping Continue would buzz twice. (The keyboard
+            // "next" path into advance() loses its tick as a result, which is fine —
+            // the keyboard gives its own feedback. goBack() still ticks itself.)
+            PrimaryCTAButton(
+                title: step == .coins ? "Start Lifting" : "Continue",
+                systemImage: step == .coins
+                    ? "figure.strengthtraining.traditional" : "arrow.right",
+                accent: accent,
+                isDisabled: continueDisabled,
+                action: advance
+            )
         }
     }
 
@@ -370,7 +329,6 @@ struct OnboardingView: View {
 
     private func advance() {
         goingForward = true
-        tapHaptic()
         switch step {
         case .welcome:
             guard !trimmedName.isEmpty else { return }
@@ -401,47 +359,9 @@ struct OnboardingView: View {
     }
 }
 
-// Claude  Date 07/12/2026
-// Light haptic tick for onboarding taps. UIKit-only, no-op elsewhere (previews
-// on mac, etc.), and safe on iOS 16 — .sensoryFeedback would need iOS 17.
-private func tapHaptic() {
-    #if canImport(UIKit)
-    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-    #endif
-}
-
-// Claude  Date 07/12/2026
-// Two big blurred accent circles behind the content. Their positions are keyed
-// to the current step index, so advancing through the wizard gently drifts the
-// glow around the screen — cheap "alive" feeling with no timers.
-private struct AuraBackground: View {
-    let accent: Color
-    let step: Int
-
-    var body: some View {
-        GeometryReader { geo in
-            let w = geo.size.width
-            let h = geo.size.height
-            ZStack {
-                Circle()
-                    .fill(accent.opacity(0.22))
-                    .frame(width: w * 0.95)
-                    .blur(radius: 60)
-                    .offset(x: [-w * 0.35, w * 0.4, -w * 0.25][step % 3],
-                            y: [-h * 0.3, -h * 0.38, -h * 0.15][step % 3])
-                Circle()
-                    .fill(accent.opacity(0.14))
-                    .frame(width: w * 0.8)
-                    .blur(radius: 70)
-                    .offset(x: [w * 0.4, -w * 0.35, w * 0.3][step % 3],
-                            y: [h * 0.35, h * 0.3, h * 0.42][step % 3])
-            }
-            .animation(.easeInOut(duration: 0.9), value: step)
-        }
-        .ignoresSafeArea()
-        .allowsHitTesting(false)
-    }
-}
+// Claude  Date 08/13/2026
+// tapHaptic() and AuraBackground moved to OnboardingChrome.swift — both are now
+// shared with ReviewRequestView and NotificationRequestView.
 
 // Claude  Date 07/12/2026
 // Step 1 as its own view so it can own its entrance animation state: the logo
