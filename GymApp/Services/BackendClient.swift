@@ -1,6 +1,5 @@
 import Foundation
 
-// Claude  Date 06/18/2026 last changed: 07/14/2026 by: Claude
 // The app's client for the Agil backend (Rust/Axum, see the backend repo). Two
 // resources now: the shared profile card (/cards) and the friends graph (/friends).
 // Modeled on OpenFoodFactsClient: a protocol so views/services depend on the
@@ -16,18 +15,16 @@ import Foundation
 // short `code`, but accept/decline/unfriend/unblock all take the other user's UUID
 // (`otherId`, read from SharedCard.userId in the returned lists) — never the code.
 
-// Claude  Date 07/14/2026
-// The credentials every /friends call needs. Bundled so the many endpoints don't
-// each grow two positional string params.
+// The credentials every /friends call needs.
 struct BackendAuth {
-    let userId: String   // X-User-Id (our UUID / DeviceIdentity.userID)
-    let key: String      // X-Card-Key (Keychain secret)
+    let userId: String // X-User-Id (our UUID / DeviceIdentity.userID)
+    let key: String // X-Card-Key (Keychain secret)
 }
 
-// Claude  Date 07/14/2026
+// Bryce  Date 07/14/2026
 // The two success shapes of POST /friends/requests: 201 = a request was created and
 // is pending the other person, 200 = they had already requested us so the server
-// auto-accepted and we're now friends.
+// auto-accepted and we are now friends.
 enum FriendRequestOutcome {
     case sent
     case autoAccepted
@@ -61,7 +58,7 @@ protocol CardBackend {
     func blocks(auth: BackendAuth) async throws -> [SharedCard]
 }
 
-// Claude  Date 06/18/2026 last changed: 07/14/2026 by: Claude
+// 09/1/2026 by: Bryce
 // Typed backend failures. Every non-2xx response carries the server's parsed
 // {"error": "..."} string where present (`message`), so callers can surface it —
 // `.rateLimited` in particular is meant to be shown to the user VERBATIM.
@@ -77,28 +74,10 @@ enum BackendError: Error {
 }
 
 struct BackendClient: CardBackend {
-    // Claude  Date 06/18/2026 last changed: 06/30/2026 by: Claude
     // One place to point the app at a backend (used by both BackendClient and
-    // BackendFoodClient). The host is config-driven: it comes from the
-    // AGIL_BACKEND_BASE_URL build setting (project.yml, per build configuration) via the
-    // AgilBackendBaseURL Info.plist key, so LAN <-> prod is a config change, not a code
-    // edit. Falls back to the LAN dev host if the value is missing, empty, or wasn't
-    // substituted, so a bad config can never crash the app at launch.
-    static let baseURL: URL = {
-        let fallback = URL(string: "https://192.168.12.235:8443")!
-        guard let raw = Bundle.main.object(forInfoDictionaryKey: "AgilBackendBaseURL") as? String else {
-            print("⚠️ AgilBackendBaseURL MISSING from Info.plist — using fallback \(fallback)")
-            return fallback
-        }
-        print("→ raw AgilBackendBaseURL from Info.plist: '\(raw)'")
-        let trimmed = raw.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty, !trimmed.contains("$("), let url = URL(string: trimmed) else {
-            print("⚠️ AgilBackendBaseURL invalid ('\(trimmed)') — using fallback \(fallback)")
-            return fallback
-        }
-        print("✅ using baseURL: \(url)")
-        return url
-    }()
+    // BackendFoodClient). The host itself lives in `API` (API.swift), picked by build
+    // configuration at COMPILE time. This property is the one the rest of the app
+    static let baseURL: URL = API.baseURL
 
     private let session: URLSession
     private let encoder: JSONEncoder
