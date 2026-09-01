@@ -78,6 +78,44 @@ final class AppStore: ObservableObject {
     @Published private(set) var waterPresets: [WaterPreset] {
         didSet { persistence.save(waterPresets, to: Self.waterPresetsFile) }
     }
+    // Claude  Date 08/29/2026
+    // The supplement tracker (see Supplement.swift). Four collections, and the split
+    // between the last two is the important part:
+    //
+    //   supplementSlots  — the named times of day, and their reminder schedules.
+    //   supplements      — what the user takes, each assigned to a slot.
+    //   supplementLog    — every individual check-off, dated. Drives the journal card.
+    //   clearedSupplementDays — days the whole due stack got cleared. MONOTONE: entries
+    //     are only ever added. This is what the achievement ladder is scored against.
+    //
+    // The last two look redundant but can't be collapsed. A slot's `weekdays` is mutable
+    // and unversioned, so "was this supplement due last Tuesday?" is unanswerable after
+    // the fact — recomputing history from the log would silently rewrite past progress
+    // every time the user edits a schedule or adds a supplement. Banking the day's verdict
+    // at the moment it's earned (the same trick as checkInDays) makes it permanent.
+    //
+    // None of these touch syncWidgetSnapshot(): the widget renders calories and focus
+    // goals, and nothing here.
+    @Published private(set) var supplementSlots: [SupplementSlot] {
+        didSet {
+            persistence.save(supplementSlots, to: Self.supplementSlotsFile)
+            resyncSupplementReminders()
+        }
+    }
+    @Published private(set) var supplements: [Supplement] {
+        didSet {
+            persistence.save(supplements, to: Self.supplementsFile)
+            // Not just the slots: which supplements exist decides which slots are
+            // non-empty, and an empty slot must not fire (see SupplementNotifications).
+            resyncSupplementReminders()
+        }
+    }
+    @Published private(set) var supplementLog: [SupplementEntry] {
+        didSet { persistence.save(supplementLog, to: Self.supplementLogFile) }
+    }
+    @Published private(set) var clearedSupplementDays: Set<Date> {
+        didSet { persistence.save(clearedSupplementDays, to: Self.supplementClearedFile) }
+    }
     // Claude  Date 08/06/2026
     // Per-food memory of the last amount+unit logged, keyed by FoodItem/FoodDetail id.
     // Seeds the detail page so re-logging a food you eat often is two taps instead of
@@ -87,6 +125,30 @@ final class AppStore: ObservableObject {
     // the size of the user's food library.
     @Published private(set) var lastMeasurements: [UUID: FoodMeasurement] {
         didSet { persistence.save(lastMeasurements, to: Self.foodMeasurementsFile) }
+    }
+    // Claude  Date 08/18/2026
+    // When each food entered the library, keyed by food id. The other half of the Recents
+    // ordering: `lastLoggedByFood` only knows about foods you've EATEN, so a food you just
+    // created sorted below every food you'd ever logged — the opposite of what "Recents"
+    // should show right after you add something.
+    //
+    // A side table rather than a FoodItem.createdAt: FoodItem is also the backend wire
+    // type, and this is local bookkeeping the server has no business carrying. Stamped on
+    // insert only (never overwritten), so re-scanning a barcode you already have doesn't
+    // pretend it's new. A deleted food leaves an orphan key, which costs nothing.
+    @Published private(set) var addedAt: [UUID: Date] {
+        didSet { persistence.save(addedAt, to: Self.foodAddedFile) }
+    }
+    // Claude  Date 08/18/2026
+    // Which unit each micronutrient field is TYPED in, keyed by MicroField.id (its label,
+    // so reordering the table can't scramble saved choices). Nutrition labels are
+    // inconsistent about mg vs µg, so the new-food form lets each row be switched and
+    // remembers it — set Vitamin D to µg once, not on every food you add.
+    //
+    // Display only: what's stored in Micros is always the field's canonical unit. Absent =
+    // the default (see microUnit(for:)).
+    @Published private(set) var microUnits: [String: MicroUnit] {
+        didSet { persistence.save(microUnits, to: Self.microUnitsFile) }
     }
     // Claude  Date 08/07/2026
     // Recency signal for the Foods library "Recents" ordering: the most recent loggedAt
@@ -104,6 +166,119 @@ final class AppStore: ObservableObject {
         }
         return map
     }
+    // Claude  Date 08/18/2026
+    // The Recents ordering key: the later of "last eaten" and "added to the library",
+    // whichever exist. Adding a food counts as activity on it, so a food created seconds
+    // ago sorts to the very top, while re-logging an old food still bumps that one back
+    // above it. nil only for foods that predate `addedAt` and have never been logged —
+    // those keep falling back to insertion order at the call site.
+    var foodRecency: [UUID: Date] {
+        var map = lastLoggedByFood
+        for (id, added) in addedAt {
+            if let logged = map[id] { map[id] = max(logged, added) } else { map[id] = added }
+        }
+        return map
+    }
+
+    // Claude  Date 08/22/2026
+    // "Top picks" tuning. Ranking reads the diary for foods the user eats AT THIS TIME
+    // OF DAY, which is the signal Recents throws away: at 7am, `foodRecency` ranks last
+    // night's dinner exactly as highly as this morning's usual breakfast.
+    //
+    // minLogs = 2 is what separates a routine from a one-off — it also absorbs most of
+    // the noise from `stamp(_:)` (see below), which files a BACK-DATED log under the
+    // clock time it was typed at rather than the hour it was eaten. A single mistimed
+    // entry can't reach the row on its own.
+    enum TopPicks {
+        static let windowDays = 21
+        static let hourRadius: TimeInterval = 3 * 3600
+        static let minLogs = 2
+        static let maxCards = 5
+    }
+
+    // Claude  Date 08/22/2026
+    // The ids behind the Top picks row, best first. One pass over the diary: keep the
+    // last three weeks, keep only entries whose TIME OF DAY lands within ±3h of `now`,
+    // tally per food.
+    //
+    // Derived, not persisted — same reasoning as `lastLoggedByFood` above. `now` is a
+    // parameter rather than an internal `Date()` so the caller can freeze it for the
+    // life of a screen; recomputing against a live clock would let cards reorder under
+    // a finger (cf. NutritionDiaryView.freezeWaterOrder).
+    //
+    // Entries with no `foodId` are skipped: a pick has to resolve back to something
+    // tappable, and a nil link never will.
+    func topPickIDs(asOf now: Date = Date(), calendar: Calendar = .current) -> [UUID] {
+        guard let start = calendar.date(byAdding: .day, value: -TopPicks.windowDays, to: now)
+        else { return [] }
+        let nowSeconds = Self.secondsIntoDay(now, calendar: calendar)
+
+        var counts: [UUID: Int] = [:]
+        var latest: [UUID: Date] = [:]
+        for entry in foodLog {
+            // Lower bound only. `now` is frozen by the caller for ordering stability, so
+            // an upper bound here would drop a food logged since the screen appeared —
+            // the row would ignore the log the user just made from it. Nothing can land
+            // ahead of the real clock anyway: the diary refuses to step past today.
+            guard entry.loggedAt > start else { continue }
+            guard let id = entry.foodId else { continue }
+            let seconds = Self.secondsIntoDay(entry.loggedAt, calendar: calendar)
+            guard Self.clockDistance(seconds, nowSeconds) <= TopPicks.hourRadius else { continue }
+            counts[id, default: 0] += 1
+            if let seen = latest[id], seen >= entry.loggedAt { continue }
+            latest[id] = entry.loggedAt
+        }
+
+        // Count first, then recency, then id. The last tiebreak is deliberate: without a
+        // total order two equally-ranked foods can swap places on every recompute, and
+        // the row visibly reshuffles for no reason (same trap MonthlyRecap.topExerciseName
+        // guards against).
+        return counts
+            .filter { $0.value >= TopPicks.minLogs }
+            .sorted { lhs, rhs in
+                if lhs.value != rhs.value { return lhs.value > rhs.value }
+                let l = latest[lhs.key] ?? .distantPast
+                let r = latest[rhs.key] ?? .distantPast
+                if l != r { return l > r }
+                return lhs.key.uuidString < rhs.key.uuidString
+            }
+            .prefix(TopPicks.maxCards)
+            .map(\.key)
+    }
+
+    // Claude  Date 08/22/2026
+    // The Top picks row itself. A pick whose food has since been deleted resolves to nil
+    // and simply drops out rather than leaving a hole.
+    func topPicks(asOf now: Date = Date()) -> [FoodItem] {
+        topPickIDs(asOf: now).compactMap { food(for: $0) }
+    }
+
+    // Claude  Date 08/22/2026
+    // A logged food's id back to something displayable — the library first, then the
+    // recipe book via `asFoodItem` (which keeps the recipe's own id, so the lookup is a
+    // plain id match). Mirrors `exercise(for:)` on the workouts side.
+    func food(for id: UUID) -> FoodItem? {
+        if let item = foods.first(where: { $0.id == id }) { return item }
+        return recipes.first(where: { $0.id == id })?.asFoodItem
+    }
+
+    // Seconds since midnight — the time-of-day coordinate the window is measured in.
+    private static func secondsIntoDay(_ date: Date, calendar: Calendar) -> TimeInterval {
+        let c = calendar.dateComponents([.hour, .minute, .second], from: date)
+        let hour = TimeInterval(c.hour ?? 0)
+        let minute = TimeInterval(c.minute ?? 0)
+        let second = TimeInterval(c.second ?? 0)
+        return hour * 3600 + minute * 60 + second
+    }
+
+    // Distance between two times of day, THE SHORT WAY ROUND. Without the wrap, a ±3h
+    // window at 01:00 would cover 01:00–04:00 only and quietly drop the 22:00–24:00 half
+    // of a late-night routine.
+    private static func clockDistance(_ a: TimeInterval, _ b: TimeInterval) -> TimeInterval {
+        let raw = abs(a - b)
+        return min(raw, 86_400 - raw)
+    }
+
     @Published var nutritionGoals: NutritionGoals {
         didSet {
             persistence.save(nutritionGoals, to: Self.nutritionGoalsFile)
@@ -171,6 +346,21 @@ final class AppStore: ObservableObject {
     @Published private(set) var devBonusCoins: Int = 0 {
         didSet { persistence.save(devBonusCoins, to: Self.devCoinsFile) }
     }
+    // Claude  Date 08/23/2026
+    // Every distinct calendar day the user has OPENED the app, as local start-of-day
+    // dates. Folded into totalCoinsEarned via DailyCheckIn.earned, which is what pays
+    // the +20 daily bonus — see DailyCheckIn for why the log lives here rather than as
+    // a term in Wallet. Only recordDailyCheckIn writes it, and it only ever grows.
+    @Published private(set) var checkInDays: Set<Date> = [] {
+        didSet { persistence.save(checkInDays, to: Self.checkInsFile) }
+    }
+    // Claude  Date 08/23/2026
+    // The daily bonus waiting to be acknowledged (transient, like pendingCelebrations).
+    // Set by recordDailyCheckIn on the first open of a new day; rendered by the
+    // ModeNotch pill as a transient message (its presentableCheckIn gate decides
+    // WHEN it's polite to show). The coins are
+    // already banked by the time this is set — this drives the receipt, not the grant.
+    @Published var pendingCheckIn: DailyCheckIn.Award?
 
     private let persistence: PersistenceService
     // Claude  Date 06/15/2026
@@ -204,10 +394,21 @@ final class AppStore: ObservableObject {
     private static let focusGoalsFile = "nutrient_focus_goals.json"
     // Claude  Date 08/06/2026 — last amount+unit logged, per food.
     private static let foodMeasurementsFile = "food_measurements.json"
+    // Claude  Date 08/18/2026 — when each food entered the library (Recents ordering).
+    private static let foodAddedFile = "food_added.json"
+    // Claude  Date 08/18/2026 — per-nutrient entry unit for the new-food form.
+    private static let microUnitsFile = "micro_units.json"
     // Claude  Date 06/16/2026 — alpha dev coin grant.
     private static let devCoinsFile = "dev_coins.json"
+    // Claude  Date 08/23/2026 — days the app was opened (daily check-in bonus).
+    private static let checkInsFile = "daily_checkins.json"
     // Claude  Date 06/17/2026 — barcode → product lookup cache.
     private static let barcodeCacheFile = "barcode_cache.json"
+    // Claude  Date 08/29/2026 — supplement tracker (stack, schedule, log, cleared days).
+    private static let supplementSlotsFile = "supplement_slots.json"
+    private static let supplementsFile = "supplements.json"
+    private static let supplementLogFile = "supplement_log.json"
+    private static let supplementClearedFile = "supplement_cleared_days.json"
 
     init(persistence: PersistenceService = PersistenceService()) {
         self.persistence = persistence
@@ -241,15 +442,59 @@ final class AppStore: ObservableObject {
         self.focusGoals = persistence.load(Self.focusGoalsFile, default: [NutrientFocusGoal]())
         self.lastMeasurements = persistence.load(Self.foodMeasurementsFile,
                                                  default: [UUID: FoodMeasurement]())
+        self.addedAt = persistence.load(Self.foodAddedFile, default: [UUID: Date]())
+        self.microUnits = persistence.load(Self.microUnitsFile, default: [String: MicroUnit]())
         self.barcodeCache = persistence.load(Self.barcodeCacheFile, default: BarcodeCache())
         self.devBonusCoins = persistence.load(Self.devCoinsFile, default: 0)
+        self.checkInDays = persistence.load(Self.checkInsFile, default: Set<Date>())
 
-        if loadedExercises.isEmpty {
+        // Claude  Date 08/29/2026
+        // Supplements. The slot list is seeded like waterPresets — there must always be at
+        // least one slot for a supplement to belong to (Supplement.slotId is non-optional),
+        // and seeding one "Daily" slot means a user who takes everything at once never
+        // meets the grouping UI. Saved explicitly below, since init assignments don't fire
+        // the didSets. An empty file (the user deleted down to nothing, which can't happen
+        // through the UI) re-seeds rather than leaving the invariant broken.
+        let loadedSlots = persistence.load(Self.supplementSlotsFile, default: [SupplementSlot]())
+        self.supplementSlots = loadedSlots.isEmpty ? SupplementSlot.defaults : loadedSlots
+        self.supplements = persistence.load(Self.supplementsFile, default: [Supplement]())
+        self.supplementLog = persistence.load(Self.supplementLogFile, default: [SupplementEntry]())
+        self.clearedSupplementDays = persistence.load(Self.supplementClearedFile,
+                                                      default: Set<Date>())
+
+        // Claude  Date 08/18/2026
+        // One-time equipment backfill. seedExercises only loads on a first launch (above),
+        // so every existing install sits at equipmentType == nil for all 48 curated lifts
+        // and would never get the nameplate. Match by name against the seed table and fill
+        // ONLY nils: that makes this idempotent (a no-op on every later launch) and keeps
+        // it from stomping a type the user set by hand. A renamed or custom lift simply
+        // doesn't match and stays nil, which canBeBranded treats permissively. A branded
+        // version matches too — its `name` is still the base lift's — which is correct.
+        var backfilledEquipment = false
+        if !loadedExercises.isEmpty {
+            let seedEquipment: [String: EquipmentType] = Dictionary(
+                AppStore.seedExercises.compactMap { seed in
+                    seed.equipmentType.map { (seed.name.lowercased(), $0) }
+                },
+                uniquingKeysWith: { first, _ in first })
+            for index in self.exercises.indices where self.exercises[index].equipmentType == nil {
+                if let type = seedEquipment[self.exercises[index].name.lowercased()] {
+                    self.exercises[index].equipmentType = type
+                    backfilledEquipment = true
+                }
+            }
+        }
+
+        if loadedExercises.isEmpty || backfilledEquipment {
             persistence.save(self.exercises, to: Self.exercisesFile)
         }
         // One-time cleanup: if we stripped any leftover seed foods above, persist it.
         if self.foods.count != loadedFoods.count {
             persistence.save(self.foods, to: Self.foodsFile)
+        }
+        // Persist the seeded default slot on first launch (init assignments skip didSet).
+        if loadedSlots.isEmpty {
+            persistence.save(self.supplementSlots, to: Self.supplementSlotsFile)
         }
 
         // Claude  Date 06/13/2026
@@ -335,7 +580,8 @@ final class AppStore: ObservableObject {
         let stats = ProfileStats(events: activityLog, foodLog: foodLog,
                                  nutritionGoals: nutritionGoals,
                                  setup: profile.nutritionSetup,
-                                 tookFirstStep: profile.tookFirstStep)
+                                 tookFirstStep: profile.tookFirstStep,
+                                 clearedSupplementDays: clearedSupplementDays)
         // Claude  Date 07/14/2026
         // Evaluate against the gender-calibrated catalog — this is where the
         // identity choice actually changes badge progress. Ids are identical
@@ -606,15 +852,75 @@ final class AppStore: ObservableObject {
         evaluateAchievements(announce: true)
     }
 
-    // Claude  Date 06/13/2026 last changed: 06/16/2026 by: Claude
-    // Lifetime coins earned = weekly-consistency coins + achievement rewards
-    // (+ any alpha dev grant). This is the "earned" side of the wallet
+    // Claude  Date 06/13/2026 last changed: 08/23/2026 by: Claude
+    // Lifetime coins earned = weekly-consistency coins + achievement rewards + daily
+    // check-in bonuses (+ any alpha dev grant). This is the "earned" side of the wallet
     // (ThemeManager.balance subtracts spend).
+    //
+    // (08/23) Every term here is monotonic in its input, which is what lets this feed
+    // Wallet.earnedHighWater. The check-in term is the newest: see DailyCheckIn for why
+    // the day log is persisted here and derived, rather than being a stored balance.
     var totalCoinsEarned: Int {
         Coins.earned(from: workouts)
             + Coins.earnedFromAchievements(unlockedIDs: unlockedAchievementIDs)
+            + DailyCheckIn.earned(from: checkInDays)
             + devBonusCoins
     }
+
+    // MARK: - Daily check-in
+
+    // Claude  Date 08/23/2026
+    // Record that the app was opened today, paying +20 coins for the first open of a
+    // day (5 paying days per Mon–Sun week). Idempotent per calendar day, so it's safe —
+    // and expected — to call on every launch and every foreground; only the day's FIRST
+    // call returns true and queues a toast.
+    //
+    // The grant itself is implicit: inserting the day republishes totalCoinsEarned,
+    // which RootTabView's .onChange feeds to theme.noteEarned. There is no "add coins"
+    // call anywhere in this app and this doesn't introduce one.
+    //
+    // Days past the weekly cap are still RECORDED (so the Shop's week strip stays
+    // truthful about which days you showed up) but queue nothing — Bryce's call: a
+    // notification carrying no reward is just an interruption.
+    @discardableResult
+    func recordDailyCheckIn(now: Date = .now, calendar: Calendar = .current) -> Bool {
+        // Not during onboarding — a brand-new user shouldn't get a coin pill over the
+        // name prompt. RootTabView calls this again the moment onboarding completes.
+        guard profile.hasOnboarded else { return false }
+
+        let day = calendar.startOfDay(for: now)
+        // contains(where:) rather than Set.contains: a timezone change moves what
+        // startOfDay resolves to, and a same-day test is what actually prevents two
+        // entries for one day. The set holds one Date per day, so the scan is trivial.
+        guard !checkInDays.contains(where: { calendar.isDate($0, inSameDayAs: day) }) else {
+            return false
+        }
+        checkInDays.insert(day)
+
+        let week = DailyCheckIn.progress(days: checkInDays, asOf: now, calendar: calendar)
+        if week.claimed <= DailyCheckIn.daysPerWeek {
+            pendingCheckIn = DailyCheckIn.Award(coins: DailyCheckIn.coinsPerDay,
+                                                dayInWeek: week.claimed)
+        }
+        return true
+    }
+
+    /// Clear the queued daily bonus once its toast has been shown (or flicked away).
+    func dismissCheckIn() { pendingCheckIn = nil }
+
+    /// This week's check-in progress, for the Shop's "This week" strip.
+    var checkInWeek: DailyCheckIn.WeekProgress { DailyCheckIn.progress(days: checkInDays) }
+
+    #if DEBUG
+    // Claude  Date 08/23/2026
+    // Dev-only: wipe the check-in log so the toast replays on the next foreground.
+    // Without this the only way to see the reward again is to wait until tomorrow.
+    // Note it does NOT lower the balance — the wallet's high-water mark is the point.
+    func debugResetCheckIns() {
+        checkInDays = []
+        pendingCheckIn = nil
+    }
+    #endif
 
     // Claude  Date 06/16/2026
     // Alpha dev-only: top up / reset the wallet for testing the shop and card
@@ -649,19 +955,63 @@ final class AppStore: ObservableObject {
 
     // MARK: - Exercises
 
-    // Claude  Date 06/09/2026 last changed: 06/14/2026 by: Claude
+    // Claude  Date 06/09/2026 last changed: 08/18/2026 by: Claude
     // Create an exercise, returning it so callers (e.g. the picker) can select it.
+    // (08/18) Brand is normalized HERE rather than in the views, so no caller can
+    // introduce a second spelling of a brand the library already has. Also started
+    // forwarding `note` — it was silently dropped before, so a lift created from a
+    // template lost its form cue.
     @discardableResult
     func addExercise(name: String, region: MuscleRegion = .other, category: String,
                      isUnilateral: Bool = false, liftType: LiftType? = nil,
                      primaryMover: String = "", quality: LiftQuality? = nil,
-                     isBodyweight: Bool = false) -> Exercise {
+                     isBodyweight: Bool = false, note: String? = nil,
+                     brand: String = "", equipmentType: EquipmentType? = nil) -> Exercise {
         let exercise = Exercise(name: name, region: region, category: category,
                                 isUnilateral: isUnilateral, liftType: liftType,
                                 primaryMover: primaryMover, quality: quality,
-                                isBodyweight: isBodyweight)
+                                isBodyweight: isBodyweight, note: note,
+                                brand: Exercise.normalizedBrand(brand, in: exercises),
+                                equipmentType: equipmentType)
         exercises.append(exercise)
         return exercise
+    }
+
+    // Claude  Date 08/18/2026
+    // Clone a lift into a branded sibling: same movement, new id, brand set. The new id
+    // is the entire point — history keys off exerciseId everywhere, so the variant starts
+    // with an empty chart and graphs on its own while the generic lift keeps everything it
+    // already had. Nothing is reassigned retroactively.
+    //
+    // liftType and the perma note ride along deliberately: the big-3 badge asks "did you
+    // squat", not "did you squat on one particular rack", and a form cue still applies to
+    // the same movement on a different machine.
+    //
+    // Returns the EXISTING variant rather than a twin when this base+brand pair is already
+    // in the library, so callers that immediately select the result still terminate.
+    // Returns nil only for a blank brand. No canBeBranded guard here — the UI gates the
+    // entry point; the store shouldn't silently refuse an action the user took.
+    @discardableResult
+    func addBrandVariant(of base: Exercise, brand: String) -> Exercise? {
+        let canonical = Exercise.normalizedBrand(brand, in: exercises)
+        guard !canonical.isEmpty else { return nil }
+        // Re-read by id: `base` is a snapshot taken when the sheet opened and the lift may
+        // have been edited behind it (same reasoning as NewExerciseView.saveInPlace).
+        let source = exercise(for: base.id) ?? base
+
+        if let existing = exercises.first(where: {
+            $0.name.caseInsensitiveCompare(source.name) == .orderedSame
+                && $0.brand.caseInsensitiveCompare(canonical) == .orderedSame
+        }) { return existing }
+
+        let variant = Exercise(name: source.name, region: source.region,
+                               category: source.category, isUnilateral: source.isUnilateral,
+                               liftType: source.liftType, primaryMover: source.primaryMover,
+                               quality: source.quality, isBodyweight: source.isBodyweight,
+                               note: source.note, brand: canonical,
+                               equipmentType: source.equipmentType)
+        exercises.append(variant)
+        return variant
     }
 
     func deleteExercises(at offsets: IndexSet) {
@@ -672,10 +1022,15 @@ final class AppStore: ObservableObject {
     // Replace an exercise in the library (matched by id) after editing its details —
     // e.g. from the pencil in the workout editor's exercise header. Persists via the
     // exercises didSet; workouts reference exercises by id, so their labels update live.
+    // (08/18) Normalizes the brand on the way in, against the library MINUS this lift —
+    // without that exclusion a user fixing the casing of the only lift carrying a brand
+    // would have their new spelling snapped straight back to the old one, forever.
     func updateExercise(_ exercise: Exercise) {
-        if let index = exercises.firstIndex(where: { $0.id == exercise.id }) {
-            exercises[index] = exercise
-        }
+        guard let index = exercises.firstIndex(where: { $0.id == exercise.id }) else { return }
+        var updated = exercise
+        updated.brand = Exercise.normalizedBrand(updated.brand,
+                                                 in: exercises.filter { $0.id != exercise.id })
+        exercises[index] = updated
     }
 
     // Claude  Date 06/14/2026
@@ -694,7 +1049,11 @@ final class AppStore: ObservableObject {
         return MuscleRegion.allCases.compactMap { region in
             let items = source
                 .filter { $0.region == region }
-                .sorted { ($0.category, $0.name) < ($1.category, $1.name) }
+                // Claude  Date 08/18/2026
+                // Brand is the third key so branded versions of one lift sit together
+                // directly under their generic (whose brand is "", sorting first) rather
+                // than in whatever order the array happens to hold.
+                .sorted { ($0.category, $0.name, $0.brand) < ($1.category, $1.name, $1.brand) }
             return items.isEmpty ? nil : (region, items)
         }
     }
@@ -715,6 +1074,27 @@ final class AppStore: ObservableObject {
             .filter { $0.region == region && $0.category == category && !$0.primaryMover.isEmpty }
             .map(\.primaryMover)
         return Array(Set(m)).sorted()
+    }
+
+    // Claude  Date 08/18/2026
+    // Brand options for the editors, derived from the library the same way the muscle
+    // pickers are — there's no shipped brand list, the user's own machines are the canon.
+    var knownBrands: [String] { Exercise.knownBrands(in: exercises) }
+
+    func normalizedBrand(_ input: String) -> String {
+        Exercise.normalizedBrand(input, in: exercises)
+    }
+
+    // Autocomplete for the brand field. A blank query offers what's already in the
+    // library (discovery matters more than filtering on an empty field), and an exact
+    // full match offers nothing — mirrors NewExerciseView's mover suggestions.
+    func brandSuggestions(matching query: String, limit: Int = 6) -> [String] {
+        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
+        let all = knownBrands
+        guard !q.isEmpty else { return Array(all.prefix(limit)) }
+        let matches = all.filter { $0.lowercased().contains(q) }
+        if matches.count == 1 && matches[0].lowercased() == q { return [] }
+        return Array(matches.prefix(limit))
     }
 
     func exercise(for id: UUID) -> Exercise? {
@@ -886,7 +1266,33 @@ final class AppStore: ObservableObject {
     @discardableResult
     func addFood(_ food: FoodItem) -> FoodItem {
         foods.append(food)
+        // Claude  Date 08/18/2026 — stamp it so it opens at the top of Recents, above
+        // foods you've logged before but haven't touched since.
+        stampAdded(food.id)
         return food
+    }
+
+    // Claude  Date 08/18/2026
+    // Record when a food entered the library. Never overwrites: the first time a food
+    // shows up is when it was added, and a barcode re-scan that resolves to this same
+    // food isn't a new addition.
+    private func stampAdded(_ id: UUID, at date: Date = Date()) {
+        guard addedAt[id] == nil else { return }
+        addedAt[id] = date
+    }
+
+    // Claude  Date 08/18/2026
+    // The unit a micronutrient field is entered in. Defaults to milligrams — the unit
+    // most labels print and the one most people can read off a package without
+    // converting — except the fats, which every label prints in grams. A field the user
+    // has switched keeps their choice.
+    func microUnit(for field: MicroField) -> MicroUnit {
+        if let chosen = microUnits[field.id] { return chosen }
+        return field.unit == .g ? .g : .mg
+    }
+
+    func setMicroUnit(_ unit: MicroUnit, for field: MicroField) {
+        microUnits[field.id] = unit
     }
 
     func deleteFood(_ food: FoodItem) {
@@ -925,6 +1331,7 @@ final class AppStore: ObservableObject {
             return existing
         }
         foods.append(food)
+        stampAdded(food.id)
         return food
     }
 
@@ -971,7 +1378,7 @@ final class AppStore: ObservableObject {
     // legitimately have no unit to record.)
     func logFoodDetail(_ food: FoodDetail, consumed: Nutrients, measurement: FoodMeasurement? = nil, meal: MealType,
      on date: Date = Date()) {
-        foodLog.append(FoodEntry(foodId: food.id, name: food.displayLabel,
+        foodLog.append(FoodEntry(foodId: food.id, name: food.snapshotLabel,
                                  nutrients: consumed, servings: 1, mealType: meal,
                                  loggedAt: Self.stamp(date), measurement: measurement,
                                  basis: MeasurementBasis(food)))
@@ -1042,6 +1449,233 @@ final class AppStore: ObservableObject {
         waterPresets.removeAll { $0.id == id && $0.isCustom }
     }
 
+    // MARK: - Supplements
+
+    // Claude  Date 08/29/2026
+    // The stack due on `date`, in the order the card draws it: slots in their own order,
+    // supplements by sortIndex within each slot. Only slots whose weekdays include that
+    // date contribute — that is what makes a "Weekdays" slot disappear on Saturday.
+    func dueSupplements(on date: Date = Date(), calendar: Calendar = .current) -> [Supplement] {
+        let dueSlots = supplementSlots.filter { $0.isDue(on: date, calendar: calendar) }
+        let rank = Dictionary(uniqueKeysWithValues: dueSlots.enumerated().map { ($1.id, $0) })
+        return supplements
+            .filter { rank[$0.slotId] != nil }
+            .sorted {
+                let l = rank[$0.slotId] ?? 0, r = rank[$1.slotId] ?? 0
+                return l == r ? $0.sortIndex < $1.sortIndex : l < r
+            }
+    }
+
+    /// Which supplements are already checked off on `date`.
+    func takenSupplementIDs(on date: Date = Date(),
+                            calendar: Calendar = .current) -> Set<UUID> {
+        Set(supplementLog
+            .filter { calendar.isDate($0.takenAt, inSameDayAs: date) }
+            .map(\.supplementId))
+    }
+
+    /// The supplements assigned to one slot, in the user's order.
+    func supplementsInSlot(_ slotId: UUID) -> [Supplement] {
+        supplements.filter { $0.slotId == slotId }.sorted { $0.sortIndex < $1.sortIndex }
+    }
+
+    // Claude  Date 08/29/2026
+    // Check one supplement on or off. TODAY ONLY, deliberately — see Supplement.swift for
+    // why (it keeps clearedSupplementDays a real-time ledger rather than a number the user
+    // can type in). `at:` takes the exact Date the caller captured when the tap happened
+    // instead of re-reading the clock here, and a date that isn't today is refused: the
+    // journal's selectedDate is fixed at view construction and there is no .active
+    // transition if the app sits open across midnight (RootTabView documents this), so a
+    // tap at 00:02 must not land on the day the card was drawn for.
+    @discardableResult
+    func setSupplement(_ id: UUID, taken: Bool, at now: Date = Date()) -> Bool {
+        let calendar = Calendar.current
+        guard calendar.isDateInToday(now),
+              supplements.contains(where: { $0.id == id }) else { return false }
+
+        let already = supplementLog.contains {
+            $0.supplementId == id && calendar.isDate($0.takenAt, inSameDayAs: now)
+        }
+        if taken {
+            guard !already else { return false }
+            supplementLog.append(SupplementEntry(supplementId: id, takenAt: now))
+        } else {
+            guard already else { return false }
+            // Un-checking drops the entry but never un-banks the day (see below). The
+            // ledger is monotone, so a mis-tap stays undoable in the UI without rewriting
+            // progress that was already earned.
+            supplementLog.removeAll {
+                $0.supplementId == id && calendar.isDate($0.takenAt, inSameDayAs: now)
+            }
+        }
+        bankSupplementDayIfCleared(at: now, calendar: calendar)
+        return true
+    }
+
+    /// Check off everything still outstanding today, for people who take it all at once.
+    func takeAllSupplements(at now: Date = Date()) {
+        let calendar = Calendar.current
+        guard calendar.isDateInToday(now) else { return }
+        let taken = takenSupplementIDs(on: now, calendar: calendar)
+        let outstanding = dueSupplements(on: now, calendar: calendar)
+            .filter { !taken.contains($0.id) }
+        guard !outstanding.isEmpty else { return }
+        supplementLog.append(contentsOf: outstanding.map {
+            SupplementEntry(supplementId: $0.id, takenAt: now)
+        })
+        bankSupplementDayIfCleared(at: now, calendar: calendar)
+    }
+
+    // Claude  Date 08/29/2026
+    // Clear today's check-offs — the counterpart to takeAllSupplements, for a mis-tapped
+    // "Take all". Deliberately does NOT un-bank the day in clearedSupplementDays: that
+    // ledger is monotone by design (see below), so undoing the tick marks is a UI
+    // correction, not a rewrite of earned progress.
+    func untakeAllSupplements(at now: Date = Date()) {
+        let calendar = Calendar.current
+        guard calendar.isDateInToday(now) else { return }
+        let due = Set(dueSupplements(on: now, calendar: calendar).map(\.id))
+        guard !due.isEmpty else { return }
+        supplementLog.removeAll {
+            due.contains($0.supplementId) && calendar.isDate($0.takenAt, inSameDayAs: now)
+        }
+    }
+
+    // Claude  Date 08/29/2026
+    // Bank the day once the whole due stack is checked off. Three guards, each covering a
+    // way this quietly goes wrong:
+    //
+    //  1. `!due.isEmpty` — "everything due is taken" is VACUOUSLY TRUE when nothing is due
+    //     (no supplements added yet, or a weekday no slot covers). Without this the ladder
+    //     pays out every day for merely having the app installed.
+    //  2. SupplementTracking.isEnabled — someone who turned the tracker off in Settings
+    //     shouldn't keep earning from a stale log.
+    //  3. contains(where: isDate(_:inSameDayAs:)) rather than Set.contains — a timezone
+    //     change moves what startOfDay resolves to, so one local day can produce two
+    //     different Date values. Set.contains would store both and inflate the badge count
+    //     by taking a flight. Exactly the reasoning in recordDailyCheckIn.
+    //
+    // Entries are never removed. Deleting a supplement mid-day can shrink the due set down
+    // to something already taken and bank the day; that is worth at most one day per real
+    // day, which isn't worth policing. The journal card is a to-do list — THIS is the
+    // ledger the achievements read, and the two are allowed to disagree.
+    private func bankSupplementDayIfCleared(at now: Date, calendar: Calendar) {
+        guard SupplementTracking.isEnabled else { return }
+        let due = dueSupplements(on: now, calendar: calendar)
+        guard !due.isEmpty else { return }
+        let taken = takenSupplementIDs(on: now, calendar: calendar)
+        guard due.allSatisfy({ taken.contains($0.id) }) else { return }
+
+        let day = calendar.startOfDay(for: now)
+        guard !clearedSupplementDays.contains(where: {
+            calendar.isDate($0, inSameDayAs: day)
+        }) else { return }
+        clearedSupplementDays.insert(day)
+        // The didSet only persists — the ladder reads this, so evaluate by hand (same
+        // reason markNutritionSetup does).
+        evaluateAchievements()
+    }
+
+    // MARK: - Supplements: the stack
+
+    var canAddSupplement: Bool { supplements.count < Supplement.maxCount }
+
+    // Name and dose are trimmed and clipped here as well as at the field, so no caller can
+    // persist one too long to render. Returns false when the cap is hit or input is unusable.
+    @discardableResult
+    func addSupplement(name: String, dose: String? = nil, slotId: UUID? = nil) -> Bool {
+        guard canAddSupplement else { return false }
+        let clipped = String(name.trimmingCharacters(in: .whitespaces)
+            .prefix(Supplement.maxNameLength))
+        guard !clipped.isEmpty else { return false }
+        // Falls back to the first slot, which always exists (see the seed in init).
+        guard let slot = slotId ?? supplementSlots.first?.id else { return false }
+        let next = (supplementsInSlot(slot).map(\.sortIndex).max() ?? -1) + 1
+        supplements.append(Supplement(name: clipped, dose: Self.cleanDose(dose),
+                                      slotId: slot, sortIndex: next))
+        return true
+    }
+
+    func updateSupplement(_ supplement: Supplement) {
+        guard let index = supplements.firstIndex(where: { $0.id == supplement.id }) else { return }
+        var clean = supplement
+        clean.name = String(clean.name.trimmingCharacters(in: .whitespaces)
+            .prefix(Supplement.maxNameLength))
+        clean.dose = Self.cleanDose(clean.dose)
+        guard !clean.name.isEmpty, clean != supplements[index] else { return }
+        supplements[index] = clean
+    }
+
+    // The log keeps its rows on purpose: they're a dated record of what actually happened,
+    // and an orphaned supplementId costs nothing (taken ids are only ever checked against
+    // supplements that still exist).
+    func deleteSupplement(id: UUID) {
+        supplements.removeAll { $0.id == id }
+    }
+
+    private static func cleanDose(_ dose: String?) -> String? {
+        guard let dose else { return nil }
+        let clipped = String(dose.trimmingCharacters(in: .whitespaces)
+            .prefix(Supplement.maxDoseLength))
+        return clipped.isEmpty ? nil : clipped
+    }
+
+    // MARK: - Supplements: reminders
+
+    // Claude  Date 08/29/2026
+    // Rebuild the pending reminders from the current schedule. Driven by the two didSets
+    // above, and called by hand from the places a didSet can't see: app launch (init
+    // assignments never fire didSet, so a schedule loaded from disk was never scheduled in
+    // this process), foregrounding (permission can be revoked in the Settings app behind
+    // our back), the moment notification permission is granted, and the Settings toggle.
+    func resyncSupplementReminders() {
+        SupplementNotifications.resync(slots: supplementSlots, supplements: supplements)
+    }
+
+    // MARK: - Supplements: slots
+
+    var canAddSupplementSlot: Bool { supplementSlots.count < SupplementSlot.maxCount }
+
+    @discardableResult
+    func addSupplementSlot(name: String, hour: Int = 8, minute: Int = 0) -> UUID? {
+        guard canAddSupplementSlot else { return nil }
+        let clipped = String(name.trimmingCharacters(in: .whitespaces)
+            .prefix(SupplementSlot.maxNameLength))
+        guard !clipped.isEmpty else { return nil }
+        let slot = SupplementSlot(name: clipped, hour: hour, minute: minute)
+        supplementSlots.append(slot)
+        return slot.id
+    }
+
+    func updateSupplementSlot(_ slot: SupplementSlot) {
+        guard let index = supplementSlots.firstIndex(where: { $0.id == slot.id }) else { return }
+        var clean = slot
+        clean.name = String(clean.name.trimmingCharacters(in: .whitespaces)
+            .prefix(SupplementSlot.maxNameLength))
+        // Claude  Date 08/29/2026
+        // The no-op guard matters more than it looks: the slot editor writes through on
+        // every keystroke and every DatePicker tick, and this property's didSet reschedules
+        // notifications. Without it, merely OPENING the editor (onAppear seeds the name
+        // field, which fires onChange with the identical value) would rewrite the file and
+        // tear down and rebuild every pending reminder.
+        guard !clean.name.isEmpty, clean != supplementSlots[index] else { return }
+        supplementSlots[index] = clean
+    }
+
+    // Claude  Date 08/29/2026
+    // Deleting a slot RE-HOMES its supplements rather than deleting them — losing your
+    // whole stack because you renamed how the day is split would be a nasty surprise. The
+    // last slot can never go: Supplement.slotId is non-optional, so every supplement needs
+    // somewhere to live.
+    func deleteSupplementSlot(id: UUID) {
+        guard supplementSlots.count > 1,
+              let fallback = supplementSlots.first(where: { $0.id != id })?.id else { return }
+        for index in supplements.indices where supplements[index].slotId == id {
+            supplements[index].slotId = fallback
+        }
+        supplementSlots.removeAll { $0.id == id }
+    }
+
     // The derived diary view for one calendar day (totals + per-meal grouping).
     func nutritionDay(for date: Date) -> NutritionDay{
         NutritionDay(date: date, foodLog: foodLog, waterLog: waterLog)
@@ -1101,6 +1735,47 @@ final class AppStore: ObservableObject {
 
     func deletePreset(id: UUID) {
         presets.removeAll { $0.id == id }
+    }
+
+    // Claude  Date 08/25/2026
+    // The already-saved preset `candidate` would duplicate, or nil if it's new. Compared
+    // on content only (WorkoutPreset.contentKey) — same name, icon, exercises, plan, and
+    // settings. `candidate` itself is skipped by id so an existing preset can be checked
+    // against its neighbours without matching itself, which is what the preset editor does.
+    //
+    // Every save point runs this and refuses rather than the store rejecting the write:
+    // an addPreset that silently dropped its argument would be a trap for the next caller,
+    // and each screen needs to say something different about the duplicate it found.
+    func duplicatePreset(of candidate: WorkoutPreset) -> WorkoutPreset? {
+        let key = candidate.contentKey
+        return presets.first { $0.id != candidate.id && $0.contentKey == key }
+    }
+
+    // Claude  Date 08/25/2026
+    // The preset `installPremade` WOULD produce, resolved against the library as it
+    // stands — nothing is created and nothing is persisted. For the duplicate check on
+    // the install button, which has to run BEFORE the install mints exercises.
+    //
+    // Returns nil when any catalog lift is missing from the library, meaning "no duplicate
+    // is possible": every saved preset points at exercise ids that already exist, so a
+    // template needing a new one cannot match any of them.
+    func premadePresetPreview(_ premade: PremadeWorkout, name: String, symbolName: String) -> WorkoutPreset? {
+        var created: [Exercise] = []
+        var items: [PresetItem] = []
+        for item in premade.items {
+            guard let exerciseID = resolveExerciseID(for: item, creating: &created),
+                  created.isEmpty else { return nil }
+            items.append(PresetItem(exerciseId: exerciseID,
+                                    targetRepRange: item.reps,
+                                    restSeconds: item.restSeconds,
+                                    targetSets: item.sets))
+        }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return WorkoutPreset(name: trimmed.isEmpty ? premade.name : trimmed,
+                             symbolName: symbolName,
+                             items: items,
+                             isAdaptive: premade.isAdaptive,
+                             premadeID: premade.id)
     }
 
     func deletePresets(at offsets: IndexSet) {
@@ -1191,6 +1866,16 @@ final class AppStore: ObservableObject {
             exercise.name.caseInsensitiveCompare(name) == .orderedSame
         }
 
+        // Claude  Date 08/18/2026
+        // A premade template names a MOVEMENT, not a machine, and a branded version keeps
+        // the base name — so a plain name match could silently wire an installed split to
+        // the user's Hammer Strength leg press (whichever row came first in the array).
+        // Always resolve to the generic lift when one exists; falling back to any match
+        // still covers a user who branded every copy and deleted the generic.
+        func isGeneric(_ exercise: Exercise) -> Bool { matches(exercise) && exercise.brandLabel == nil }
+
+        if let generic = exercises.first(where: isGeneric) { return generic.id }
+        if let generic = created.first(where: isGeneric) { return generic.id }
         if let existing = exercises.first(where: matches) { return existing.id }
         if let staged = created.first(where: matches) { return staged.id }
 
@@ -1201,10 +1886,14 @@ final class AppStore: ObservableObject {
         }
         // Fresh id: the template is a shared static (or catalog literal), so reusing its
         // id would hand two installs the same identity.
+        // Every field is copied by hand here, so a new one on Exercise silently stops
+        // carrying over unless it's added below (note and equipmentType both bit us).
         let exercise = Exercise(name: template.name, region: template.region,
                                 category: template.category, isUnilateral: template.isUnilateral,
                                 liftType: template.liftType, primaryMover: template.primaryMover,
-                                quality: template.quality, isBodyweight: template.isBodyweight)
+                                quality: template.quality, isBodyweight: template.isBodyweight,
+                                note: template.note, brand: template.brand,
+                                equipmentType: template.equipmentType)
         created.append(exercise)
         return exercise.id
     }
@@ -1228,7 +1917,9 @@ final class AppStore: ObservableObject {
     // The weight jump for an adaptive exercise when it progresses. A per-exercise
     // override (set in the preset editor) always wins; otherwise a smart default: 10 lb
     // for lower-body work and the deadlift (big compounds add weight in bigger jumps),
-    // 5 lb for everything else. Equipment isn't modeled, so region/liftType stand in.
+    // 5 lb for everything else. Equipment is modeled now (Exercise.equipmentType), but
+    // this still keys off region/liftType — increment-by-equipment (a plate-loaded machine
+    // vs. a 5 lb cable stack) is a real behavior change worth doing on its own.
     func smartIncrement(for exerciseId: UUID, override: Double? = nil) -> Double {
         if let override { return override }
         let exercise = exercise(for: exerciseId)
@@ -1449,83 +2140,83 @@ extension AppStore {
     // `liftType` (squat/bench/deadlift) so the lift achievements stay exact.
     static let seedExercises: [Exercise] = [
         // MARK: Legs — Quads
-        Exercise(name: "Hack Squat", region: .legs, category: "Quads", primaryMover: "Quadriceps", quality: .optimal),
-        Exercise(name: "Barbell Back Squat", region: .legs, category: "Quads", liftType: .squat, primaryMover: "Quadriceps", quality: .classic),
-        Exercise(name: "Leg Press", region: .legs, category: "Quads", primaryMover: "Quadriceps", quality: .optimal),
-        Exercise(name: "Leg Extension", region: .legs, category: "Quads", primaryMover: "Quadriceps", quality: .optimal),
-        Exercise(name: "Bulgarian Split Squat", region: .legs, category: "Quads", isUnilateral: true, primaryMover: "Quadriceps", quality: .optimal),
+        Exercise(name: "Hack Squat", region: .legs, category: "Quads", primaryMover: "Quadriceps", quality: .optimal, equipmentType: .machine),
+        Exercise(name: "Barbell Back Squat", region: .legs, category: "Quads", liftType: .squat, primaryMover: "Quadriceps", quality: .classic, equipmentType: .freeWeight),
+        Exercise(name: "Leg Press", region: .legs, category: "Quads", primaryMover: "Quadriceps", quality: .optimal, equipmentType: .machine),
+        Exercise(name: "Leg Extension", region: .legs, category: "Quads", primaryMover: "Quadriceps", quality: .optimal, equipmentType: .machine),
+        Exercise(name: "Bulgarian Split Squat", region: .legs, category: "Quads", isUnilateral: true, primaryMover: "Quadriceps", quality: .optimal, equipmentType: .freeWeight),
 
         // MARK: Legs — Hamstrings
-        Exercise(name: "Seated Leg Curl", region: .legs, category: "Hamstrings", primaryMover: "Hamstrings", quality: .optimal),
-        Exercise(name: "Romanian Deadlift", region: .legs, category: "Hamstrings", primaryMover: "Hamstrings", quality: .classic),
-        Exercise(name: "Lying Leg Curl", region: .legs, category: "Hamstrings", primaryMover: "Hamstrings", quality: .classic),
-        Exercise(name: "Stiff-Leg Deadlift", region: .legs, category: "Hamstrings", primaryMover: "Hamstrings", quality: .optimal),
+        Exercise(name: "Seated Leg Curl", region: .legs, category: "Hamstrings", primaryMover: "Hamstrings", quality: .optimal, equipmentType: .machine),
+        Exercise(name: "Romanian Deadlift", region: .legs, category: "Hamstrings", primaryMover: "Hamstrings", quality: .classic, equipmentType: .freeWeight),
+        Exercise(name: "Lying Leg Curl", region: .legs, category: "Hamstrings", primaryMover: "Hamstrings", quality: .classic, equipmentType: .machine),
+        Exercise(name: "Stiff-Leg Deadlift", region: .legs, category: "Hamstrings", primaryMover: "Hamstrings", quality: .optimal, equipmentType: .freeWeight),
 
         // MARK: Legs — Glutes
-        Exercise(name: "Hip Thrust", region: .legs, category: "Glutes", primaryMover: "Gluteus Maximus", quality: .classic),
-        Exercise(name: "Walking Lunge", region: .legs, category: "Glutes", isUnilateral: true, primaryMover: "Gluteus Maximus", quality: .optimal),
-        Exercise(name: "Cable Kickback", region: .legs, category: "Glutes", isUnilateral: true, primaryMover: "Gluteus Maximus", quality: .optimal),
+        Exercise(name: "Hip Thrust", region: .legs, category: "Glutes", primaryMover: "Gluteus Maximus", quality: .classic, equipmentType: .freeWeight),
+        Exercise(name: "Walking Lunge", region: .legs, category: "Glutes", isUnilateral: true, primaryMover: "Gluteus Maximus", quality: .optimal, equipmentType: .freeWeight),
+        Exercise(name: "Cable Kickback", region: .legs, category: "Glutes", isUnilateral: true, primaryMover: "Gluteus Maximus", quality: .optimal, equipmentType: .cable),
 
         // MARK: Legs — Calves
-        Exercise(name: "Standing Calf Raise", region: .legs, category: "Calves", primaryMover: "Gastrocnemius", quality: .optimal),
-        Exercise(name: "Seated Calf Raise", region: .legs, category: "Calves", primaryMover: "Soleus", quality: .optimal),
+        Exercise(name: "Standing Calf Raise", region: .legs, category: "Calves", primaryMover: "Gastrocnemius", quality: .optimal, equipmentType: .machine),
+        Exercise(name: "Seated Calf Raise", region: .legs, category: "Calves", primaryMover: "Soleus", quality: .optimal, equipmentType: .machine),
 
         // MARK: Chest
-        Exercise(name: "Incline Barbell Press", region: .chest, category: "Chest", primaryMover: "Pectorals (Upper)", quality: .optimal),
-        Exercise(name: "Flat Barbell Bench Press", region: .chest, category: "Chest", liftType: .bench, primaryMover: "Pectorals", quality: .classic),
-        Exercise(name: "Deep Stretch Cable Fly", region: .chest, category: "Chest", primaryMover: "Pectorals", quality: .optimal),
-        Exercise(name: "Weighted Dip", region: .chest, category: "Chest", primaryMover: "Pectorals (Lower)", quality: .classic),
+        Exercise(name: "Incline Barbell Press", region: .chest, category: "Chest", primaryMover: "Pectorals (Upper)", quality: .optimal, equipmentType: .freeWeight),
+        Exercise(name: "Flat Barbell Bench Press", region: .chest, category: "Chest", liftType: .bench, primaryMover: "Pectorals", quality: .classic, equipmentType: .freeWeight),
+        Exercise(name: "Deep Stretch Cable Fly", region: .chest, category: "Chest", primaryMover: "Pectorals", quality: .optimal, equipmentType: .cable),
+        Exercise(name: "Weighted Dip", region: .chest, category: "Chest", primaryMover: "Pectorals (Lower)", quality: .classic, equipmentType: .bodyweight),
 
         // MARK: Back — Lats
-        Exercise(name: "Pull-Up", region: .back, category: "Lats", primaryMover: "Latissimus Dorsi", quality: .classic),
-        Exercise(name: "Close-Grip Lat Pulldown", region: .back, category: "Lats", primaryMover: "Latissimus Dorsi", quality: .optimal),
-        Exercise(name: "Single-Arm Cable Pullover", region: .back, category: "Lats", isUnilateral: true, primaryMover: "Latissimus Dorsi", quality: .optimal),
+        Exercise(name: "Pull-Up", region: .back, category: "Lats", primaryMover: "Latissimus Dorsi", quality: .classic, equipmentType: .bodyweight),
+        Exercise(name: "Close-Grip Lat Pulldown", region: .back, category: "Lats", primaryMover: "Latissimus Dorsi", quality: .optimal, equipmentType: .cable),
+        Exercise(name: "Single-Arm Cable Pullover", region: .back, category: "Lats", isUnilateral: true, primaryMover: "Latissimus Dorsi", quality: .optimal, equipmentType: .cable),
 
         // MARK: Back — Mid-Back / Traps
-        Exercise(name: "Chest-Supported Row", region: .back, category: "Mid-Back", primaryMover: "Rhomboids / Mid Traps", quality: .optimal),
-        Exercise(name: "T-Bar Row", region: .back, category: "Mid-Back", primaryMover: "Mid-Back", quality: .classic),
-        Exercise(name: "Seated Cable Row", region: .back, category: "Mid-Back", primaryMover: "Mid-Back", quality: .classic),
-        Exercise(name: "Barbell Shrug", region: .back, category: "Traps", primaryMover: "Upper Trapezius", quality: .optimal),
+        Exercise(name: "Chest-Supported Row", region: .back, category: "Mid-Back", primaryMover: "Rhomboids / Mid Traps", quality: .optimal, equipmentType: .machine),
+        Exercise(name: "T-Bar Row", region: .back, category: "Mid-Back", primaryMover: "Mid-Back", quality: .classic, equipmentType: .machine),
+        Exercise(name: "Seated Cable Row", region: .back, category: "Mid-Back", primaryMover: "Mid-Back", quality: .classic, equipmentType: .cable),
+        Exercise(name: "Barbell Shrug", region: .back, category: "Traps", primaryMover: "Upper Trapezius", quality: .optimal, equipmentType: .freeWeight),
 
         // MARK: Back — Lower Back
-        Exercise(name: "Conventional Deadlift", region: .back, category: "Lower Back", liftType: .deadlift, primaryMover: "Spinal Erectors", quality: .classic),
-        Exercise(name: "Back Extension", region: .back, category: "Lower Back", primaryMover: "Spinal Erectors", quality: .optimal),
+        Exercise(name: "Conventional Deadlift", region: .back, category: "Lower Back", liftType: .deadlift, primaryMover: "Spinal Erectors", quality: .classic, equipmentType: .freeWeight),
+        Exercise(name: "Back Extension", region: .back, category: "Lower Back", primaryMover: "Spinal Erectors", quality: .optimal, equipmentType: .machine),
 
         // MARK: Shoulders — Side Delts
-        Exercise(name: "Cable Lateral Raise", region: .shoulders, category: "Side Delts", primaryMover: "Lateral Deltoid", quality: .optimal),
-        Exercise(name: "Dumbbell Lateral Raise", region: .shoulders, category: "Side Delts", primaryMover: "Lateral Deltoid", quality: .classic),
-        Exercise(name: "Overhead Press", region: .shoulders, category: "Side Delts", primaryMover: "Anterior / Lateral Deltoid", quality: .classic),
+        Exercise(name: "Cable Lateral Raise", region: .shoulders, category: "Side Delts", primaryMover: "Lateral Deltoid", quality: .optimal, equipmentType: .cable),
+        Exercise(name: "Dumbbell Lateral Raise", region: .shoulders, category: "Side Delts", primaryMover: "Lateral Deltoid", quality: .classic, equipmentType: .freeWeight),
+        Exercise(name: "Overhead Press", region: .shoulders, category: "Side Delts", primaryMover: "Anterior / Lateral Deltoid", quality: .classic, equipmentType: .freeWeight),
 
         // MARK: Shoulders — Rear Delts
-        Exercise(name: "Reverse Pec Deck", region: .shoulders, category: "Rear Delts", primaryMover: "Posterior Deltoid", quality: .optimal),
-        Exercise(name: "Face Pull", region: .shoulders, category: "Rear Delts", primaryMover: "Posterior Deltoid", quality: .optimal),
+        Exercise(name: "Reverse Pec Deck", region: .shoulders, category: "Rear Delts", primaryMover: "Posterior Deltoid", quality: .optimal, equipmentType: .machine),
+        Exercise(name: "Face Pull", region: .shoulders, category: "Rear Delts", primaryMover: "Posterior Deltoid", quality: .optimal, equipmentType: .cable),
 
         // MARK: Arms — Biceps
         // Claude  Date 07/11/2026 last changed: 07/11/2026 by: Claude
         // A standard curl for the library. No explicit liftType tag needed — every
         // exercise below counts toward the Bicep Curl badge automatically via
         // Exercise.effectiveLiftType (region == .arms && category == "Biceps").
-        Exercise(name: "Barbell Curl", region: .arms, category: "Biceps", primaryMover: "Biceps Brachii", quality: .classic),
-        Exercise(name: "Incline Dumbbell Curl", region: .arms, category: "Biceps", primaryMover: "Biceps Brachii", quality: .optimal),
-        Exercise(name: "Cable Curl", region: .arms, category: "Biceps", primaryMover: "Biceps Brachii", quality: .optimal),
-        Exercise(name: "EZ-Bar Curl", region: .arms, category: "Biceps", primaryMover: "Biceps Brachii", quality: .classic),
-        Exercise(name: "Hammer Curl", region: .arms, category: "Biceps", primaryMover: "Brachialis / Brachioradialis", quality: .optimal),
+        Exercise(name: "Barbell Curl", region: .arms, category: "Biceps", primaryMover: "Biceps Brachii", quality: .classic, equipmentType: .freeWeight),
+        Exercise(name: "Incline Dumbbell Curl", region: .arms, category: "Biceps", primaryMover: "Biceps Brachii", quality: .optimal, equipmentType: .freeWeight),
+        Exercise(name: "Cable Curl", region: .arms, category: "Biceps", primaryMover: "Biceps Brachii", quality: .optimal, equipmentType: .cable),
+        Exercise(name: "EZ-Bar Curl", region: .arms, category: "Biceps", primaryMover: "Biceps Brachii", quality: .classic, equipmentType: .freeWeight),
+        Exercise(name: "Hammer Curl", region: .arms, category: "Biceps", primaryMover: "Brachialis / Brachioradialis", quality: .optimal, equipmentType: .freeWeight),
 
         // MARK: Arms — Triceps
-        Exercise(name: "Overhead Cable Extension", region: .arms, category: "Triceps", primaryMover: "Triceps (Long Head)", quality: .optimal),
-        Exercise(name: "Close-Grip Bench Press", region: .arms, category: "Triceps", primaryMover: "Triceps", quality: .classic),
-        Exercise(name: "Triceps Pushdown", region: .arms, category: "Triceps", primaryMover: "Triceps (Lateral Head)", quality: .classic),
-        Exercise(name: "Skull Crusher", region: .arms, category: "Triceps", primaryMover: "Triceps (Long Head)", quality: .optimal),
+        Exercise(name: "Overhead Cable Extension", region: .arms, category: "Triceps", primaryMover: "Triceps (Long Head)", quality: .optimal, equipmentType: .cable),
+        Exercise(name: "Close-Grip Bench Press", region: .arms, category: "Triceps", primaryMover: "Triceps", quality: .classic, equipmentType: .freeWeight),
+        Exercise(name: "Triceps Pushdown", region: .arms, category: "Triceps", primaryMover: "Triceps (Lateral Head)", quality: .classic, equipmentType: .cable),
+        Exercise(name: "Skull Crusher", region: .arms, category: "Triceps", primaryMover: "Triceps (Long Head)", quality: .optimal, equipmentType: .freeWeight),
 
         // MARK: Arms — Forearms
-        Exercise(name: "Wrist Curl", region: .arms, category: "Forearms", primaryMover: "Wrist Flexors", quality: .optimal),
-        Exercise(name: "Reverse Wrist Curl", region: .arms, category: "Forearms", primaryMover: "Wrist Extensors", quality: .optimal),
-        Exercise(name: "Farmer's Carry", region: .arms, category: "Forearms", primaryMover: "Grip / Forearms", quality: .classic),
+        Exercise(name: "Wrist Curl", region: .arms, category: "Forearms", primaryMover: "Wrist Flexors", quality: .optimal, equipmentType: .freeWeight),
+        Exercise(name: "Reverse Wrist Curl", region: .arms, category: "Forearms", primaryMover: "Wrist Extensors", quality: .optimal, equipmentType: .freeWeight),
+        Exercise(name: "Farmer's Carry", region: .arms, category: "Forearms", primaryMover: "Grip / Forearms", quality: .classic, equipmentType: .freeWeight),
 
         // MARK: Core
-        Exercise(name: "Weighted Cable Crunch", region: .core, category: "Core", primaryMover: "Rectus Abdominis", quality: .optimal),
-        Exercise(name: "Hanging Leg Raise", region: .core, category: "Core", primaryMover: "Rectus Abdominis (Lower)", quality: .optimal),
-        Exercise(name: "Pallof Press", region: .core, category: "Core", isUnilateral: true, primaryMover: "Obliques", quality: .optimal),
-        Exercise(name: "Plank", region: .core, category: "Core", primaryMover: "Transverse Abdominis", quality: .classic),
+        Exercise(name: "Weighted Cable Crunch", region: .core, category: "Core", primaryMover: "Rectus Abdominis", quality: .optimal, equipmentType: .cable),
+        Exercise(name: "Hanging Leg Raise", region: .core, category: "Core", primaryMover: "Rectus Abdominis (Lower)", quality: .optimal, equipmentType: .bodyweight),
+        Exercise(name: "Pallof Press", region: .core, category: "Core", isUnilateral: true, primaryMover: "Obliques", quality: .optimal, equipmentType: .cable),
+        Exercise(name: "Plank", region: .core, category: "Core", primaryMover: "Transverse Abdominis", quality: .classic, equipmentType: .bodyweight),
     ]
 }
