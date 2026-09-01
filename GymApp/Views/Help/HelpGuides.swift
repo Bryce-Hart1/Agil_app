@@ -136,14 +136,13 @@ enum HelpGuideCatalog {
 
     // MARK: - Lifting
 
-    // TODO: bodies for every step below.
     static let blankWorkout = HelpGuide(
         id: "blank-workout",
         title: "Starting a blank workout",
         icon: .asset("note-blank"),
         steps: [
             HelpGuideStep(icon: .system("dumbbell"),
-                          title: "Make sure the notch at the top says Lifting"),
+                          title: "Make sure that you are on the lifting side of the app"),
             HelpGuideStep(icon: .system("dumbbell"),
                           title: "Open the Workouts tab"),
             HelpGuideStep(icon: .asset("note-blank"),
@@ -182,7 +181,6 @@ enum HelpGuideCatalog {
         ]
     )
 
-    // TODO: bodies for every step below.
     static let customExercise = HelpGuide(
         id: "custom-exercise",
         title: "Adding a custom exercise",
@@ -199,7 +197,7 @@ enum HelpGuideCatalog {
             HelpGuideStep(icon: .system("wrench.and.screwdriver"),
                           title: "Pick the equipment it uses"),
             HelpGuideStep(icon: .system("tag"),
-                          title: "Long-press a lift to add a brand variant"),
+                          title: "Long-press a lift to add a brand variant, these can be whatever you want (example, brand or place)"),
             HelpGuideStep(icon: .system("pencil"),
                           title: "Swipe a lift to edit or delete it")
         ]
@@ -207,7 +205,6 @@ enum HelpGuideCatalog {
 
     // MARK: - Food
 
-    // TODO: bodies for every step below.
     static let customFood = HelpGuide(
         id: "custom-food",
         title: "Adding a custom food",
@@ -218,7 +215,7 @@ enum HelpGuideCatalog {
             HelpGuideStep(icon: .asset("orange"),
                           title: "Open the Foods tab"),
             HelpGuideStep(icon: .system("plus"),
-                          title: "Tap + in the top-right"),
+                          title: "Tap + in the top right"),
             HelpGuideStep(icon: .system("plus.circle"),
                           title: "Choose Create custom food"),
             HelpGuideStep(icon: .asset("barcode"),
@@ -226,11 +223,10 @@ enum HelpGuideCatalog {
             HelpGuideStep(icon: .system("chart.pie"),
                           title: "Enter the serving size and macros"),
             HelpGuideStep(icon: .asset("notepad"),
-                          title: "It's now searchable from the Journal")
+                          title: "It's now searchable from the Journal. You can also send it to our team for review to be added to the public database")
         ]
     )
 
-    // TODO: bodies for every step below.
     static let recipe = HelpGuide(
         id: "recipe",
         title: "Making a recipe",
