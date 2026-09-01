@@ -29,6 +29,11 @@ struct SettingsView: View {
     // first — the tour spotlights root-level chrome (ModeNotch, tab bar) that a
     // pushed screen covers.
     @Environment(\.dismiss) private var dismiss
+    // Claude  Date 08/13/2026
+    // Drives the "Ask screens (debug)" section — the review and notification asks
+    // have no trigger of their own yet, so this is the only way to look at them.
+    @State private var showReviewAsk = false
+    @State private var showNotificationAsk = false
 
     var body: some View {
         List {
@@ -189,10 +194,20 @@ struct SettingsView: View {
                 } label: {
                     Label("Replay app tour", systemImage: "sparkles.rectangle.stack")
                 }
+                // Claude  Date 08/23/2026
+                // The written walkthroughs (also a row on the Profile hub). Listed
+                // here too because Settings' Help section is where people look by
+                // habit — and it's the natural companion to the tour above: the tour
+                // walks you around once, these you read whenever you're stuck.
+                NavigationLink {
+                    HelpGuidesView()
+                } label: {
+                    Label("Help & Demos", systemImage: "questionmark.circle")
+                }
             } header: {
                 Text("Help")
             } footer: {
-                Text("Replays the guided tour of the app's main screens.")
+                Text("Replays the guided tour of the app's main screens, or read step-by-step guides.")
             }
 
             Section("About") {
@@ -205,8 +220,9 @@ struct SettingsView: View {
                 LabeledContent("Workouts", value: "\(store.workouts.count)")
                 LabeledContent("Presets", value: "\(store.presets.count)")
             }
-            // Claude  Date 06/13/2026
-            // Alpha-only helpers for trying the achievement-unlock celebration.
+            // Claude  Date 06/13/2026 last changed: 08/24/2026 by: Claude
+            // Beta-only helpers for trying the achievement-unlock celebration, plus the
+            // full shop catalogue. Renamed alpha → beta on 8/24/26 (Bryce).
             Section {
                 NavigationLink {
                     BadgeGalleryView()
@@ -243,14 +259,23 @@ struct SettingsView: View {
                     theme.grantFoundersCards()
                     store.celebrateFoundersUnlock()
                 }
+                // Claude  Date 08/24/2026
+                // Was the Shop's "Browse all items" drawer (Bryce, 8/24/26). Players now
+                // only ever see the rotation; this is the way to reach a specific item
+                // without waiting for it to be featured.
+                NavigationLink {
+                    ShopCatalogView()
+                } label: {
+                    Label("Browse all shop items", systemImage: "bag")
+                }
             } header: {
-                Text("Developer (alpha)")
+                Text("Developer (beta)")
             } footer: {
-                Text("Gallery previews every badge + rank (tap to play its celebration). Force achievements toggles any badge on or off individually, bypassing your real progress. Unlock all fills in every badge so the card and book populate. Mark all unopened resets which badges you've watched, so they queue up as new in the Achievement Book; Reset wipes progress and re-earns it from your history. Unlock Founders cards plays the founders unlock celebration (a preview of the future in-app purchase).")
+                Text("Gallery previews every badge + rank (tap to play its celebration). Force achievements toggles any badge on or off individually, bypassing your real progress. Unlock all fills in every badge so the card and book populate. Mark all unopened resets which badges you've watched, so they queue up as new in the Achievement Book; Reset wipes progress and re-earns it from your history. Unlock Founders cards plays the founders unlock celebration (a preview of the future in-app purchase). Browse all shop items lists every purchasable theme and card — the Shop itself now shows only the daily and weekly rotation.")
             }
 
-            // Claude  Date 06/16/2026 last changed: 08/03/2026 by: Claude
-            // Alpha dev-only coin grants, so the wallet can be topped up to test the
+            // Claude  Date 06/16/2026 last changed: 08/24/2026 by: Claude
+            // Beta dev-only coin grants, so the wallet can be topped up to test the
             // shop + animated card purchases without grinding workouts.
             //
             // 08/03: now #if DEBUG. Coins are sold for real money as of this build, so
@@ -271,10 +296,22 @@ struct SettingsView: View {
                     store.resetDevCoins()
                     theme.debugResetWallet()
                 }
+                // Claude  Date 08/23/2026
+                // The daily check-in pays once per calendar day, so without this the
+                // only way to see the reward toast a second time is to wait until
+                // tomorrow. Resetting the log replays it on the next foreground.
+                LabeledContent("Check-ins this week") {
+                    Text("\(store.checkInWeek.claimed) / \(store.checkInWeek.cap)")
+                        .monospacedDigit()
+                        .foregroundStyle(theme.current.accent)
+                }
+                Button("Reset daily check-ins", role: .destructive) {
+                    store.debugResetCheckIns()
+                }
             } header: {
-                Text("Developer coins (alpha)")
+                Text("Developer coins (beta)")
             } footer: {
-                Text("Adds free coins to the spendable balance for testing the Shop and animated profile cards. Reset clears only the dev grant — coins earned from workouts and achievements are untouched. Debug builds only.")
+                Text("Adds free coins to the spendable balance for testing the Shop and animated profile cards. Reset clears only the dev grant, coins earned from workouts and achievements are untouched. Reset daily check-ins wipes the record of which days you opened the app, so the +\(DailyCheckIn.coinsPerDay) bonus and its toast replay on the next foreground; it does not lower the balance, since the wallet's earned total is a high-water mark. Debug builds only.")
             }
             #endif
 
@@ -303,10 +340,32 @@ struct SettingsView: View {
             } footer: {
                 Text("Resolves Nutella (3017620422003) twice: 1st hits Open Food Facts and caches it, 2nd returns from cache. Watch the Xcode console; also runs the LRU cap check.")
             }
+            // Claude  Date 08/13/2026
+            // Preview the two full-screen ask pages (ReviewRequestView,
+            // NotificationRequestView). Neither has a real trigger yet — this is the
+            // only way to look at them, and it's how the copy gets iterated on.
+            //
+            // #if DEBUG on purpose: a button that fires the App Store review prompt
+            // on demand is exactly the kind of thing App Review objects to, and both
+            // buttons here have real side effects (see the footer).
+            Section {
+                Button("Show review ask") { showReviewAsk = true }
+                Button("Show notification ask") { showNotificationAsk = true }
+            } header: {
+                Text("Ask screens (debug)")
+            } footer: {
+                Text("Previews the two full-screen ask pages. These fire the real actions: \"Leave a review\" calls Apple's review prompt (which is rate-limited and usually shows nothing), and \"Turn on notifications\" triggers the iOS permission dialog — which iOS only ever shows once per install, so after the first time the notification page will show its already-granted or denied state instead.")
+            }
             #endif
         }
         .navigationTitle("Settings")
         .themed(theme.current)
+        // Claude  Date 08/13/2026
+        // Attached unconditionally (not inside #if DEBUG) — the modifiers are cheap
+        // no-ops while their bindings are false, and keeping them out of the
+        // conditional means the release build still compiles the ask pages.
+        .reviewAsk(isPresented: $showReviewAsk)
+        .notificationAsk(isPresented: $showNotificationAsk)
     }
 
     // Claude  Date 06/18/2026
