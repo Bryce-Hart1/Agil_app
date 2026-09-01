@@ -12,6 +12,13 @@ struct ProgressDashboardView: View {
     @EnvironmentObject private var theme: ThemeManager
 
     @State private var selectedExerciseID: UUID?
+    // Claude  Date 08/16/2026
+    // Held in state rather than computed: building the recap summarizes every finished
+    // session in the window against the ledger, so it must not re-run on each `body`
+    // pass. Refreshed on appear and whenever a workout or ledger event is added — an
+    // EDIT to an existing workout won't trigger it, which is fine given how often this
+    // tab re-appears.
+    @State private var recap: MonthlyRecap?
 
     var body: some View {
         NavigationStack {
@@ -20,6 +27,7 @@ struct ProgressDashboardView: View {
                     Text("Log some workouts to see your progress here.")
                         .foregroundStyle(.secondary)
                 } else {
+                    recapSection
                     summarySection
                     oneRepMaxSection
                     frequencySection
@@ -36,11 +44,38 @@ struct ProgressDashboardView: View {
                 if selectedExerciseID == nil {
                     selectedExerciseID = loggedExercises.first?.id
                 }
+                refreshRecap()
             }
+            .onChange(of: store.workouts.count) { _ in refreshRecap() }
+            .onChange(of: store.activityLog.count) { _ in refreshRecap() }
         }
     }
 
+    private func refreshRecap() {
+        recap = MonthlyRecap(workouts: store.workouts,
+                             events: store.activityLog,
+                             exercises: store.exercises)
+    }
+
     // MARK: - Sections
+
+    // Claude  Date 08/16/2026
+    // The rolling 30-day recap, above the lifetime stat cards: what changed recently is
+    // the thing you open this tab to see, and the lifetime figures barely move. Hidden
+    // entirely when the window has no credited sets, so a returning user after a long
+    // layoff gets the charts rather than a card full of zeros.
+    @ViewBuilder
+    private var recapSection: some View {
+        if let recap, recap.hasData {
+            Section {
+                MonthlyRecapCard(recap: recap,
+                                 surface: theme.current.surface,
+                                 accent: theme.current.accent)
+                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                    .listRowBackground(Color.clear)
+            }
+        }
+    }
 
     // Claude  Date 07/22/2026
     // One row of four instead of a 2×2 grid — the summary stats were taking up most of
@@ -224,35 +259,12 @@ struct ProgressDashboardView: View {
             .sorted { $0.sets > $1.sets }
     }
 
-    // Claude  Date 07/22/2026 last changed: 07/23/2026 by: Claude
-    // Personal records now derive from the append-only activity ledger, not the editable
-    // workouts, so they're tamper-resistant like achievements and the best-set tile — and
-    // only count sets from FINISHED workouts. For each weighted exercise the winning set is
-    // the single event with the highest Epley e1RM; its reps/weight/time travel together as
-    // one coherent "best set". Bodyweight lifts are excluded (their `weight` is added load,
-    // so a 1RM is meaningless). Sorted most-recently-achieved first to feed the "last 5".
+    // Claude  Date 07/22/2026 last changed: 08/16/2026 by: Claude
+    // (08/16) The derivation moved to PersonalRecord.bests (MonthlyRecap.swift) so the
+    // recap card and this list can't drift into two definitions of "record" — the recap
+    // shows the same records, filtered to the ones set in the last 30 days.
     private var personalRecords: [PersonalRecord] {
-        var best: [UUID: ActivityEvent] = [:]
-        for event in store.activityLog {
-            guard let exercise = store.exercise(for: event.exerciseId),
-                  !exercise.isBodyweight, event.weight > 0 else { continue }
-            // Shared Epley helper — the app's single 1RM curve (see oneRepMaxPoints above).
-            let e1RM = BestSetScoring.e1RM(weight: event.weight, reps: event.reps)
-            if let current = best[event.exerciseId],
-               BestSetScoring.e1RM(weight: current.weight, reps: current.reps) >= e1RM {
-                continue
-            }
-            best[event.exerciseId] = event
-        }
-        return best.compactMap { id, event in
-            guard let exercise = store.exercise(for: id) else { return nil }
-            return PersonalRecord(
-                id: id, name: exercise.name, isUnilateral: exercise.isUnilateral,
-                reps: event.reps, weight: event.weight,
-                estOneRepMax: BestSetScoring.e1RM(weight: event.weight, reps: event.reps),
-                achievedAt: event.loggedAt)
-        }
-        .sorted { $0.achievedAt > $1.achievedAt }
+        PersonalRecord.bests(from: store.activityLog, exercises: store.exercises)
     }
 }
 
@@ -275,20 +287,6 @@ private struct CategoryBar: Identifiable {
     let category: String
     let sets: Int
     var id: String { category }
-}
-
-// Claude  Date 07/22/2026 last changed: 07/23/2026 by: Claude
-// A personal record is now one COHERENT best set — the winning set's reps and weight
-// travel together (previously bestWeight and est 1RM could come from different sets).
-// `achievedAt` (the ledger's real completion time) is what lets us surface the "last 5".
-private struct PersonalRecord: Identifiable {
-    let id: UUID            // exercise id
-    let name: String
-    let isUnilateral: Bool
-    let reps: Int           // reps of the winning set
-    let weight: Double      // weight of the winning set (lb)
-    let estOneRepMax: Double
-    let achievedAt: Date    // loggedAt of the winning set — drives "last 5"
 }
 
 // MARK: - Cards & charts
