@@ -101,7 +101,7 @@ struct RecipeBuilderView: View {
                 Button { editingIngredient = item } label: {
                     HStack(alignment: .firstTextBaseline) {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(item.name)
+                            Text(item.displayName)
                                 .font(.subheadline)
                                 .foregroundStyle(.primary)
                             Text("\(Int(item.consumedNutrients.calories.rounded())) kcal")
@@ -221,7 +221,7 @@ struct IngredientAmountView: View {
 
     init(food: FoodItem, onCommit: @escaping (RecipeIngredient) -> Void) {
         let detail = FoodDetail(from: food)
-        self.name = food.displayLabel
+        self.name = food.snapshotLabel
         self.foodId = food.id
         self.basis = MeasurementBasis(detail)
         self.ingredientId = nil
@@ -246,7 +246,7 @@ struct IngredientAmountView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 14) {
-                Text(name)
+                Text(name.foodDisplayCased)
                     .font(.title3).fontWeight(.semibold)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .fixedSize(horizontal: false, vertical: true)

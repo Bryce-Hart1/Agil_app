@@ -502,7 +502,7 @@ private struct FoodEntryRow: View {
         let c = entry.consumed
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(entry.name).font(.subheadline).fontWeight(.medium)
+                Text(entry.displayName).font(.subheadline).fontWeight(.medium)
                     .lineLimit(1)
                 Text("\(servingsText) • P \(g(c.protein)) · C \(g(c.carbs)) · F \(g(c.fat))")
                     .font(.caption2).foregroundStyle(.secondary)

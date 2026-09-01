@@ -85,7 +85,7 @@ struct RecipeDetailView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(recipe.name)
+            Text(recipe.displayName)
                 .font(.title2).fontWeight(.bold)
                 .fixedSize(horizontal: false, vertical: true)
             Text(yieldCaption)
@@ -166,7 +166,7 @@ struct RecipeDetailView: View {
                 ForEach(Array(recipe.ingredients.enumerated()), id: \.element.id) { idx, item in
                     VStack(spacing: 0) {
                         HStack(alignment: .firstTextBaseline) {
-                            Text(item.name)
+                            Text(item.displayName)
                                 .font(.subheadline)
                                 .fixedSize(horizontal: false, vertical: true)
                             Spacer(minLength: 8)

@@ -52,17 +52,27 @@ struct FoodLibraryView: View {
     // Non-nil drives the FoodDetailView sheet. `item:`-bound so it also carries which
     // food to show.
     @State private var detailFood: FoodDetail?
+    // Claude  Date 08/22/2026
+    // The clock reading Top picks is ranked against, frozen for the life of the screen.
+    // Passing a live `Date()` would re-rank on every render — as the hour rolled the row
+    // could reshuffle under a finger mid-tap. Re-stamped on appear, so coming back to the
+    // tab at dinner shows dinner. (Same reasoning as NutritionDiaryView.freezeWaterOrder.)
+    @State private var pickedAt = Date()
 
     private var trimmedQuery: String { searchText.trimmingCharacters(in: .whitespaces) }
 
-    // Claude  Date 06/18/2026 last changed: 08/07/2026 by: Claude
-    // Recents = the library ordered by most recently LOGGED first, so re-logging a food
+    // Claude  Date 06/18/2026 last changed: 08/18/2026 by: Claude
+    // Recents = the library ordered by most recent activity first, so re-logging a food
     // bumps it back to the top (the old behaviour was reverse-insertion order, which never
-    // reordered on re-log). Foods you've never logged have no diary date, so they fall
-    // below the logged ones in reverse-insertion order ("most recently added"). Filtered
-    // by the search text.
+    // reordered on re-log). Filtered by the search text.
+    //
+    // (08/18) "Activity" now means logged OR added — store.foodRecency takes the later of
+    // the two. Before this, a food you'd just created had no diary date and so sorted
+    // below every food you'd ever logged, which is the opposite of what you want to see
+    // right after adding one. Foods predating the addedAt table that were never logged
+    // still fall to the bottom in reverse-insertion order.
     private var recents: [FoodItem] {
-        let lastLogged = store.lastLoggedByFood
+        let lastLogged = store.foodRecency
         let base = store.foods.enumerated().sorted { lhs, rhs in
             switch (lastLogged[lhs.element.id], lastLogged[rhs.element.id]) {
             case let (l?, r?): return l > r          // both logged → newer first
@@ -77,6 +87,12 @@ struct FoodLibraryView: View {
             $0.name.lowercased().contains(q) || $0.brand.lowercased().contains(q)
         }
     }
+
+    // Claude  Date 08/22/2026
+    // The Top picks row: foods this user eats around this hour, newest routine first.
+    // Ranking, the ±3h window and the 2-log floor all live in AppStore.topPicks — this
+    // is only the read.
+    private var topPicks: [FoodItem] { store.topPicks(asOf: pickedAt) }
 
     // Claude  Date 08/11/2026
     // The user's recipes, filtered by the query and ordered by the same "most recently
@@ -132,6 +148,34 @@ struct FoodLibraryView: View {
                 // Claude  Date 08/11/2026
                 // Recipes take the top of the list — a dish the user built themselves
                 // outranks anything found for them.
+                // Claude  Date 08/22/2026
+                // Top picks sits above everything: if the user has a routine, the food
+                // they came here for is almost certainly in this row, and it should cost
+                // no scrolling. Hidden while searching — mid-query they have a specific
+                // target in mind and a habit row would only push the results down.
+                //
+                // A pick can also appear again under Recipes or Recents below. That's
+                // deliberate: this is a shortcut layer over the library, not a slice
+                // taken out of it.
+                if trimmedQuery.isEmpty, !topPicks.isEmpty {
+                    Section("Top picks") {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 10) {
+                                ForEach(topPicks) { food in
+                                    Button { open(food) } label: {
+                                        TopPickCard(food: food, accent: theme.current.accent)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                            // Zero row insets below let the cards scroll clear to both
+                            // edges; this restores the margin they sit inside.
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 2)
+                        }
+                        .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
+                    }
+                }
                 if !matchingRecipes.isEmpty {
                     Section("Recipes") {
                         ForEach(matchingRecipes) { recipe in
@@ -166,6 +210,7 @@ struct FoodLibraryView: View {
                 }
                 searchSection
             }
+            .onAppear { pickedAt = Date() }
             .searchable(text: $searchText, prompt: "Search all foods")
             // Claude  Date 08/04/2026
             // Debounced backend search. `.task(id:)` cancels and restarts on every
@@ -307,6 +352,21 @@ struct FoodLibraryView: View {
         }
     }
 
+    // Claude  Date 08/22/2026
+    // Opening a Top pick. Recipes reach this row through `asFoodItem` (which keeps the
+    // recipe's own id), so a pick that matches a recipe is routed to the recipe page —
+    // the same destination tapping it under "Recipes" gives. Everything else opens the
+    // food detail page, pre-dialed to the amount last used for it (the sheet below seeds
+    // `initialMeasurement` from store.lastMeasurements), which is what makes a pick one
+    // tap from logged.
+    private func open(_ food: FoodItem) {
+        if let recipe = store.recipes.first(where: { $0.id == food.id }) {
+            detailRecipe = recipe
+        } else {
+            detailFood = FoodDetail(from: food)
+        }
+    }
+
     // MARK: - Toolbar glyphs
 
     // Claude  Date 08/04/2026
@@ -428,7 +488,7 @@ private struct FoodLibraryRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 6) {
-                Text(food.name).font(.subheadline).fontWeight(.medium)
+                Text(food.displayName).font(.subheadline).fontWeight(.medium)
                     .lineLimit(1)
                 FoodSourceBadge(source: FoodTrust(food.source),
                                 verification: food.verification,
@@ -443,7 +503,7 @@ private struct FoodLibraryRow: View {
 
     private var captionText: String {
         let kcal = Int(food.nutrients.calories.rounded())
-        let brand = food.brand.trimmingCharacters(in: .whitespaces)
+        let brand = food.displayBrand.trimmingCharacters(in: .whitespaces)
         let base = "\(kcal) kcal · \(food.servingLabel)"
         return brand.isEmpty ? base : "\(brand) · \(base)"
     }

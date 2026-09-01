@@ -54,7 +54,7 @@ struct EditFoodEntryView: View {
         NavigationStack {
             Form {
                 Section("Food") {
-                    Text(entry.name).font(.headline)
+                    Text(entry.displayName).font(.headline)
                     Text(loggedCaption)
                         .font(.caption).foregroundStyle(.secondary)
                 }

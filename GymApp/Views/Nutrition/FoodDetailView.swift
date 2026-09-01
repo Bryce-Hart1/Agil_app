@@ -142,11 +142,11 @@ struct FoodDetailView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(food.name)
+            Text(food.displayName)
                 .font(.title2).fontWeight(.bold)
                 .fixedSize(horizontal: false, vertical: true)
-            if !food.brand.trimmingCharacters(in: .whitespaces).isEmpty {
-                Text(food.brand).font(.subheadline).foregroundStyle(.secondary)
+            if !food.displayBrand.trimmingCharacters(in: .whitespaces).isEmpty {
+                Text(food.displayBrand).font(.subheadline).foregroundStyle(.secondary)
             }
             // Claude  Date 07/14/2026 last changed: 08/06/2026 by: Claude
             // Category, then provenance. The source badge (and its stacked verification
@@ -311,7 +311,7 @@ struct FoodDetailView: View {
                 Text(field.label)
                     .font(.subheadline)
                 Spacer()
-                Text(microValueString(raw, unit: field.unit))
+                Text(microValueString(raw, unit: field.unit.abbreviation))
                     .font(.subheadline).monospacedDigit()
                     .foregroundStyle(.secondary)
             }

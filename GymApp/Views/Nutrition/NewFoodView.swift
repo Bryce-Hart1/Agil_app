@@ -63,6 +63,11 @@ struct NewFoodView: View {
     @State private var micros = Micros()
 
     // Barcode step state: the camera sheet, and the green pulse right after a capture.
+    // Claude  Date 08/18/2026
+    // Focus on any numeric field, purely so the decimal pad can carry a Done button.
+    // TextField(value:format:) only commits on focus resignation and the decimal pad has
+    // no return key, so a number typed and then Save-tapped could be silently dropped.
+    @FocusState private var numberFieldFocused: Bool
     @State private var showingScanner = false
     @State private var barcodeFlash = false
 
@@ -233,6 +238,12 @@ struct NewFoodView: View {
                             .disabled(trimmedName.isEmpty)
                     }
                 }
+                // The decimal pad has no return key — same Done affordance the
+                // measurement editor gives its amount field.
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") { numberFieldFocused = false }
+                }
             }
             .sheet(isPresented: $showingScanner) {
                 BarcodeCaptureSheet { code in captured(code) }
@@ -350,11 +361,7 @@ struct NewFoodView: View {
             ForEach(MicroGroup.allCases) { group in
                 DisclosureGroup(group.rawValue) {
                     ForEach(MicroField.fields(in: group)) { field in
-                        LabeledContent("\(field.label) (\(field.unit))") {
-                            TextField("—", value: microBinding(field), format: .number)
-                                .keyboardType(.decimalPad)
-                                .multilineTextAlignment(.trailing)
-                        }
+                        microRow(field)
                     }
                 }
             }
@@ -365,12 +372,85 @@ struct NewFoodView: View {
         }
     }
 
-    // A binding onto one micro field. Optional-typed so an empty text field clears the
-    // value back to nil ("not available") instead of writing a 0.
+    // Claude  Date 08/18/2026
+    // One nutrient row: label, value, unit button.
+    //
+    // Not LabeledContent — it splits the row evenly and lets the LABEL truncate, which is
+    // what clipped these to "Saturated f…" / "Monounsatur…" / "Cholesterol…" (the same
+    // trap the restaurant grams row above hit). The unit also moved out of the label text
+    // and into the button, which is where most of the width came back from; it now reads
+    // the way the detail page does, with the unit beside the value.
+    //
+    // The label scales down rather than truncating: "B5 · Pantothenic acid" plus a value
+    // and a unit button doesn't fit an SE at full size, and a smaller whole word beats
+    // half a word.
+    private func microRow(_ field: MicroField) -> some View {
+        HStack(spacing: 8) {
+            Text(field.label)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            Spacer(minLength: 4)
+            TextField("—", value: microBinding(field), format: .number)
+                .keyboardType(.decimalPad)
+                .multilineTextAlignment(.trailing)
+                .focused($numberFieldFocused)
+                .frame(maxWidth: 72)
+            unitMenu(field)
+        }
+    }
+
+    // Claude  Date 08/18/2026
+    // The per-row unit picker. Nutrition labels are inconsistent — the same vitamin is mg
+    // on one package and µg on another — so each row can be typed in whichever unit the
+    // label in your hand uses, and the choice sticks for that nutrient (store.microUnits).
+    // Switching CONVERTS what's already typed rather than reinterpreting it, because the
+    // binding below always reads through the current unit.
+    private func unitMenu(_ field: MicroField) -> some View {
+        Menu {
+            Picker("Unit", selection: Binding(
+                get: { store.microUnit(for: field) },
+                set: { store.setMicroUnit($0, for: field) })) {
+                ForEach(unitOptions(for: field)) { unit in
+                    Text(unit.abbreviation).tag(unit)
+                }
+            }
+        } label: {
+            HStack(spacing: 2) {
+                Text(store.microUnit(for: field).abbreviation)
+                Image(systemName: "chevron.down").font(.caption2)
+            }
+            .font(.subheadline)
+            .lineLimit(1)
+            .frame(minWidth: 44)
+        }
+        .accessibilityLabel("\(field.label) unit")
+    }
+
+    // g / mg / µg for everything, plus the field's own canonical unit when it isn't one of
+    // those — which is only B12's nanograms. One rule instead of a per-field table.
+    private func unitOptions(for field: MicroField) -> [MicroUnit] {
+        let base: [MicroUnit] = [.g, .mg, .mcg]
+        return base.contains(field.unit) ? base : base + [field.unit]
+    }
+
+    // A binding onto one micro field, in the unit that field is currently displayed in.
+    // Optional-typed so an empty text field clears the value back to nil ("not available")
+    // instead of writing a 0 — nil has to survive the conversion in both directions.
+    // What's STORED is always the field's canonical unit; only the display converts.
     private func microBinding(_ field: MicroField) -> Binding<Double?> {
-        Binding(
-            get: { micros[keyPath: field.key] },
-            set: { micros[keyPath: field.key] = $0 }
+        let unit = store.microUnit(for: field)
+        return Binding(
+            get: {
+                guard let stored = micros[keyPath: field.key] else { return nil }
+                return unit.rounded(field.unit.convert(stored, to: unit))
+            },
+            set: { typed in
+                guard let typed else {
+                    micros[keyPath: field.key] = nil
+                    return
+                }
+                micros[keyPath: field.key] = unit.convert(typed, to: field.unit)
+            }
         )
     }
 
@@ -408,10 +488,19 @@ struct NewFoodView: View {
 
     // MARK: - Save
 
+    // Claude  Date 08/18/2026 — same layout as the micro rows: a pinned, scaling label
+    // and a capped field, so a longer label can't be starved by the number beside it.
     private func macroField(_ label: String, value: Binding<Double>) -> some View {
-        LabeledContent(label) {
+        HStack(spacing: 8) {
+            Text(label)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            Spacer(minLength: 4)
             TextField(label, value: value, format: .number)
-                .keyboardType(.decimalPad).multilineTextAlignment(.trailing)
+                .keyboardType(.decimalPad)
+                .multilineTextAlignment(.trailing)
+                .focused($numberFieldFocused)
+                .frame(maxWidth: 96)
         }
     }
 
@@ -449,6 +538,10 @@ struct NewFoodView: View {
         // reaches the saved food — the kind is the authority on whether one exists.
         let code = kind.hasBarcode ? trimmedBarcode : ""
         let willSubmit = shareForReview && canSubmit
+        // Per-serving → per-100 for the stored copy. Built from the same fields the
+        // FoodItem is about to carry, so it matches FoodItem.per100Factor exactly.
+        let microScale = FoodItem.per100Factor(servingSize: sizeToStore,
+                                               servingUnit: unit) ?? 1
 
         let food = store.addFood(FoodItem(
             name: trimmedName,
@@ -462,7 +555,15 @@ struct NewFoodView: View {
             // Pending only when it's actually on its way to the queue; a device-only
             // food isn't waiting on anyone.
             verification: willSubmit ? .pending : nil,
-            micros: micros))
+            // Claude  Date 08/18/2026
+            // Stored per-100, because that's what FoodItem.micros means and what
+            // FoodDetail reads it as — while the form (like `nutrients` above) is typed
+            // per serving. Without this a 50 g serving showed its micros doubled on its
+            // own detail page. A count serving has no gram basis, so per100Factor is nil
+            // and the values pass through unscaled, matching how FoodDetail treats
+            // `nutrients` for those foods. The raw per-serving `micros` still go to
+            // submit() below, which does its own scaling — don't hand it these.
+            micros: MicroField.scaled(micros, by: microScale)))
 
         // Claude  Date 06/18/2026 — remember the scanned barcode so a future scan of the
         // same product resolves straight to this food (no "not found" again).
