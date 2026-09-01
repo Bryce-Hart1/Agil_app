@@ -41,10 +41,17 @@ struct GymAppApp: App {
                 // StoreKit starts crediting anything, and noteEarned seeds the
                 // earned high-water mark (the migration in ThemeManager.init can't:
                 // it has no access to the workout history).
+                //
+                // Claude  Date 08/23/2026
+                // 08/23: the daily check-in is recorded here too, and it has to land
+                // BEFORE noteEarned — recording the day raises totalCoinsEarned, and
+                // doing it after would leave today's +20 sitting outside the wallet
+                // until something else happened to republish the earned total.
                 .task {
                     store.syncWidgetSnapshot()
                     theme.syncWidgetSnapshot()
                     cloudWallet.start(theme: theme)
+                    store.recordDailyCheckIn()
                     theme.noteEarned(store.totalCoinsEarned)
                     coinStore.start(theme: theme)
                 }
