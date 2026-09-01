@@ -53,6 +53,11 @@ private struct WorkoutEditor: View {
     @State private var showingSaveAsPreset = false
     @State private var presetName = ""
     @State private var savedPresetConfirmation = false
+    // Claude  Date 08/25/2026
+    // The saved preset a "Save as New Preset" would have duplicated (nil = none). Set
+    // instead of saving, so a second copy of an identical template never lands in the
+    // list — the alert names the one that's already there.
+    @State private var duplicatePreset: WorkoutPreset?
     // Claude  Date 07/13/2026
     // Drive the confirm + success alerts for "Override Preset" — pushing this workout's
     // current exercises, rep ranges, and set counts back onto its source preset.
@@ -113,12 +118,22 @@ private struct WorkoutEditor: View {
         .listRowSeparator(.hidden)
     }
 
-    // Claude  Date 08/04/2026
+    // Claude  Date 08/21/2026
+    // A finished session's length, shown after the start time. nil while the workout
+    // is still running — a static number next to a session that's still adding to it
+    // would just be wrong, and a live one would need a ticking timer up here.
+    private var elapsedText: String? {
+        workout.isFinished ? workout.elapsedText : nil
+    }
+
+    // Claude  Date 08/04/2026 last changed: 08/21/2026 by: Claude
     // The date/time line. Set in the THEME's face — a deliberate island in a screen
     // that's otherwise on the system face (see systemTypeface at the bottom of body):
     // a nested fontDesign beats the ambient one, and the contrast is what makes this
     // read as a header rather than a row. A Button, not a tap gesture, so it's
-    // reachable and describable to VoiceOver.
+    // reachable and describable to VoiceOver. (08/21) The secondary line now carries
+    // the session's duration alongside its start time — same line rather than a new
+    // one, so the masthead doesn't grow a third row for one short fragment.
     private var dateHeader: some View {
         Button {
             hideKeyboard()
@@ -130,9 +145,15 @@ private struct WorkoutEditor: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(workout.date, format: .dateTime.weekday(.wide).month().day())
                         .font(.title3.weight(.semibold))
-                    Text(workout.date, format: .dateTime.hour().minute())
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                    HStack(spacing: 4) {
+                        Text(workout.date, format: .dateTime.hour().minute())
+                        if let elapsedText {
+                            Text("·")
+                            Text(elapsedText)
+                        }
+                    }
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
                 }
                 Spacer()
                 Image(systemName: "chevron.down")
@@ -145,7 +166,11 @@ private struct WorkoutEditor: View {
         .buttonStyle(.plain)
         .fontDesign(theme.current.fontDesign.design)
         .accessibilityLabel("Workout date")
-        .accessibilityValue(Text(workout.date, format: .dateTime.weekday(.wide).month().day().hour().minute()))
+        // Claude  Date 08/21/2026
+        // The duration rides along in the value — it's drawn inside this button, so
+        // leaving it out would make it the one thing on the header VoiceOver skips.
+        .accessibilityValue(Text(workout.date, format: .dateTime.weekday(.wide).month().day().hour().minute())
+                            + Text(elapsedText.map { ", \($0)" } ?? ""))
         .accessibilityHint("Tap to change")
     }
 
@@ -248,7 +273,12 @@ private struct WorkoutEditor: View {
                     }
                 } header: {
                     HStack {
-                        Text(store.exercise(for: logged.exerciseId)?.name ?? "Exercise")
+                        // Claude  Date 08/18/2026
+                        // displayLabel, not name: two library lifts can share a name once
+                        // one is a branded version ("Leg Press · Hammer Strength"), and the
+                        // header is where you check you're logging the right machine.
+                        Text(store.exercise(for: logged.exerciseId)?.displayLabel ?? "Exercise")
+                        EquipmentBadge(type: store.exercise(for: logged.exerciseId)?.equipmentType)
                         // Claude  Date 06/18/2026
                         // Pencil → edit the underlying library exercise's details in place.
                         if let exercise = store.exercise(for: logged.exerciseId) {
@@ -263,7 +293,7 @@ private struct WorkoutEditor: View {
                             }
                             .buttonStyle(.plain)
                             .foregroundStyle(theme.current.accent)
-                            .accessibilityLabel("Edit \(exercise.name)")
+                            .accessibilityLabel("Edit \(exercise.displayLabel)")
                         }
                         if let range = logged.targetRepRange {
                             Spacer()
@@ -462,7 +492,7 @@ private struct WorkoutEditor: View {
         }
         .sheet(isPresented: $showingReorder) {
             ReorderExercisesSheet(title: "Reorder", items: $workout.exercises) {
-                store.exercise(for: $0.exerciseId)?.name ?? "Exercise"
+                store.exercise(for: $0.exerciseId)?.displayLabel ?? "Exercise"
             }
         }
         .alert("Save as New Preset", isPresented: $showingSaveAsPreset) {
@@ -470,6 +500,18 @@ private struct WorkoutEditor: View {
             Button("Save") {
                 let name = presetName.trimmingCharacters(in: .whitespaces)
                 let preset = store.makePreset(from: workout, name: name.isEmpty ? "New Preset" : name)
+                // Claude  Date 08/25/2026
+                // Refuse an exact copy of a preset that already exists — same name, same
+                // lifts in the same order, same rep ranges, sets, rest, and notes. The
+                // workout is still linked to the existing one below, so "Override Preset"
+                // keeps working from here as if it had just been saved.
+                if let existing = store.duplicatePreset(of: preset) {
+                    workout.presetID = existing.id
+                    duplicatePreset = existing
+                    savedPresetConfirmation = true
+                    return
+                }
+                duplicatePreset = nil
                 store.addPreset(preset)
                 // Claude  Date 07/13/2026
                 // Link the workout to the preset it just spawned, so "Override Preset"
@@ -481,10 +523,19 @@ private struct WorkoutEditor: View {
         } message: {
             Text("Save these exercises, rep ranges, and set counts as a reusable preset.")
         }
-        .alert("Saved to Presets", isPresented: $savedPresetConfirmation) {
-            Button("OK", role: .cancel) {}
+        // Claude  Date 08/25/2026
+        // What "Save as New Preset" says when the template already exists. Nothing was
+        // added; the workout now points at the existing preset, which the copy says so
+        // the "Override Preset" button appearing afterwards isn't a surprise.
+        // Claude  Date 08/25/2026
+        // The outcome of "Save as New Preset": saved, or refused as a duplicate. One
+        // alert with two faces rather than two alerts — this body is already a long
+        // enough modifier chain that adding another tipped the type-checker over, and
+        // the two cases are the same beat in the same flow.
+        .alert(savedPresetTitle, isPresented: $savedPresetConfirmation) {
+            Button("OK", role: .cancel) { duplicatePreset = nil }
         } message: {
-            Text("Find it on the Presets tab to set an icon or tweak it.")
+            Text(savedPresetMessage)
         }
         // Claude  Date 07/13/2026
         // Confirm before overwriting the source preset — it's an in-place change to a
@@ -511,6 +562,23 @@ private struct WorkoutEditor: View {
     // Done resigns the first responder app-wide rather than only clearing @FocusState:
     // the note and rep-range fields on this screen aren't tracked by `focusedField`, so
     // clearing it alone would leave their keyboards up.
+    // Claude  Date 08/25/2026
+    // The two faces of the save-outcome alert. The duplicate case names the preset that
+    // already matches and warns that the workout has been linked to it — otherwise
+    // "Override Preset" appearing afterwards would look like it came from nowhere.
+    private var savedPresetTitle: String {
+        duplicatePreset == nil ? "Saved to Presets" : "Preset Already Exists"
+    }
+
+    private var savedPresetMessage: String {
+        guard let duplicatePreset else {
+            return "Find it on the Presets tab to set an icon or tweak it."
+        }
+        let name = duplicatePreset.name.isEmpty ? "Untitled Preset" : duplicatePreset.name
+        return "“\(name)” already matches this workout exactly, so nothing new was saved. "
+            + "This workout is now linked to it — use Override Preset to push later changes onto it."
+    }
+
     private func dismissKeyboardBar() {
         focusedField = nil
         hideKeyboard()
@@ -637,7 +705,10 @@ private struct ExerciseLogSection: View {
         // workout; Remove drops it entirely.
         ExerciseActionsRow(onSwap: { showingSwapPicker = true }, onRemove: onRemove)
             .sheet(isPresented: $showingSwapPicker) {
-                ExercisePickerView { onSwap($0) }
+                // Claude  Date 08/16/2026
+                // Hand the picker the lift being swapped out so plausible substitutes
+                // sort to the top (see Exercise.related). Typing a search cancels that.
+                ExercisePickerView(relatedTo: store.exercise(for: logged.exerciseId)) { onSwap($0) }
             }
     }
 

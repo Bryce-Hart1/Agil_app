@@ -34,6 +34,11 @@ struct WorkoutsListView: View {
     // Raised by the preset button when store.presets is empty — a Menu with no
     // content would just open an empty popover, which reads as a broken button.
     @State private var showingNoPresets = false
+    // Claude  Date 08/25/2026
+    // The history rows a swipe asked to delete (empty = none), held while the
+    // confirmation alert is up. An array because .onDelete hands over an IndexSet —
+    // in practice always one row, but the alert copy handles either.
+    @State private var pendingDelete: [Workout] = []
 
     // How many recent workouts History shows before "Show all".
     private static let historyPreviewCount = 3
@@ -118,6 +123,18 @@ struct WorkoutsListView: View {
             // names both ways to get a preset, and "Browse Premade" actually takes
             // the user to one of them rather than leaving them to find it — it
             // raises the same sheet the get-started state uses.
+            // Claude  Date 08/25/2026
+            // The history delete confirmation. Cancel is the default button, so a
+            // mis-swipe costs one tap and nothing else.
+            .alert("Delete Workout?", isPresented: deleteConfirmationBinding) {
+                Button("Delete", role: .destructive) {
+                    pendingDelete.map(\.id).forEach(store.deleteWorkout)
+                    pendingDelete = []
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text(deleteConfirmationMessage)
+            }
             .alert("No presets yet", isPresented: $showingNoPresets) {
                 Button("Browse Premade") { showingPremade = true }
                 Button("OK", role: .cancel) { }
@@ -258,8 +275,13 @@ struct WorkoutsListView: View {
                             WorkoutRow(workout: workout)
                         }
                     }
+                    // Claude  Date 08/25/2026
+                    // Confirm before deleting a logged session: a swipe here throws away
+                    // sets that already counted toward stats and badges, and there's no
+                    // undo. The rows are captured (not just the offsets) so the alert can
+                    // name what it's about to remove.
                     .onDelete { offsets in
-                        offsets.map { visibleHistory[$0].id }.forEach(store.deleteWorkout)
+                        pendingDelete = offsets.map { visibleHistory[$0] }
                     }
 
                     // Claude  Date 06/18/2026
@@ -279,6 +301,26 @@ struct WorkoutsListView: View {
                 if !finishedWorkouts.isEmpty { Text("History") }
             }
         }
+    }
+
+    // Claude  Date 08/25/2026
+    // Bool binding over `pendingDelete` for the confirmation alert; dismissing clears
+    // the captured rows so a cancelled swipe leaves nothing staged.
+    private var deleteConfirmationBinding: Binding<Bool> {
+        Binding(get: { !pendingDelete.isEmpty }, set: { if !$0 { pendingDelete = [] } })
+    }
+
+    // Claude  Date 08/25/2026
+    // Names the session by its date — the same thing its History row shows — so it's
+    // clear which one is going. Plural path is there because .onDelete can hand over
+    // more than one row.
+    private var deleteConfirmationMessage: String {
+        let tail = "The sets in it stop counting toward your stats and badges. This can't be undone."
+        guard pendingDelete.count == 1, let workout = pendingDelete.first else {
+            return "Delete \(pendingDelete.count) workouts? \(tail)"
+        }
+        let date = workout.date.formatted(.dateTime.weekday(.wide).month().day())
+        return "Your workout from \(date) will be removed. \(tail)"
     }
 
     /// Adds a new workout to the store and navigates into its editor (as new).
@@ -356,12 +398,20 @@ private struct WorkoutRow: View {
         }
     }
 
+    // Claude  Date 08/21/2026
+    // How long the session took, appended to the shape of it. The duration was only
+    // ever visible on the performance card, which is gone the moment you dismiss it —
+    // the History row is where you'd actually go looking for it later. Dropped
+    // entirely when the workout has no honest span (see Workout.elapsed): a legacy
+    // workout with no stamps and no checked sets would otherwise claim "<1 min".
     private var summary: String {
         let exerciseCount = workout.exercises.count
         let setCount = workout.totalSets
         let exercisePart = "\(exerciseCount) exercise\(exerciseCount == 1 ? "" : "s")"
         let setPart = "\(setCount) set\(setCount == 1 ? "" : "s")"
-        return "\(exercisePart) • \(setPart)"
+        var parts = [exercisePart, setPart]
+        if let elapsed = workout.elapsedText { parts.append(elapsed) }
+        return parts.joined(separator: " • ")
     }
 }
 
