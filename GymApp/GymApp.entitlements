@@ -2,6 +2,21 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- Claude  Date 08/13/2026
+	     RELEASE entitlements for the app target. As of 08/13 this file is
+	     HAND-MAINTAINED — xcodegen no longer generates it, because an
+	     `entitlements:` block in project.yml forces one file onto every build
+	     configuration and we need Debug to differ (see GymAppDebug.entitlements
+	     and the note on the GymApp target in project.yml).
+
+	     Anything added here must be added to GymAppDebug.entitlements too, unless
+	     it's a capability a personal Apple team can't provision.
+
+	     iCloud key-value storage below backs the coin wallet: coin packs are
+	     StoreKit consumables, absent from Transaction.currentEntitlements with no
+	     "restore purchases" path, so without this, deleting the app destroys coins
+	     somebody paid for. The App ID must have iCloud → Key-value storage enabled
+	     or release signing fails. -->
 	<key>com.apple.developer.ubiquity-kvstore-identifier</key>
 	<string>$(TeamIdentifierPrefix)$(CFBundleIdentifier)</string>
 	<key>com.apple.security.application-groups</key>
