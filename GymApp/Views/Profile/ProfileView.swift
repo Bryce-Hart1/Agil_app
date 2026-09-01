@@ -73,6 +73,15 @@ struct ProfileView: View {
             // .tourTarget: toolbar items live in a UIKit navigation bar and a SwiftUI
             // preference can't escape it. Gated on the tab because ProfileView is
             // mounted in BOTH worlds, so two instances can be alive at once.
+            //
+            // Claude  Date 08/23/2026
+            // (08/23) A coin-balance chip lived on the trailing side here for one build
+            // and is gone again. Two items a side is one item a side too many: the
+            // ModeNotch pill gets whatever width the bar BUTTONS leave, so the extra
+            // chip (plus the navBarBalancer needed to keep the pill centred) squeezed
+            // it until "Lifting" truncated to "…" and the calorie stat to "0/…". The
+            // balance now rides inside the pill itself, where it costs no bar width and
+            // shows on every root screen instead of just this one — see ModeNotch.
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     NavigationLink {
@@ -197,8 +206,27 @@ struct ProfileView: View {
             // count. It's now the medal button in the nav bar's top-left instead —
             // one place, not two, and reachable without scrolling past the card,
             // which is the point when an unopened badge is what brought you here.
-            profileNavRow("Shop", systemImage: "bag") {
+            // Claude  Date 08/23/2026
+            // The balance rides the row itself, so "how many coins do I have" is
+            // answered on the way to the Shop rather than only once you're inside it.
+            profileNavRow("Shop", systemImage: "bag", accessory: {
+                Label("\(theme.balance.formatted())", systemImage: "circle.hexagongrid.fill")
+                    .font(.subheadline)
+                    .monospacedDigit()
+                    .foregroundStyle(theme.current.accent)
+            }) {
                 ShopView()
+            }
+            Divider().padding(.leading, 16)
+            // Claude  Date 08/23/2026
+            // Help & Demos: written walkthroughs of the flows a new user has to be
+            // shown once (build a preset, log a custom food, change the theme…),
+            // each step carrying the real on-screen icon. Sits next to Settings
+            // because that's where the guided tour already lives — this is the
+            // reference you read at your own pace, the tour is the one that walks
+            // you around. Copy is still being written; see HelpGuides.swift.
+            profileNavRow("Help & Demos", systemImage: "questionmark.circle") {
+                HelpGuidesView()
             }
             Divider().padding(.leading, 16)
             profileNavRow("Settings", systemImage: "gearshape") {
@@ -211,28 +239,32 @@ struct ProfileView: View {
     // Claude  Date 06/12/2026 last changed: 07/13/2026 by: Claude
     // A tappable row that pushes a destination, styled as a settings row. The
     // SF-Symbol and custom-asset variants both funnel into the shared core below.
-    private func profileNavRow<Destination: View>(
+    private func profileNavRow<Accessory: View, Destination: View>(
         _ title: String,
         systemImage: String,
         disabledMessage: String? = nil,
+        @ViewBuilder accessory: () -> Accessory = { EmptyView() },
         @ViewBuilder destination: () -> Destination
     ) -> some View {
         profileNavRow(title, disabledMessage: disabledMessage,
-                      icon: { Image(systemName: systemImage) }, destination: destination)
+                      icon: { Image(systemName: systemImage) },
+                      accessory: accessory, destination: destination)
     }
 
     // Claude  Date 07/13/2026
     // Variant taking a custom asset-catalog icon (template image) instead of an SF
     // Symbol — used by the Edit Profile Card row (wrench). Sized to match the
     // symbol rows' icon footprint.
-    private func profileNavRow<Destination: View>(
+    private func profileNavRow<Accessory: View, Destination: View>(
         _ title: String,
         image: String,
+        @ViewBuilder accessory: () -> Accessory = { EmptyView() },
         @ViewBuilder destination: () -> Destination
     ) -> some View {
         profileNavRow(
             title,
             icon: { Image(image).resizable().scaledToFit().frame(width: 20, height: 20) },
+            accessory: accessory,
             destination: destination
         )
     }
@@ -245,11 +277,25 @@ struct ProfileView: View {
     // (07/28) The `badgeCount` parameter came out with the Achievements row — it was
     // that row's alone, and nothing else here has ever wanted a count. The unopened
     // count now rides the nav bar's medal button instead; see unopenedBadge.
+    //
+    // Claude  Date 08/23/2026
+    // (08/23) `accessory` is a trailing slot between the title and the chevron, added so
+    // the Shop row can show the coin balance inline. Generic and @ViewBuilder rather
+    // than a `detail: String?` because what goes there is a coin Label, not text.
+    //
+    // It sits BEFORE `destination` on purpose, and callers pass it as a labelled
+    // argument rather than a second trailing closure. Swift matches an unlabelled
+    // trailing closure by scanning the parameter list BACKWARDS for the first
+    // function-typed parameter, so parking a defaulted closure last would silently
+    // re-point every existing `profileNavRow("Settings", …) { SettingsView() }` call at
+    // `accessory` and leave `destination` unsatisfied. Destination stays last; the one
+    // row that wants an accessory spells it out.
     @ViewBuilder
-    private func profileNavRow<Icon: View, Destination: View>(
+    private func profileNavRow<Icon: View, Accessory: View, Destination: View>(
         _ title: String,
         disabledMessage: String? = nil,
         @ViewBuilder icon: () -> Icon,
+        @ViewBuilder accessory: () -> Accessory = { EmptyView() },
         @ViewBuilder destination: () -> Destination
     ) -> some View {
         if let disabledMessage {
@@ -270,6 +316,7 @@ struct ProfileView: View {
                 HStack {
                     Label { Text(title) } icon: { icon() }
                     Spacer()
+                    accessory()
                     Image(systemName: "chevron.right")
                         .font(.footnote.weight(.semibold))
                         .foregroundStyle(.secondary)

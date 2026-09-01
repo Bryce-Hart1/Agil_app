@@ -26,6 +26,8 @@ struct AnimatedCardBackground: View {
             case .galaxy:                GalaxyBackground()
             case .molten:                MoltenBackground()
             case .cherryBlossom:         CherryBlossomBackground()
+            case .thunderstorm:          ThunderstormBackground()
+            case .coralReef:             CoralReefBackground()
             case .foundersShootingStars: FoundersShootingStarsBackground()
             case .foundersGalaxy:        FoundersGalaxyBackground()
             case .foundersConstellation: FoundersConstellationBackground()
@@ -1706,6 +1708,957 @@ private struct CherryBlossomBackground: View {
         }
         .drawingGroup()
     }
+}
+
+// MARK: - Thunderstorm
+
+// Claude  Date 08/24/2026
+// "Thunderstorm": the view from *inside* the storm cloud rather than under it.
+// A bank of slow-drifting violet cloud puffs fills the frame, lit from within by
+// in-cloud flashes that bloom and stutter behind the vapour, with a few small,
+// distant bolts breaking through high up. Deliberately no full-canvas white
+// flash and no near strike — every light source is buried in the cloud, so the
+// card glows and flickers instead of strobing. Each flash and bolt runs on its
+// own loop and only fires during a slice of it (the Shooting Stars meteor
+// trick), so nothing ever pulses in lockstep.
+private struct ThunderstormBackground: View {
+    // The cloud bank: lighter violet through the middle (the lit vapour you're
+    // sitting inside), heavy near-black masses below to give the frame a floor.
+    private let puffs: [Puff] = [
+        Puff(x: 0.20, y: 0.28, size: 1.05, color: Color(red: 0.30, green: 0.26, blue: 0.44),
+             phase: 0.0, speed: 0.10),
+        Puff(x: 0.72, y: 0.22, size: 0.95, color: Color(red: 0.24, green: 0.21, blue: 0.38),
+             phase: 1.9, speed: 0.08),
+        Puff(x: 0.48, y: 0.52, size: 1.15, color: Color(red: 0.35, green: 0.30, blue: 0.50),
+             phase: 3.3, speed: 0.12),
+        Puff(x: 0.12, y: 0.72, size: 0.90, color: Color(red: 0.14, green: 0.12, blue: 0.22),
+             phase: 4.7, speed: 0.09),
+        Puff(x: 0.85, y: 0.78, size: 1.00, color: Color(red: 0.12, green: 0.11, blue: 0.20),
+             phase: 2.4, speed: 0.11),
+        Puff(x: 0.55, y: 0.92, size: 0.85, color: Color(red: 0.07, green: 0.06, blue: 0.13),
+             phase: 5.6, speed: 0.07),
+    ]
+
+    // Lightning buried in the cloud — each one is just a soft radial bloom that
+    // lights the vapour around it. Heavily blurred, so you read the glow and
+    // never the shape.
+    //
+    // Claude  Date 08/24/2026
+    // Pushed harder (Bryce, 8/24/26 — "make the lightning a little more prominent"):
+    // six cells instead of five, larger radii so a flash washes further across the
+    // cloud, and shorter periods so the sky is rarely fully dark. Brightness comes
+    // from spread and frequency rather than a full-canvas flash, which is what keeps
+    // it reading as in-cloud instead of overhead.
+    private let glows: [Glow] = {
+        var rng = SeededGenerator(seed: 211)
+        return (0..<6).map { _ in
+            Glow(x: .random(in: 0.10...0.90, using: &rng),
+                 y: .random(in: 0.16...0.64, using: &rng),
+                 radius: .random(in: 0.52...0.98, using: &rng),
+                 strength: .random(in: 0.72...1.0, using: &rng),
+                 period: .random(in: 2.8...6.0, using: &rng),
+                 offset: .random(in: 0...6.0, using: &rng),
+                 activeFraction: .random(in: 0.12...0.24, using: &rng),
+                 flicker: .random(in: 5...11, using: &rng),
+                 phase: .random(in: 0...(2 * .pi), using: &rng))
+        }
+    }()
+
+    // The bolts that actually show. Seeded once into unit-space polylines so a given
+    // card always throws the same shapes; still kept high in the frame and veiled by
+    // the halo pass so they read as far off through the murk — six of them now, firing
+    // roughly twice as often as the first pass (Bryce, 8/24/26). Prominence comes from
+    // count and cadence, not from bringing them closer.
+    private let bolts: [Bolt] = {
+        var rng = SeededGenerator(seed: 283)
+        return (0..<6).map { _ in
+            let startX = Double.random(in: 0.14...0.86, using: &rng)
+            let startY = Double.random(in: 0.05...0.26, using: &rng)
+            let length = Double.random(in: 0.22...0.40, using: &rng)
+            let segments = Int.random(in: 6...9, using: &rng)
+
+            // Main channel: walks straight down, jittering side to side.
+            var x = startX
+            var points: [CGPoint] = []
+            for i in 0...segments {
+                let f = Double(i) / Double(segments)
+                x += Double.random(in: -0.035...0.035, using: &rng)
+                points.append(CGPoint(x: x, y: startY + length * f))
+            }
+
+            // One or two short forks off a middle joint, so the bolt branches
+            // like the real thing instead of reading as a scratch.
+            var branches: [[CGPoint]] = []
+            for _ in 0..<Int.random(in: 1...2, using: &rng) {
+                let joint = Int.random(in: 2...(segments - 2), using: &rng)
+                let dir: Double = Bool.random(using: &rng) ? 1 : -1
+                var bx = Double(points[joint].x)
+                var by = Double(points[joint].y)
+                var fork: [CGPoint] = [points[joint]]
+                for _ in 0..<Int.random(in: 2...4, using: &rng) {
+                    bx += dir * Double.random(in: 0.012...0.032, using: &rng)
+                    by += Double.random(in: 0.018...0.040, using: &rng)
+                    fork.append(CGPoint(x: bx, y: by))
+                }
+                branches.append(fork)
+            }
+
+            return Bolt(points: points, branches: branches,
+                        width: .random(in: 1.3...2.2, using: &rng),
+                        period: .random(in: 4.2...7.5, using: &rng),
+                        offset: .random(in: 0...7.5, using: &rng),
+                        activeFraction: .random(in: 0.050...0.080, using: &rng),
+                        flicker: .random(in: 7...13, using: &rng),
+                        phase: .random(in: 0...(2 * .pi), using: &rng))
+        }
+    }()
+
+    // A thin veil of rain drawn over everything — present, but faint enough that
+    // the cloud stays the subject.
+    private let rain: [Drop] = {
+        var rng = SeededGenerator(seed: 419)
+        return (0..<90).map { _ in
+            Drop(x: .random(in: -0.10...1.10, using: &rng),
+                 speed: .random(in: 0.55...1.15, using: &rng),
+                 offset: .random(in: 0...1, using: &rng),
+                 length: .random(in: 0.05...0.12, using: &rng),
+                 width: .random(in: 0.5...1.1, using: &rng),
+                 alpha: .random(in: 0.05...0.16, using: &rng))
+        }
+    }()
+
+    var body: some View {
+        TimelineView(.animation) { tl in
+            let t = tl.date.timeIntervalSinceReferenceDate
+            Canvas { ctx, size in
+                let w = size.width, h = size.height
+                let rect = CGRect(origin: .zero, size: size)
+                let minDim = min(w, h)
+
+                // Storm base: bruised violet up top falling away to near-black.
+                ctx.fill(Path(rect), with: .linearGradient(
+                    Gradient(colors: [Color(red: 0.13, green: 0.11, blue: 0.22),
+                                      Color(red: 0.08, green: 0.07, blue: 0.15),
+                                      Color(red: 0.04, green: 0.03, blue: 0.08)]),
+                    startPoint: .zero, endPoint: CGPoint(x: 0, y: h)))
+
+                // The cloud bank, drifting on slow sine paths. Blurred as one
+                // layer so the puffs melt together into vapour.
+                ctx.drawLayer { layer in
+                    layer.addFilter(.blur(radius: minDim * 0.22))
+                    for p in puffs {
+                        let dx = CGFloat(sin(t * p.speed + p.phase)) * w * 0.06
+                        let dy = CGFloat(cos(t * p.speed * 0.7 + p.phase)) * h * 0.03
+                        let d = minDim * p.size
+                        let r = CGRect(x: p.x * w - d / 2 + dx,
+                                       y: p.y * h - d / 2 + dy,
+                                       width: d, height: d * 0.78)
+                        layer.fill(Path(ellipseIn: r), with: .color(p.color.opacity(0.62)))
+                    }
+                }
+
+                // In-cloud lightning: soft blooms lighting the vapour from behind.
+                // plusLighter so they add light to the cloud rather than paint a
+                // grey disc over it.
+                ctx.drawLayer { layer in
+                    layer.addFilter(.blur(radius: minDim * 0.14))
+                    layer.blendMode = .plusLighter
+                    for g in glows {
+                        let local = ((t + g.offset) / g.period).truncatingRemainder(dividingBy: 1)
+                        guard local < g.activeFraction else { continue }
+                        let i = pulse(local / g.activeFraction, flicker: g.flicker, phase: g.phase)
+                        guard i > 0.001 else { continue }
+                        let amp = i * g.strength
+                        let cx = g.x * w, cy = g.y * h
+                        let rad = minDim * g.radius
+                        layer.fill(
+                            Path(ellipseIn: CGRect(x: cx - rad, y: cy - rad * 0.82,
+                                                   width: rad * 2, height: rad * 1.64)),
+                            with: .radialGradient(
+                                Gradient(colors: [Color(red: 0.88, green: 0.85, blue: 1.0).opacity(0.66 * amp),
+                                                  Color(red: 0.56, green: 0.48, blue: 0.90).opacity(0.30 * amp),
+                                                  .clear]),
+                                center: CGPoint(x: cx, y: cy), startRadius: 0, endRadius: rad))
+                    }
+                }
+
+                // Distant bolts. Drawn twice: a wide blurred halo so the channel
+                // looks like it's glowing *through* cloud, then a thin core on
+                // top. Both stay dim — nothing here is meant to be close.
+                for b in bolts {
+                    let local = ((t + b.offset) / b.period).truncatingRemainder(dividingBy: 1)
+                    guard local < b.activeFraction else { continue }
+                    let i = pulse(local / b.activeFraction, flicker: b.flicker, phase: b.phase)
+                    guard i > 0.001 else { continue }
+
+                    var channel = Path()
+                    channel.addLines(b.points.map { CGPoint(x: $0.x * w, y: $0.y * h) })
+                    var forks = Path()
+                    for f in b.branches {
+                        forks.addLines(f.map { CGPoint(x: $0.x * w, y: $0.y * h) })
+                    }
+
+                    ctx.drawLayer { layer in
+                        layer.addFilter(.blur(radius: minDim * 0.040))
+                        layer.blendMode = .plusLighter
+                        layer.stroke(channel,
+                                     with: .color(Color(red: 0.70, green: 0.63, blue: 0.98).opacity(0.78 * i)),
+                                     style: StrokeStyle(lineWidth: b.width * 6.5, lineCap: .round, lineJoin: .round))
+                        layer.stroke(forks,
+                                     with: .color(Color(red: 0.70, green: 0.63, blue: 0.98).opacity(0.52 * i)),
+                                     style: StrokeStyle(lineWidth: b.width * 4.0, lineCap: .round, lineJoin: .round))
+                    }
+                    ctx.drawLayer { layer in
+                        layer.addFilter(.blur(radius: 0.7))
+                        layer.blendMode = .plusLighter
+                        layer.stroke(channel,
+                                     with: .color(Color(red: 0.96, green: 0.95, blue: 1.0).opacity(0.95 * i)),
+                                     style: StrokeStyle(lineWidth: b.width, lineCap: .round, lineJoin: .round))
+                        layer.stroke(forks,
+                                     with: .color(Color(red: 0.96, green: 0.95, blue: 1.0).opacity(0.68 * i)),
+                                     style: StrokeStyle(lineWidth: b.width * 0.70, lineCap: .round, lineJoin: .round))
+                    }
+                }
+
+                // Rain veil, falling on a loop and slanting slightly with the drift.
+                ctx.drawLayer { layer in
+                    layer.addFilter(.blur(radius: 0.4))
+                    for d in rain {
+                        let prog = (t * d.speed + d.offset).truncatingRemainder(dividingBy: 1)
+                        let len = CGFloat(d.length) * h
+                        let headY = CGFloat(prog) * (h + len) - len
+                        let headX = CGFloat(d.x) * w + CGFloat(sin(t * 0.2 + d.offset * 6)) * w * 0.01
+                        var streak = Path()
+                        streak.move(to: CGPoint(x: headX, y: headY))
+                        streak.addLine(to: CGPoint(x: headX - len * 0.26, y: headY - len))
+                        layer.stroke(streak,
+                                     with: .color(Color(red: 0.80, green: 0.78, blue: 0.95).opacity(d.alpha)),
+                                     style: StrokeStyle(lineWidth: CGFloat(d.width), lineCap: .round))
+                    }
+                }
+            }
+        }
+        .drawingGroup()   // composite the canvas on the GPU
+    }
+
+    // Claude  Date 08/24/2026
+    // The brightness curve for one strike, over its 0…1 active slice. Real
+    // lightning snaps on and then gutters out in steps, so this is a fast attack
+    // into a squared-off decay with a stutter riding on top — never a clean fade,
+    // per the "don't let a loop feel exact" rule.
+    private func pulse(_ p: Double, flicker: Double, phase: Double) -> Double {
+        let attack = 0.10
+        let envelope = p < attack ? p / attack : pow(1 - (p - attack) / (1 - attack), 2.2)
+        let stutter = 0.62 + 0.38 * sin(p * .pi * flicker + phase)
+        return max(0, envelope * stutter)
+    }
+
+    private struct Puff { let x, y, size: Double; let color: Color; let phase, speed: Double }
+    private struct Glow { let x, y, radius, strength, period, offset, activeFraction, flicker, phase: Double }
+    private struct Bolt {
+        let points: [CGPoint]
+        let branches: [[CGPoint]]
+        let width, period, offset, activeFraction, flicker, phase: Double
+    }
+    private struct Drop { let x, speed, offset, length, width, alpha: Double }
+}
+
+// MARK: - Coral Reef
+
+// Claude  Date 08/28/2026
+// "Coral Reef": the view from the seabed looking up through open water. A bright
+// tropical surface falls away to deep navy, shafts of light fan down through it,
+// and a hand-composed reef of sea fans, tube sponges, brain coral, branching coral,
+// and kelp grows along the bottom edge. Glassy bubbles and tiny plankton rise at
+// different depths through the frame.
+//
+// Depth is sold the Cherry Blossom way — by blur per layer rather than by scale:
+// the far bed is hazy and blue (water between it and you), the near bed is nearly
+// black and sharp. Plankton are drawn *between* the two so the near silhouettes
+// actually occlude some of them. Every stalk sways on its own phase via the
+// GraphicsContext-copy transform, so the bed ripples like a current is running
+// through it instead of tipping as one block, and each sway sums two frequencies
+// so the water never settles into a visible loop.
+private struct CoralReefBackground: View {
+    // Claude  Date 08/28/2026
+    // The one card that honours Reduce Motion (the design-language doc flags its
+    // absence as a real gap). With it on, the Canvas is drawn once at a fixed t
+    // instead of being driven by TimelineView — a clean still frame, not a
+    // disabled card, and no repainting at 120Hz for motion that isn't happening.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    // Frozen-frame timestamp. Nonzero so no layer sits exactly at the start of
+    // its own loop, which is where a few of them look posed.
+    private static let stillT: Double = 8.0
+
+    // Surface light. Hand-placed rather than seeded — this is a composed element
+    // (like the Shooting Stars nebula clouds), and evenly random shafts read as
+    // an accident instead of light coming through a surface.
+    private let shafts: [Shaft] = [
+        Shaft(x: 0.16, width: 0.13, length: 0.86, tilt:  0.16, phase: 0.0, speed: 0.055),
+        Shaft(x: 0.38, width: 0.09, length: 0.70, tilt:  0.10, phase: 1.6, speed: 0.041),
+        Shaft(x: 0.58, width: 0.16, length: 0.92, tilt: -0.06, phase: 3.0, speed: 0.062),
+        Shaft(x: 0.79, width: 0.11, length: 0.74, tilt: -0.14, phase: 4.3, speed: 0.048),
+        Shaft(x: 0.93, width: 0.08, length: 0.60, tilt: -0.20, phase: 5.5, speed: 0.037),
+    ]
+
+    // Kelp, seeded once so a given card always grows the same bed. Indices 0–4 are
+    // the far rank (shorter, hazier), 5–8 the near rank (taller, sharper).
+    private let stalks: [Stalk] = {
+        var rng = SeededGenerator(seed: 463)
+        return (0..<9).map { i in
+            let near = i >= 5
+            let baseX = Double.random(in: -0.04...1.04, using: &rng)
+            let height = near ? Double.random(in: 0.28...0.48, using: &rng)
+                              : Double.random(in: 0.14...0.30, using: &rng)
+            let segments = Int.random(in: 5...7, using: &rng)
+            let bend = Double.random(in: -0.10...0.10, using: &rng)
+
+            // Spine: leans off vertical as it rises (bend grows with height²) with a
+            // shallow S riding on top, so no stalk is a straight pole.
+            var points: [CGPoint] = []
+            for s in 0...segments {
+                let f = Double(s) / Double(segments)
+                let x = baseX + bend * f * f + sin(f * .pi * 1.3) * 0.022
+                points.append(CGPoint(x: x, y: 1.02 - height * f))
+            }
+
+            var blades: [Blade] = []
+            for _ in 0..<Int.random(in: 3...6, using: &rng) {
+                blades.append(Blade(joint: Int.random(in: 1...(segments - 1), using: &rng),
+                                    dir: Bool.random(using: &rng) ? 1 : -1,
+                                    length: .random(in: 0.05...0.12, using: &rng),
+                                    angle: .random(in: 0.55...1.15, using: &rng),
+                                    phase: .random(in: 0...(2 * .pi), using: &rng)))
+            }
+
+            return Stalk(points: points, blades: blades,
+                         width: near ? .random(in: 0.016...0.026, using: &rng)
+                                     : .random(in: 0.010...0.017, using: &rng),
+                         sway: .random(in: 0.030...0.070, using: &rng),
+                         swayPhase: .random(in: 0...(2 * .pi), using: &rng),
+                         near: near)
+        }
+    }()
+
+    // Unlike the procedural kelp and particles, the reef itself is art-directed.
+    // It is a scene, so every silhouette and color cluster has a deliberate place.
+    private let branchCorals: [BranchCoral] = [
+        BranchCoral(x: 0.08, scale: 0.66, armWidth: 0.014, swayPhase: 0.4, near: false,
+                    baseColor: Color(red: 0.18, green: 0.50, blue: 0.57),
+                    tipColor: Color(red: 0.43, green: 0.76, blue: 0.70),
+                    arms: [CoralArm(angle: 0.73, length: 0.13, kink: 0.30, fork: -1),
+                           CoralArm(angle: 1.13, length: 0.17, kink: -0.12, fork: 1),
+                           CoralArm(angle: 1.53, length: 0.18, kink: 0.08, fork: -1),
+                           CoralArm(angle: 1.94, length: 0.15, kink: 0.22, fork: 1),
+                           CoralArm(angle: 2.36, length: 0.12, kink: -0.28, fork: -1)]),
+        BranchCoral(x: 0.64, scale: 0.58, armWidth: 0.013, swayPhase: 2.1, near: false,
+                    baseColor: Color(red: 0.34, green: 0.27, blue: 0.55),
+                    tipColor: Color(red: 0.59, green: 0.48, blue: 0.72),
+                    arms: [CoralArm(angle: 0.78, length: 0.13, kink: -0.18, fork: 1),
+                           CoralArm(angle: 1.20, length: 0.17, kink: 0.17, fork: -1),
+                           CoralArm(angle: 1.63, length: 0.18, kink: -0.10, fork: 1),
+                           CoralArm(angle: 2.04, length: 0.16, kink: 0.24, fork: -1),
+                           CoralArm(angle: 2.42, length: 0.12, kink: -0.18, fork: 1)]),
+        BranchCoral(x: 0.19, scale: 1.02, armWidth: 0.018, swayPhase: 1.1, near: true,
+                    baseColor: Color(red: 0.72, green: 0.20, blue: 0.30),
+                    tipColor: Color(red: 1.00, green: 0.52, blue: 0.40),
+                    arms: [CoralArm(angle: 0.64, length: 0.13, kink: 0.35, fork: -1),
+                           CoralArm(angle: 0.98, length: 0.19, kink: -0.16, fork: 1),
+                           CoralArm(angle: 1.30, length: 0.22, kink: 0.15, fork: -1),
+                           CoralArm(angle: 1.62, length: 0.24, kink: -0.08, fork: 1),
+                           CoralArm(angle: 1.96, length: 0.20, kink: 0.20, fork: -1),
+                           CoralArm(angle: 2.32, length: 0.15, kink: -0.32, fork: 1)]),
+        BranchCoral(x: 0.82, scale: 0.92, armWidth: 0.017, swayPhase: 4.2, near: true,
+                    baseColor: Color(red: 0.53, green: 0.16, blue: 0.48),
+                    tipColor: Color(red: 0.96, green: 0.36, blue: 0.66),
+                    arms: [CoralArm(angle: 0.72, length: 0.13, kink: -0.20, fork: 1),
+                           CoralArm(angle: 1.09, length: 0.18, kink: 0.20, fork: -1),
+                           CoralArm(angle: 1.48, length: 0.22, kink: -0.13, fork: 1),
+                           CoralArm(angle: 1.87, length: 0.18, kink: 0.26, fork: -1),
+                           CoralArm(angle: 2.28, length: 0.14, kink: -0.27, fork: 1)]),
+    ]
+
+    private let tubeSponges: [TubeCluster] = [
+        TubeCluster(x: 0.34, near: false,
+                    baseColor: Color(red: 0.15, green: 0.42, blue: 0.54),
+                    rimColor: Color(red: 0.38, green: 0.69, blue: 0.67),
+                    tubes: [Tube(dx: -0.030, height: 0.12, width: 0.037, tilt: -0.012),
+                            Tube(dx: 0.004, height: 0.17, width: 0.043, tilt: 0.004),
+                            Tube(dx: 0.038, height: 0.10, width: 0.034, tilt: 0.014)]),
+        TubeCluster(x: 0.57, near: true,
+                    baseColor: Color(red: 0.73, green: 0.26, blue: 0.08),
+                    rimColor: Color(red: 1.00, green: 0.68, blue: 0.20),
+                    tubes: [Tube(dx: -0.055, height: 0.15, width: 0.052, tilt: -0.019),
+                            Tube(dx: -0.010, height: 0.24, width: 0.064, tilt: -0.006),
+                            Tube(dx: 0.042, height: 0.19, width: 0.057, tilt: 0.018),
+                            Tube(dx: 0.078, height: 0.12, width: 0.044, tilt: 0.020)]),
+    ]
+
+    private let seaFans: [SeaFan] = [
+        SeaFan(x: 0.87, width: 0.20, height: 0.23, lean: -0.035, near: false,
+               baseColor: Color(red: 0.21, green: 0.40, blue: 0.55),
+               tipColor: Color(red: 0.42, green: 0.62, blue: 0.68)),
+        SeaFan(x: 0.94, width: 0.24, height: 0.31, lean: -0.060, near: true,
+               baseColor: Color(red: 0.42, green: 0.12, blue: 0.46),
+               tipColor: Color(red: 0.84, green: 0.37, blue: 0.73)),
+    ]
+
+    private let brainCorals: [BrainCoral] = [
+        BrainCoral(x: 0.47, width: 0.17, height: 0.085, near: false,
+                   baseColor: Color(red: 0.20, green: 0.46, blue: 0.48),
+                   topColor: Color(red: 0.43, green: 0.68, blue: 0.57)),
+        BrainCoral(x: 0.39, width: 0.23, height: 0.13, near: true,
+                   baseColor: Color(red: 0.50, green: 0.28, blue: 0.06),
+                   topColor: Color(red: 0.96, green: 0.67, blue: 0.20)),
+    ]
+
+    // True bubbles have a bright rim, transparent body, and a small crescent
+    // highlight. Larger foreground bubbles travel more slowly and stay sharp.
+    private let bubbles: [Bubble] = {
+        var rng = SeededGenerator(seed: 619)
+        return (0..<28).map { i in
+            let far = i < 11
+            return Bubble(x: .random(in: -0.02...1.02, using: &rng),
+                          speed: far ? .random(in: 0.010...0.020, using: &rng)
+                                     : .random(in: 0.007...0.016, using: &rng),
+                          offset: .random(in: 0...1, using: &rng),
+                          radius: far ? .random(in: 1.2...3.2, using: &rng)
+                                      : .random(in: 3.0...8.0, using: &rng),
+                          phase: .random(in: 0...(2 * .pi), using: &rng),
+                          drift: .random(in: 0.008...0.026, using: &rng),
+                          far: far)
+        }
+    }()
+
+    // Bioluminescent plankton. Slow enough that a full rise takes 25–80s — ambient
+    // drift, never something the eye tracks.
+    private let motes: [Mote] = {
+        var rng = SeededGenerator(seed: 521)
+        return (0..<40).map { _ in
+            Mote(x: .random(in: -0.05...1.05, using: &rng),
+                 speed: .random(in: 0.012...0.040, using: &rng),
+                 offset: .random(in: 0...1, using: &rng),
+                 radius: .random(in: 0.6...2.0, using: &rng),
+                 phase: .random(in: 0...(2 * .pi), using: &rng),
+                 twinkle: .random(in: 0.35...1.10, using: &rng),
+                 drift: .random(in: 0.010...0.035, using: &rng),
+                 driftPhase: .random(in: 0...(2 * .pi), using: &rng))
+        }
+    }()
+
+    var body: some View {
+        Group {
+            if reduceMotion {
+                Canvas { ctx, size in scene(ctx, size: size, t: Self.stillT) }
+            } else {
+                TimelineView(.animation) { tl in
+                    let t = tl.date.timeIntervalSinceReferenceDate
+                    Canvas { ctx, size in scene(ctx, size: size, t: t) }
+                }
+            }
+        }
+        .drawingGroup()   // composite the canvas on the GPU
+    }
+
+    // Back to front. The two bubble fields and plankton sit at different depths;
+    // reef pieces in front of them create the occlusion that sells the water.
+    private func scene(_ ctx: GraphicsContext, size: CGSize, t: Double) {
+        drawWater(ctx, size: size)
+        drawShafts(ctx, size: size, t: t)
+        drawBubbles(ctx, size: size, t: t, far: true)
+        drawBed(ctx, size: size, t: t, near: false)
+        drawPlankton(ctx, size: size, t: t)
+        drawBubbles(ctx, size: size, t: t, far: false)
+        drawBed(ctx, size: size, t: t, near: true)
+    }
+
+    // The water column: a clean tropical cyan at the surface, saturated blue in
+    // the middle, and near-black navy at the bed. The off-center surface bloom
+    // gives the shafts a believable source and strengthens the value contrast.
+    private func drawWater(_ ctx: GraphicsContext, size: CGSize) {
+        let rect = CGRect(origin: .zero, size: size)
+        ctx.fill(Path(rect), with: .linearGradient(
+            Gradient(stops: [
+                .init(color: Color(red: 0.04,  green: 0.48,  blue: 0.60), location: 0.00),
+                .init(color: Color(red: 0.015, green: 0.27,  blue: 0.48), location: 0.28),
+                .init(color: Color(red: 0.010, green: 0.105, blue: 0.27), location: 0.67),
+                .init(color: Color(red: 0.004, green: 0.025, blue: 0.085), location: 1.00),
+            ]),
+            startPoint: .zero, endPoint: CGPoint(x: 0, y: size.height)))
+
+        let glowCenter = CGPoint(x: size.width * 0.42, y: -size.height * 0.04)
+        let glowRadius = max(size.width, size.height) * 0.78
+        ctx.fill(Path(rect), with: .radialGradient(
+            Gradient(colors: [Color(red: 0.42, green: 0.96, blue: 0.91).opacity(0.30),
+                              Color(red: 0.12, green: 0.62, blue: 0.74).opacity(0.08),
+                              .clear]),
+            center: glowCenter, startRadius: 0, endRadius: glowRadius))
+    }
+
+    // Shafts of surface light: tapered quads widening as they sink, fading out
+    // before they reach the bed. One blurred additive layer so they add light to
+    // the water instead of painting pale wedges over it.
+    private func drawShafts(_ ctx: GraphicsContext, size: CGSize, t: Double) {
+        let w = size.width, h = size.height
+        let minDim = min(w, h)
+        let light = Color(red: 0.55, green: 0.98, blue: 0.92)
+        ctx.drawLayer { layer in
+            layer.addFilter(.blur(radius: minDim * 0.09))
+            layer.blendMode = .plusLighter
+            for s in shafts {
+                let breathe = sin(t * s.speed + s.phase)
+                            + 0.55 * sin(t * s.speed * 0.37 + s.phase * 1.9)
+                let topY = -0.02 * h
+                let botY = CGFloat(s.length) * h
+                let topX = CGFloat(s.x + breathe * 0.018) * w
+                let botX = topX + CGFloat(s.tilt + breathe * 0.030) * w
+                let topW = CGFloat(s.width) * w * CGFloat(0.88 + 0.12 * breathe)
+                let botW = topW * 2.1
+
+                var beam = Path()
+                beam.move(to: CGPoint(x: topX - topW / 2, y: topY))
+                beam.addLine(to: CGPoint(x: topX + topW / 2, y: topY))
+                beam.addLine(to: CGPoint(x: botX + botW / 2, y: botY))
+                beam.addLine(to: CGPoint(x: botX - botW / 2, y: botY))
+                beam.closeSubpath()
+
+                layer.fill(beam, with: .linearGradient(
+                    Gradient(colors: [light.opacity(0.34), light.opacity(0.11), .clear]),
+                    startPoint: CGPoint(x: topX, y: topY), endPoint: CGPoint(x: botX, y: botY)))
+            }
+        }
+    }
+
+    // One rank of the reef. The far rank is cooler, smaller, and hazier; the near
+    // rank has the warm hero colors and crisp species-specific detail.
+    private func drawBed(_ ctx: GraphicsContext, size: CGSize, t: Double, near: Bool) {
+        let minDim = min(size.width, size.height)
+        let kelpColor = near ? Color(red: 0.025, green: 0.22, blue: 0.20)
+                             : Color(red: 0.055, green: 0.27, blue: 0.31)
+        ctx.drawLayer { layer in
+            layer.addFilter(.blur(radius: near ? 0.25 : minDim * 0.014))
+            drawSeabed(layer, size: size, near: near)
+            for fan in seaFans where fan.near == near {
+                drawSeaFan(layer, fan: fan, size: size)
+            }
+            for s in stalks where s.near == near {
+                drawStalk(layer, stalk: s, size: size, t: t, color: kelpColor)
+            }
+            for sponge in tubeSponges where sponge.near == near {
+                drawTubeCluster(layer, cluster: sponge, size: size)
+            }
+            for coral in brainCorals where coral.near == near {
+                drawBrainCoral(layer, coral: coral, size: size)
+            }
+            for coral in branchCorals where coral.near == near {
+                drawBranchCoral(layer, coral: coral, size: size, t: t)
+            }
+        }
+    }
+
+    private func drawStalk(_ ctx: GraphicsContext, stalk: Stalk, size: CGSize,
+                           t: Double, color: Color) {
+        let w = size.width, h = size.height
+        let minDim = min(w, h)
+
+        // Whole stalk flexes as one unit, pivoted where it enters the seabed.
+        let sway = stalk.sway * (sin(t * 0.28 + stalk.swayPhase)
+                                 + 0.55 * sin(t * 0.11 + stalk.swayPhase * 1.7))
+        var scene = ctx
+        let pivot = CGPoint(x: stalk.points[0].x * w, y: stalk.points[0].y * h)
+        scene.translateBy(x: pivot.x, y: pivot.y)
+        scene.rotate(by: .radians(sway))
+        scene.translateBy(x: -pivot.x, y: -pivot.y)
+
+        let pts = stalk.points.map { CGPoint(x: $0.x * w, y: $0.y * h) }
+        let baseW = CGFloat(stalk.width) * minDim
+        let last = pts.count - 1
+        for i in 0..<last {
+            let f0 = CGFloat(i) / CGFloat(last)
+            let f1 = CGFloat(i + 1) / CGFloat(last)
+            scene.fill(taper(from: pts[i], to: pts[i + 1],
+                             w0: baseW * (1 - f0 * 0.72),
+                             w1: baseW * (1 - f1 * 0.72)),
+                       with: .color(color))
+        }
+
+        // Blades flutter by bending their own angle rather than by taking a
+        // transform each — same read, one less context copy per blade.
+        for b in stalk.blades {
+            let j = min(b.joint, last)
+            let root = pts[j]
+            let angle = b.angle + 0.10 * sin(t * 0.6 + b.phase)
+            let tip = CGPoint(x: root.x + CGFloat(b.dir * cos(angle) * b.length) * minDim,
+                              y: root.y - CGFloat(sin(angle) * b.length) * minDim)
+            scene.fill(taper(from: root, to: tip, w0: baseW * 0.72, w1: baseW * 0.10),
+                       with: .color(color))
+        }
+    }
+
+    private func drawSeabed(_ ctx: GraphicsContext, size: CGSize, near: Bool) {
+        let w = size.width, h = size.height
+        let top = h * (near ? 0.945 : 0.965)
+        var bed = Path()
+        bed.move(to: CGPoint(x: 0, y: top + h * 0.012))
+        bed.addCurve(to: CGPoint(x: w * 0.28, y: top - h * 0.008),
+                     control1: CGPoint(x: w * 0.08, y: top - h * 0.010),
+                     control2: CGPoint(x: w * 0.18, y: top + h * 0.006))
+        bed.addCurve(to: CGPoint(x: w * 0.58, y: top + h * 0.002),
+                     control1: CGPoint(x: w * 0.38, y: top - h * 0.025),
+                     control2: CGPoint(x: w * 0.48, y: top + h * 0.015))
+        bed.addCurve(to: CGPoint(x: w, y: top - h * 0.004),
+                     control1: CGPoint(x: w * 0.72, y: top - h * 0.018),
+                     control2: CGPoint(x: w * 0.88, y: top + h * 0.010))
+        bed.addLine(to: CGPoint(x: w, y: h * 1.05))
+        bed.addLine(to: CGPoint(x: 0, y: h * 1.05))
+        bed.closeSubpath()
+
+        let topColor = near ? Color(red: 0.035, green: 0.12, blue: 0.14)
+                            : Color(red: 0.06, green: 0.20, blue: 0.25)
+        let bottomColor = Color(red: 0.006, green: 0.025, blue: 0.055)
+        ctx.fill(bed, with: .linearGradient(
+            Gradient(colors: [topColor, bottomColor]),
+            startPoint: CGPoint(x: 0, y: top), endPoint: CGPoint(x: 0, y: h)))
+
+        let rockColor = near ? Color(red: 0.07, green: 0.18, blue: 0.17)
+                             : Color(red: 0.09, green: 0.27, blue: 0.29)
+        let rocks: [(CGFloat, CGFloat, CGFloat)] = near
+            ? [(0.07, 0.050, 0.021), (0.49, 0.065, 0.026), (0.72, 0.046, 0.018)]
+            : [(0.25, 0.042, 0.016), (0.74, 0.052, 0.020)]
+        for rock in rocks {
+            let rw = rock.1 * w
+            let rh = rock.2 * h
+            let r = CGRect(x: rock.0 * w - rw / 2, y: top - rh * 0.72,
+                           width: rw, height: rh)
+            ctx.fill(Path(ellipseIn: r), with: .linearGradient(
+                Gradient(colors: [rockColor.opacity(0.95), bottomColor]),
+                startPoint: CGPoint(x: r.midX, y: r.minY),
+                endPoint: CGPoint(x: r.midX, y: r.maxY)))
+        }
+    }
+
+    // A translucent gorgonian fan with a softly filled membrane and a clear vein
+    // network. The broader, more detailed foreground fan is the right-edge anchor.
+    private func drawSeaFan(_ ctx: GraphicsContext, fan: SeaFan, size: CGSize) {
+        let minDim = min(size.width, size.height)
+        let base = CGPoint(x: fan.x * size.width, y: size.height * 1.01)
+        let fanW = fan.width * minDim
+        let fanH = fan.height * minDim
+        let lean = fan.lean * minDim
+        let top = CGPoint(x: base.x + lean, y: base.y - fanH)
+        let left = CGPoint(x: top.x - fanW * 0.48, y: top.y + fanH * 0.20)
+        let right = CGPoint(x: top.x + fanW * 0.48, y: top.y + fanH * 0.15)
+
+        var membrane = Path()
+        membrane.move(to: base)
+        membrane.addQuadCurve(to: left,
+                              control: CGPoint(x: base.x - fanW * 0.42, y: base.y - fanH * 0.45))
+        membrane.addQuadCurve(to: top,
+                              control: CGPoint(x: top.x - fanW * 0.28, y: top.y - fanH * 0.08))
+        membrane.addQuadCurve(to: right,
+                              control: CGPoint(x: top.x + fanW * 0.28, y: top.y - fanH * 0.06))
+        membrane.addQuadCurve(to: base,
+                              control: CGPoint(x: base.x + fanW * 0.44, y: base.y - fanH * 0.42))
+        membrane.closeSubpath()
+        ctx.fill(membrane, with: .linearGradient(
+            Gradient(colors: [fan.tipColor.opacity(0.42), fan.baseColor.opacity(0.70)]),
+            startPoint: top, endPoint: base))
+        ctx.stroke(membrane, with: .color(fan.tipColor.opacity(0.78)),
+                   style: StrokeStyle(lineWidth: fan.near ? 1.25 : 0.85, lineJoin: .round))
+
+        for index in -2...2 {
+            let f = CGFloat(index) / 2
+            let end = CGPoint(x: top.x + fanW * 0.42 * f,
+                              y: top.y + fanH * (0.06 + 0.10 * abs(f)))
+            var vein = Path()
+            vein.move(to: base)
+            vein.addQuadCurve(to: end,
+                              control: CGPoint(x: base.x + fanW * 0.30 * f + lean * 0.3,
+                                               y: base.y - fanH * 0.58))
+            ctx.stroke(vein, with: .linearGradient(
+                Gradient(colors: [fan.baseColor, fan.tipColor]),
+                startPoint: base, endPoint: end),
+                style: StrokeStyle(lineWidth: fan.near ? 1.65 : 1.05, lineCap: .round))
+        }
+
+        for row in 1...3 {
+            let f = CGFloat(row) / 4
+            let centerY = base.y - fanH * f
+            let half = fanW * (0.18 + 0.25 * f)
+            var crossVein = Path()
+            crossVein.move(to: CGPoint(x: base.x + lean * f - half, y: centerY + fanH * 0.035))
+            crossVein.addQuadCurve(
+                to: CGPoint(x: base.x + lean * f + half, y: centerY),
+                control: CGPoint(x: base.x + lean * f, y: centerY - fanH * 0.055))
+            ctx.stroke(crossVein, with: .color(fan.tipColor.opacity(0.68)),
+                       style: StrokeStyle(lineWidth: fan.near ? 1.0 : 0.7, lineCap: .round))
+        }
+    }
+
+    // Tapered, hollow tube sponges. The dark openings and bright rims keep the
+    // cluster legible as sponge tubes rather than another set of plant stalks.
+    private func drawTubeCluster(_ ctx: GraphicsContext, cluster: TubeCluster, size: CGSize) {
+        let minDim = min(size.width, size.height)
+        let baseY = size.height * 1.015
+        for tube in cluster.tubes {
+            let baseX = (cluster.x + tube.dx) * size.width
+            let height = tube.height * minDim
+            let width = tube.width * minDim
+            let tip = CGPoint(x: baseX + tube.tilt * minDim, y: baseY - height)
+            let tipW = width * 0.72
+
+            var body = Path()
+            body.move(to: CGPoint(x: baseX - width / 2, y: baseY))
+            body.addQuadCurve(to: CGPoint(x: tip.x - tipW / 2, y: tip.y),
+                              control: CGPoint(x: baseX - width * 0.42, y: baseY - height * 0.48))
+            body.addLine(to: CGPoint(x: tip.x + tipW / 2, y: tip.y))
+            body.addQuadCurve(to: CGPoint(x: baseX + width / 2, y: baseY),
+                              control: CGPoint(x: baseX + width * 0.48, y: baseY - height * 0.52))
+            body.closeSubpath()
+            ctx.fill(body, with: .linearGradient(
+                Gradient(colors: [cluster.rimColor, cluster.baseColor]),
+                startPoint: tip, endPoint: CGPoint(x: baseX, y: baseY)))
+
+            let opening = CGRect(x: tip.x - tipW / 2, y: tip.y - tipW * 0.18,
+                                 width: tipW, height: tipW * 0.38)
+            ctx.fill(Path(ellipseIn: opening), with: .color(Color(red: 0.02, green: 0.05, blue: 0.10).opacity(0.92)))
+            ctx.stroke(Path(ellipseIn: opening), with: .color(cluster.rimColor.opacity(0.95)),
+                       style: StrokeStyle(lineWidth: cluster.near ? 1.5 : 0.9))
+        }
+    }
+
+    // Rounded brain coral with maze-like grooves. The grooves follow the dome's
+    // width so they read as surface structure rather than stripes laid on top.
+    private func drawBrainCoral(_ ctx: GraphicsContext, coral: BrainCoral, size: CGSize) {
+        let minDim = min(size.width, size.height)
+        let base = CGPoint(x: coral.x * size.width, y: size.height * 0.985)
+        let width = coral.width * minDim
+        let height = coral.height * minDim
+        var dome = Path()
+        dome.move(to: CGPoint(x: base.x - width / 2, y: base.y))
+        dome.addCurve(to: CGPoint(x: base.x, y: base.y - height),
+                      control1: CGPoint(x: base.x - width * 0.48, y: base.y - height * 0.62),
+                      control2: CGPoint(x: base.x - width * 0.24, y: base.y - height))
+        dome.addCurve(to: CGPoint(x: base.x + width / 2, y: base.y),
+                      control1: CGPoint(x: base.x + width * 0.24, y: base.y - height),
+                      control2: CGPoint(x: base.x + width * 0.48, y: base.y - height * 0.62))
+        dome.closeSubpath()
+        ctx.fill(dome, with: .linearGradient(
+            Gradient(colors: [coral.topColor, coral.baseColor]),
+            startPoint: CGPoint(x: base.x, y: base.y - height), endPoint: base))
+
+        for row in 0..<4 {
+            let y = base.y - height * (0.20 + CGFloat(row) * 0.19)
+            let half = width * (0.40 - CGFloat(row) * 0.055)
+            var groove = Path()
+            groove.move(to: CGPoint(x: base.x - half, y: y))
+            for step in 1...6 {
+                let f = CGFloat(step) / 6
+                let x = base.x - half + half * 2 * f
+                let wave = sin(Double(step + row) * 1.7) * Double(height) * 0.045
+                groove.addLine(to: CGPoint(x: x, y: y + CGFloat(wave)))
+            }
+            ctx.stroke(groove, with: .color(coral.baseColor.opacity(0.74)),
+                       style: StrokeStyle(lineWidth: coral.near ? 1.6 : 1.0,
+                                          lineCap: .round, lineJoin: .round))
+        }
+    }
+
+    // Branching staghorn coral: every main arm forks once and ends in a rounded,
+    // lighter growth tip. Motion is barely perceptible because coral is rigid.
+    private func drawBranchCoral(_ ctx: GraphicsContext, coral: BranchCoral,
+                                 size: CGSize, t: Double) {
+        let minDim = min(size.width, size.height)
+        let base = CGPoint(x: coral.x * size.width, y: size.height * 1.015)
+        let sway = 0.005 * (sin(t * 0.18 + coral.swayPhase)
+                            + 0.35 * sin(t * 0.071 + coral.swayPhase * 1.8))
+        var scene = ctx
+        scene.translateBy(x: base.x, y: base.y)
+        scene.rotate(by: .radians(sway))
+        scene.translateBy(x: -base.x, y: -base.y)
+
+        let crown = CGPoint(x: base.x, y: base.y - coral.scale * minDim * 0.045)
+        let baseW = coral.armWidth * coral.scale * minDim
+        scene.fill(taper(from: base, to: crown, w0: baseW * 1.55, w1: baseW),
+                   with: .linearGradient(
+                    Gradient(colors: [coral.baseColor, coral.tipColor]),
+                    startPoint: base, endPoint: crown))
+
+        for arm in coral.arms {
+            let length = arm.length * coral.scale * minDim
+            let mid = CGPoint(x: crown.x + CGFloat(cos(arm.angle)) * length * 0.54,
+                              y: crown.y - CGFloat(sin(arm.angle)) * length * 0.54)
+            let bent = arm.angle + arm.kink
+            let tip = CGPoint(x: mid.x + CGFloat(cos(bent)) * length * 0.46,
+                              y: mid.y - CGFloat(sin(bent)) * length * 0.46)
+            let shading = GraphicsContext.Shading.linearGradient(
+                Gradient(colors: [coral.baseColor, coral.tipColor]),
+                startPoint: crown, endPoint: tip)
+            scene.fill(taper(from: crown, to: mid, w0: baseW, w1: baseW * 0.68), with: shading)
+            scene.fill(taper(from: mid, to: tip, w0: baseW * 0.68, w1: baseW * 0.30), with: shading)
+
+            let forkAngle = bent + arm.fork * 0.58
+            let forkTip = CGPoint(x: mid.x + CGFloat(cos(forkAngle)) * length * 0.34,
+                                  y: mid.y - CGFloat(sin(forkAngle)) * length * 0.34)
+            scene.fill(taper(from: mid, to: forkTip, w0: baseW * 0.60, w1: baseW * 0.24),
+                       with: shading)
+
+            let polypR = max(1.1, baseW * 0.25)
+            for end in [tip, forkTip] {
+                scene.fill(Path(ellipseIn: CGRect(x: end.x - polypR, y: end.y - polypR,
+                                                  width: polypR * 2, height: polypR * 2)),
+                           with: .color(coral.tipColor))
+            }
+        }
+    }
+
+    // Bubbles are translucent outlined volumes rather than solid glowing dots.
+    // A separate tiny arc and glint give each one a wet glass highlight.
+    private func drawBubbles(_ ctx: GraphicsContext, size: CGSize, t: Double, far: Bool) {
+        ctx.drawLayer { layer in
+            layer.addFilter(.blur(radius: far ? 0.65 : 0.12))
+            for bubble in bubbles where bubble.far == far {
+                let p = placeBubble(bubble, size: size, t: t)
+                guard p.alpha > 0.004 else { continue }
+                let r = CGFloat(bubble.radius)
+                let rect = CGRect(x: p.x - r, y: p.y - r * 1.05, width: r * 2, height: r * 2.1)
+                let bubblePath = Path(ellipseIn: rect)
+                layer.fill(bubblePath, with: .radialGradient(
+                    Gradient(colors: [.clear,
+                                      Color(red: 0.52, green: 0.95, blue: 1.0).opacity(0.10 * p.alpha)]),
+                    center: CGPoint(x: rect.midX - r * 0.25, y: rect.midY - r * 0.30),
+                    startRadius: 0, endRadius: r * 1.15))
+                layer.stroke(bubblePath, with: .linearGradient(
+                    Gradient(colors: [Color.white.opacity(0.72 * p.alpha),
+                                      Color(red: 0.34, green: 0.88, blue: 0.94).opacity(0.20 * p.alpha)]),
+                    startPoint: CGPoint(x: rect.minX, y: rect.minY),
+                    endPoint: CGPoint(x: rect.maxX, y: rect.maxY)),
+                    style: StrokeStyle(lineWidth: far ? 0.65 : max(0.9, r * 0.16)))
+
+                var crescent = Path()
+                crescent.addArc(center: CGPoint(x: rect.midX, y: rect.midY), radius: r * 0.70,
+                                startAngle: .degrees(195), endAngle: .degrees(260), clockwise: false)
+                layer.stroke(crescent, with: .color(.white.opacity(0.78 * p.alpha)),
+                             style: StrokeStyle(lineWidth: far ? 0.55 : max(0.8, r * 0.13),
+                                                lineCap: .round))
+
+                guard !far else { continue }
+                let glintR = max(0.7, r * 0.10)
+                layer.fill(Path(ellipseIn: CGRect(x: rect.minX + r * 0.46 - glintR,
+                                                  y: rect.minY + r * 0.43 - glintR,
+                                                  width: glintR * 2, height: glintR * 2)),
+                           with: .color(.white.opacity(0.88 * p.alpha)))
+            }
+        }
+    }
+
+    private func placeBubble(_ bubble: Bubble, size: CGSize, t: Double) -> (x: CGFloat, y: CGFloat, alpha: Double) {
+        let rise = (t * bubble.speed + bubble.offset).truncatingRemainder(dividingBy: 1)
+        let drift = bubble.drift * sin(t * 0.17 + bubble.phase)
+                  + bubble.drift * 0.42 * sin(t * 0.063 + bubble.phase * 1.9)
+        let edge = min(1, min(rise, 1 - rise) / 0.09)
+        return (CGFloat(bubble.x + drift) * size.width,
+                CGFloat(1.08 - rise * 1.18) * size.height,
+                edge * (bubble.far ? 0.52 : 0.86))
+    }
+
+    // Plankton: one blurred additive halo pass, then the sharp cores on top, so
+    // each mote glows into the water instead of sitting on it as a hard dot.
+    private func drawPlankton(_ ctx: GraphicsContext, size: CGSize, t: Double) {
+        let minDim = min(size.width, size.height)
+        let halo = Color(red: 0.42, green: 0.95, blue: 0.92)
+        let core = Color(red: 0.78, green: 1.00, blue: 0.97)
+
+        ctx.drawLayer { layer in
+            layer.addFilter(.blur(radius: minDim * 0.020))
+            layer.blendMode = .plusLighter
+            for m in motes {
+                let p = place(m, size: size, t: t)
+                guard p.alpha > 0.004 else { continue }
+                let r = CGFloat(m.radius) * 3.4
+                layer.fill(Path(ellipseIn: CGRect(x: p.x - r, y: p.y - r,
+                                                  width: r * 2, height: r * 2)),
+                           with: .color(halo.opacity(0.42 * p.alpha)))
+            }
+        }
+        ctx.drawLayer { layer in
+            layer.blendMode = .plusLighter
+            for m in motes {
+                let p = place(m, size: size, t: t)
+                guard p.alpha > 0.004 else { continue }
+                let r = CGFloat(m.radius)
+                layer.fill(Path(ellipseIn: CGRect(x: p.x - r, y: p.y - r,
+                                                  width: r * 2, height: r * 2)),
+                           with: .color(core.opacity(0.92 * p.alpha)))
+            }
+        }
+    }
+
+    // Where one mote is, and how bright, at time t. Rises on its own loop with a
+    // two-frequency horizontal drift, twinkles on another, and fades at both ends
+    // of the rise so nothing pops in or out at the frame edge.
+    private func place(_ m: Mote, size: CGSize, t: Double) -> (x: CGFloat, y: CGFloat, alpha: Double) {
+        let rise = (t * m.speed + m.offset).truncatingRemainder(dividingBy: 1)
+        let drift = m.drift * sin(t * 0.13 + m.driftPhase)
+                  + m.drift * 0.5 * sin(t * 0.047 + m.driftPhase * 1.7)
+        let twinkle = 0.30 + 0.70 * (0.5 + 0.5 * sin(t * m.twinkle + m.phase))
+        let edge = min(1, min(rise, 1 - rise) / 0.10)
+        return (CGFloat(m.x + drift) * size.width,
+                CGFloat(1.06 - rise * 1.12) * size.height,
+                edge * twinkle)
+    }
+
+    // Tapered quad, so stalks and arms thin toward their tips instead of being
+    // constant-width strokes. (Same trick as the Cherry Blossom limbs, which
+    // keeps its own copy — these are private to their themes by convention.)
+    private func taper(from a: CGPoint, to b: CGPoint, w0: CGFloat, w1: CGFloat) -> Path {
+        let dx = b.x - a.x, dy = b.y - a.y
+        let len = max(sqrt(dx * dx + dy * dy), 0.0001)
+        let nx = -dy / len, ny = dx / len
+        var p = Path()
+        p.move(to: CGPoint(x: a.x + nx * w0 / 2, y: a.y + ny * w0 / 2))
+        p.addLine(to: CGPoint(x: b.x + nx * w1 / 2, y: b.y + ny * w1 / 2))
+        p.addLine(to: CGPoint(x: b.x - nx * w1 / 2, y: b.y - ny * w1 / 2))
+        p.addLine(to: CGPoint(x: a.x - nx * w0 / 2, y: a.y - ny * w0 / 2))
+        p.closeSubpath()
+        return p
+    }
+
+    private struct Shaft { let x, width, length, tilt, phase, speed: Double }
+    private struct Blade { let joint: Int; let dir, length, angle, phase: Double }
+    private struct Stalk {
+        let points: [CGPoint]
+        let blades: [Blade]
+        let width, sway, swayPhase: Double
+        let near: Bool
+    }
+    private struct CoralArm { let angle, length, kink, fork: Double }
+    private struct BranchCoral {
+        let x, scale, armWidth, swayPhase: Double
+        let near: Bool
+        let baseColor, tipColor: Color
+        let arms: [CoralArm]
+    }
+    private struct Tube { let dx, height, width, tilt: Double }
+    private struct TubeCluster {
+        let x: Double
+        let near: Bool
+        let baseColor, rimColor: Color
+        let tubes: [Tube]
+    }
+    private struct SeaFan {
+        let x, width, height, lean: Double
+        let near: Bool
+        let baseColor, tipColor: Color
+    }
+    private struct BrainCoral {
+        let x, width, height: Double
+        let near: Bool
+        let baseColor, topColor: Color
+    }
+    private struct Bubble { let x, speed, offset, radius, phase, drift: Double; let far: Bool }
+    private struct Mote { let x, speed, offset, radius, phase, twinkle, drift, driftPhase: Double }
 }
 
 // MARK: - Seeded RNG
