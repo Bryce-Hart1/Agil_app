@@ -64,48 +64,49 @@ struct SetEntryAccessoryBar: View {
     private static let keyCornerRadius: CGFloat = 5
     private static let keySpacing: CGFloat = 6
     private static let keyHeight: CGFloat = 38
-    // Claude  Date 07/21/2026 last changed: 07/21/2026 by: Claude
-    // These floors ARE the key widths in practice: the keyboard toolbar sizes itself to
-    // its content rather than proposing the full screen width, so `maxWidth: .infinity`
-    // resolves to the minimum and the row renders exactly this wide. Widening a key means
-    // raising its floor.
+    // Claude  Date 08/18/2026
+    // FIXED widths, not floors, and deliberately so.
     //
-    // They're also load-bearing. Without a minimum, `maxWidth: .infinity` lets a view
-    // compress to nothing — which silently broke the weight row: SwiftUI squeezed all four
-    // steppers to zero and left only Done (whose padding it couldn't shrink), collapsing
-    // the bar to a lone accent square. The three-key rep row always fit, which is why only
-    // weight looked broken.
+    // The previous version paired `minWidth:` with `maxWidth: .infinity` on every key plus
+    // `.frame(maxWidth: .infinity)` on the row, on the theory that the keyboard toolbar
+    // proposes only its content's width so the maximums would collapse back to the
+    // minimums. That theory is wrong on iOS 26: the toolbar proposes the FULL SCREEN
+    // width, while the rounded glass container it draws the row inside is inset ~28pt a
+    // side and padded internally — so the row laid itself out at ~393pt inside a ~340pt
+    // window, splitting five keys at ~74pt each. The result is the reported bug: the row
+    // sits off-centre and the trailing +5 key is clipped away by the container's edge.
+    // The rep row has three keys and enough slack to survive the same overflow, which is
+    // why only weight looked broken.
     //
-    // Budget check before raising these. The widest the row may be is the narrowest
-    // supported screen minus the toolbar's own inset: iOS 16.1 runs on 375pt devices at
-    // the low end, leaving ~343pt. The weight row costs
-    // 4×keyMinWidth + doneMinWidth + 4×keySpacing = 328pt, so there's ~15pt of headroom.
-    // Push past that and the row overflows and clips — the same failure as before, from
-    // the other direction.
-    private static let keyMinWidth: CGFloat = 58
-    private static let doneMinWidth: CGFloat = 72
+    // Fixed widths take the proposal out of the equation: the row is always
+    // 4×keyWidth + doneWidth + 4×keySpacing = 288pt regardless of what is proposed, which
+    // fits inside the container's usable width on every shipping iPhone (~303pt on the
+    // 375pt SE, ~321pt at 393pt). Raise these only against `screen − 72`, never
+    // `screen − 32`, and never reintroduce `maxWidth: .infinity` here.
+    private static let keyWidth: CGFloat = 50
+    private static let doneWidth: CGFloat = 64
 
     // Claude  Date 07/21/2026
     // Done sits in the MIDDLE with the decreases to its left and the increases to its
     // right — the row reads as a number line with the exit in the middle, and the thumb
-    // has the same reach either way. Keys split the width evenly, as a keyboard row does.
+    // has the same reach either way. Every key is the same width, as a keyboard row is.
     //
-    // With no steppers to show (the note and rep-range fields) Done keeps its natural
-    // width between spacers rather than stretching: a full-width accent slab for a plain
-    // dismiss button would shout far louder than the keyboard beneath it.
+    // With no steppers to show (the note and rep-range fields) the row is Done alone at its
+    // fixed width, which the toolbar centres — a full-width accent slab for a plain dismiss
+    // button would shout far louder than the keyboard beneath it.
     var body: some View {
         HStack(spacing: Self.keySpacing) {
-            if steps.isEmpty {
-                Spacer(minLength: 0)
-                doneKey.fixedSize(horizontal: true, vertical: false)
-                Spacer(minLength: 0)
-            } else {
-                ForEach(steps.filter { $0 < 0 }, id: \.self) { stepKey($0) }
-                doneKey
-                ForEach(steps.filter { $0 > 0 }, id: \.self) { stepKey($0) }
-            }
+            ForEach(steps.filter { $0 < 0 }, id: \.self) { stepKey($0) }
+            doneKey
+            ForEach(steps.filter { $0 > 0 }, id: \.self) { stepKey($0) }
         }
-        .frame(maxWidth: .infinity)
+        // Claude  Date 08/13/2026 last changed: 08/18/2026 by: Claude
+        // The widths above are fixed, so oversized type can no longer widen a key — but it
+        // could still overflow one, since "−2.5" at an accessibility size is wider than
+        // 50pt. Capping the bar's type size keeps the labels inside their keycaps at any
+        // device setting; they're short digits, so holding them at .large costs nothing in
+        // legibility. The rest of the app scales freely.
+        .dynamicTypeSize(...DynamicTypeSize.large)
     }
 
     private var doneKey: some View {
@@ -115,8 +116,7 @@ struct SetEntryAccessoryBar: View {
                 .foregroundStyle(accent.contrastingForeground)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-                .frame(minWidth: Self.doneMinWidth, maxWidth: .infinity,
-                       minHeight: Self.keyHeight)
+                .frame(width: Self.doneWidth, height: Self.keyHeight)
                 .background(accent, in: keyShape)
                 .contentShape(keyShape)
         }
@@ -136,8 +136,7 @@ struct SetEntryAccessoryBar: View {
                 .foregroundStyle(.primary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-                .frame(minWidth: Self.keyMinWidth, maxWidth: .infinity,
-                       minHeight: Self.keyHeight)
+                .frame(width: Self.keyWidth, height: Self.keyHeight)
                 .background(Self.keyFill, in: keyShape)
                 .contentShape(keyShape)
         }
