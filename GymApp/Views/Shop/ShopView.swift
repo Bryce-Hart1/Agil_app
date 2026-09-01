@@ -9,8 +9,12 @@ import SwiftUI
 // when it rolls over. Rarer items surface less often, which gives the catalogue
 // some scarcity.
 //
-// A "Browse all" drawer keeps every item reachable so nothing gets locked behind
-// the rotation while we iterate.
+// Claude  Date 08/24/2026
+// The "Browse all" drawer that used to sit at the bottom of this screen is gone
+// (Bryce, 8/24/26). Having every item one tap away all the time quietly undid the
+// rotation — there was no reason to care what was featured. The full catalogue now
+// lives in Settings → Developer (beta) as ShopCatalogView, so it stays reachable
+// for testing without being a shopping route for players.
 //
 // Claude  Date 08/03/2026
 // Two cadences now: four items that turn over daily and two that hold for the week
@@ -32,18 +36,10 @@ struct ShopView: View {
     // Spendable balance (earned high-water + purchased − spent; see Wallet).
     private var balance: Int { theme.balance }
 
-    // Every item, for the "Browse all" drawer (free base items included).
-    // Claude  Date 07/12/2026 last changed: 07/23/2026 by: Claude
-    // Grant-only cards (Founders + earned gem cards) are never sold, so they're
-    // excluded here too — this drawer is meant to be a complete view of what's
-    // *purchasable*, not a leak of exclusive cards other players can't actually buy.
-    private var fullCatalog: [ShopItem] {
-        AppTheme.builtIns.map(ShopItem.theme) + CardStyle.all.filter { !$0.isGrantOnly }.map(ShopItem.card)
-    }
-
     var body: some View {
         ScrollView {
             VStack(spacing: 24) {
+                checkInStrip
                 rotationSection(
                     title: "Featured",
                     cadence: "Rotates daily",
@@ -54,7 +50,6 @@ struct ShopView: View {
                     cadence: "Rotates weekly",
                     rotation: lineup.weekly
                 )
-                browseAllSection
             }
             .padding()
         }
@@ -147,67 +142,77 @@ struct ShopView: View {
         }
     }
 
-    // MARK: - Browse-all drawer
+    // MARK: - Daily check-in
 
-    // Claude  Date 06/17/2026
-    // Escape hatch so the daily rotation doesn't trap an item the user wants for
-    // days. Remove (or gate behind something) if we want pure scarcity later.
-    private var browseAllSection: some View {
-        DisclosureGroup {
-            VStack(spacing: 0) {
-                ForEach(fullCatalog) { item in
-                    CatalogRow(
-                        item: item,
-                        isOwned: isOwned(item),
-                        isEquipped: isEquipped(item),
-                        onTap: { previewItem = item }
-                    )
-                    if item.id != fullCatalog.last?.id { Divider() }
+    // Claude  Date 08/23/2026
+    // Where the daily +20 bonus is legible after the fact. The toast that fires on open
+    // is deliberately gone in three seconds, so this is the one place you can actually
+    // go and check where you are in the week — and the Shop is the right home for it,
+    // because it's the only screen where a coin total means anything.
+    //
+    // Sits above Featured rather than below: it's the coins you HAVE, and the rest of
+    // the screen is what they buy.
+    //
+    // The countdown reuses this file's countdown(to:now:) and the same one-second
+    // TimelineView as the rotations. That's not just convenience — the check-in week and
+    // the weekly rotation are both Monday-anchored (DailyCheckIn and DailyShop both force
+    // firstWeekday = 2), so these two clocks genuinely hit zero together.
+    private var checkInStrip: some View {
+        let week = store.checkInWeek
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("This week")
+                    .font(.headline)
+                Spacer()
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    Text("Resets in \(countdown(to: week.resetsAt, now: context.date))")
+                        .font(.caption)
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
                 }
             }
-            .padding(.top, 4)
-        } label: {
-            Text("Browse all items").font(.headline)
+
+            HStack(spacing: 10) {
+                // Same dot treatment as the ModeNotch's check-in message, so the
+                // pill you saw on open and this strip obviously describe the same
+                // thing.
+                HStack(spacing: 6) {
+                    ForEach(1...week.cap, id: \.self) { day in
+                        Circle()
+                            .fill(day <= week.claimed
+                                  ? theme.current.accent
+                                  : Color.secondary.opacity(0.3))
+                            .frame(width: 8, height: 8)
+                    }
+                }
+                Text("\(week.coins.formatted()) / \(week.maxCoins.formatted())")
+                    .font(.subheadline.weight(.semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(week.isMaxed ? theme.current.accent : .primary)
+                Spacer()
+            }
+
+            Text(week.isMaxed
+                 ? "Weekly bonus maxed out. Resets Monday."
+                 : "+\(DailyCheckIn.coinsPerDay) coins each day you open Agil.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
         .background(theme.current.surface, in: RoundedRectangle(cornerRadius: 14))
+        .accessibilityElement(children: .combine)
     }
 
     // MARK: - Ownership / purchase plumbing
 
-    private func isOwned(_ item: ShopItem) -> Bool {
-        switch item {
-        case .theme(let t): return theme.isUnlocked(t)
-        case .card(let c):  return theme.isCardStyleUnlocked(c)
-        }
-    }
-
-    private func isEquipped(_ item: ShopItem) -> Bool {
-        switch item {
-        case .theme(let t): return t.id == theme.selectedID
-        case .card(let c):  return c.id == store.profile.cardStyleID
-        }
-    }
-
-    // Claude  Date 06/17/2026 last changed: 08/03/2026 by: Claude
-    // Buy (if affordable) and immediately equip. The balance is no longer passed in:
-    // ThemeManager owns the wallet now and checks affordability itself, so there's
-    // one place that can authorise a spend.
-    private func buy(_ item: ShopItem) {
-        switch item {
-        case .theme(let t):
-            if theme.purchase(t) { theme.select(t) }
-        case .card(let c):
-            if theme.purchaseCardStyle(c) { store.profile.cardStyleID = c.id }
-        }
-    }
-
-    private func equip(_ item: ShopItem) {
-        switch item {
-        case .theme(let t): theme.select(t)
-        case .card(let c):  store.profile.cardStyleID = c.id
-        }
-    }
+    // Claude  Date 08/24/2026
+    // Thin pass-throughs to the shared ShopItem helpers below — ShopCatalogView needs
+    // the same four operations, and a spend must stay authorised in exactly one place.
+    private func isOwned(_ item: ShopItem) -> Bool { item.isOwned(store: store, theme: theme) }
+    private func isEquipped(_ item: ShopItem) -> Bool { item.isEquipped(store: store, theme: theme) }
+    private func buy(_ item: ShopItem) { item.buy(store: store, theme: theme) }
+    private func equip(_ item: ShopItem) { item.equip(store: store, theme: theme) }
 
     // Claude  Date 06/17/2026 last changed: 08/03/2026 by: Claude
     // "5h 03m 12s", or "6d 04h 12m" once there's more than a day left. The day
@@ -219,6 +224,137 @@ struct ShopView: View {
             return String(format: "%dd %02dh %02dm", secs / 86_400, (secs % 86_400) / 3600, (secs % 3600) / 60)
         }
         return String(format: "%dh %02dm %02ds", secs / 3600, (secs % 3600) / 60, secs % 60)
+    }
+}
+
+// MARK: - Ownership / purchase helpers
+
+// Claude  Date 08/24/2026
+// The buy/equip/ownership rules, lifted off ShopView so the Shop and the full
+// catalogue (ShopCatalogView) share one implementation instead of two copies that
+// can drift. Private to this file: nothing outside the shop should be minting
+// purchases.
+//
+// @MainActor because AppStore and ThemeManager both are: these read and mutate the
+// wallet and the equipped selection, which is main-actor state. It was implicit while
+// they were View methods.
+@MainActor
+private extension ShopItem {
+    func isOwned(store: AppStore, theme: ThemeManager) -> Bool {
+        switch self {
+        case .theme(let t): return theme.isUnlocked(t)
+        case .card(let c):  return theme.isCardStyleUnlocked(c)
+        }
+    }
+
+    func isEquipped(store: AppStore, theme: ThemeManager) -> Bool {
+        switch self {
+        case .theme(let t): return t.id == theme.selectedID
+        case .card(let c):  return c.id == store.profile.cardStyleID
+        }
+    }
+
+    // Claude  Date 06/17/2026 last changed: 08/03/2026 by: Claude
+    // Buy (if affordable) and immediately equip. The balance is no longer passed in:
+    // ThemeManager owns the wallet now and checks affordability itself, so there's
+    // one place that can authorise a spend.
+    func buy(store: AppStore, theme: ThemeManager) {
+        switch self {
+        case .theme(let t):
+            if theme.purchase(t) { theme.select(t) }
+        case .card(let c):
+            if theme.purchaseCardStyle(c) { store.profile.cardStyleID = c.id }
+        }
+    }
+
+    func equip(store: AppStore, theme: ThemeManager) {
+        switch self {
+        case .theme(let t): theme.select(t)
+        case .card(let c):  store.profile.cardStyleID = c.id
+        }
+    }
+}
+
+// MARK: - Full catalogue (developer tool)
+
+// Claude  Date 08/24/2026
+// Every purchasable item on one screen. This was the Shop's "Browse all items"
+// drawer until 8/24/26; it moved here because leaving the whole catalogue one tap
+// away made the daily/weekly rotation decorative. Reached from Settings →
+// Developer (beta), so it stays available for testing a specific item without
+// waiting for it to rotate in.
+//
+// It lives in ShopView.swift on purpose: CatalogRow and ShopItemDetailView are
+// file-private, and moving a list shouldn't be a reason to widen their access.
+struct ShopCatalogView: View {
+    @EnvironmentObject private var store: AppStore
+    @EnvironmentObject private var theme: ThemeManager
+    @EnvironmentObject private var coinStore: CoinStore
+
+    @State private var previewItem: ShopItem?
+    @State private var showingCoinShop = false
+
+    // Every item, free base items included.
+    // Claude  Date 07/12/2026 last changed: 07/23/2026 by: Claude
+    // Grant-only cards (Founders + earned gem cards) are never sold, so they're
+    // excluded here too — this is meant to be a complete view of what's
+    // *purchasable*, not a leak of exclusive cards other players can't actually buy.
+    private var fullCatalog: [ShopItem] {
+        AppTheme.builtIns.map(ShopItem.theme) + CardStyle.all.filter { !$0.isGrantOnly }.map(ShopItem.card)
+    }
+
+    private var balance: Int { theme.balance }
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                ForEach(fullCatalog) { item in
+                    CatalogRow(
+                        item: item,
+                        isOwned: item.isOwned(store: store, theme: theme),
+                        isEquipped: item.isEquipped(store: store, theme: theme),
+                        onTap: { previewItem = item }
+                    )
+                    if item.id != fullCatalog.last?.id { Divider() }
+                }
+            }
+            .padding()
+            .background(theme.current.surface, in: RoundedRectangle(cornerRadius: 14))
+            .padding()
+        }
+        .navigationTitle("All items")
+        .navigationBarTitleDisplayMode(.inline)
+        .themed(theme.current)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { showingCoinShop = true } label: {
+                    Label("\(balance.formatted())", systemImage: "circle.hexagongrid.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .monospacedDigit()
+                }
+                .tint(theme.current.accent)
+                .accessibilityLabel("\(balance) coins. Tap to get more.")
+            }
+        }
+        .sheet(isPresented: $showingCoinShop) {
+            CoinShopView()
+                .environmentObject(theme)
+                .environmentObject(coinStore)
+        }
+        .fullScreenCover(item: $previewItem) { item in
+            ShopItemDetailView(
+                item: item,
+                isOwned: item.isOwned(store: store, theme: theme),
+                isEquipped: item.isEquipped(store: store, theme: theme),
+                canAfford: balance >= item.price,
+                balance: balance,
+                onBuy: { item.buy(store: store, theme: theme) },
+                onEquip: { item.equip(store: store, theme: theme) },
+                onGetCoins: { showingCoinShop = true }
+            )
+            .environmentObject(theme)
+            .environmentObject(coinStore)
+        }
     }
 }
 
@@ -280,10 +416,11 @@ private struct FeaturedItemCard: View {
     }
 }
 
-// MARK: - Browse-all row
+// MARK: - Catalogue row
 
 // Claude  Date 06/17/2026
-// Compact list row mirroring the old shop rows, for the "Browse all" drawer.
+// Compact list row mirroring the old shop rows. Used by ShopCatalogView (it backed
+// the Shop's "Browse all" drawer until that moved into the developer tools, 8/24/26).
 private struct CatalogRow: View {
     let item: ShopItem
     let isOwned: Bool
