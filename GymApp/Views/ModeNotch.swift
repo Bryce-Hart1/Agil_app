@@ -1,14 +1,44 @@
 import SwiftUI
 
-// Claude  Date 07/13/2026 last changed: 07/13/2026 by: Claude
-// The top "notch" pill: shows the CURRENT world (icon + label) plus a stat from
-// the OTHER world — today's calories vs goal while lifting, the lifting week
+// Claude  Date 07/13/2026 last changed: 08/29/2026 by: Claude
+// The top "notch" pill: shows the CURRENT world (icon; the text label came out
+// 08/23 to make room for the coin balance) plus a stat from the OTHER world — today's calories vs goal while lifting, the lifting week
 // streak while in food — and tapping it switches worlds. Replaces the old tag-0
 // switcher tab in the bottom bar.
 // (Rework: it now lives INSIDE each root screen's navigation bar as the centered
 // principal toolbar item — see modeNotchToolbar() below — instead of a top
 // safe-area strip, which turned out to cover the nav bars' own buttons. It owns
 // the mode flip directly via @AppStorage; RootTabView reacts to the change.)
+//
+// Claude  Date 08/29/2026
+// The pill is now ALIVE. Three additions, one state machine:
+//   1. A tracing light runs the capsule's rim continuously (RimTrace below) —
+//      skipped under Reduce Motion, paused on non-visible tabs.
+//   2. Transient MESSAGES briefly replace the pill's standard content: a
+//      once-per-launch "Tap to flip" hint, and after every flip a banner naming
+//      the side you landed on with its headline stat in bold ("243 cal
+//      remaining" / "4 workouts this week").
+//   3. The daily check-in award moved IN here from the floating
+//      DailyCheckInToast overlay (now deleted): +coins and the week dots play as
+//      a message inside the pill, so the reward reads as part of the app's
+//      chrome instead of a banner floating over it. The politeness gate
+//      (yield to full-screen celebrations) came along — see presentableCheckIn.
+// It's also a touch larger all around. Growth is padding + one font step, which
+// UIKit's principal-item sizing absorbs without touching the bar buttons: the
+// principal item is only ever GIVEN the space the buttons leave, so a bigger
+// pill compresses (lineLimit + minimumScaleFactor backstop) rather than
+// crowding them.
+//
+// Claude  Date 08/31/2026
+// THE CAPSULE IS A FIXED SIZE — it holds the largest face's geometry at all
+// times and never grows or shrinks as messages come and go. Anything added to
+// the message set must be measured too, or it will start the pumping this was
+// written to stop: see sizingScaffold.
+//
+// The structure that falls out of that: the pill is a cross-fading FACE (resting
+// content or one message) plus a STANDING coin chip that outlives every face and
+// is never dropped or squeezed — see pillBody and coinChip. Adding a message is a
+// three-line change and cannot break either property; pillBody says why.
 struct ModeNotch: View {
     // Claude  Date 07/28/2026
     // The tag of the tab this notch belongs to. Only used to decide whether this
@@ -19,11 +49,29 @@ struct ModeNotch: View {
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var theme: ThemeManager
     @Environment(\.activeTabTag) private var activeTabTag
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     // Claude  Date 07/13/2026
     // Same persisted key RootTabView reads — flipping it here swaps the whole
     // tab set there (and its onChange restores that world's last-selected tab).
     @AppStorage("appMode") private var modeRaw = AppMode.lifting.rawValue
     private var mode: AppMode { AppMode(rawValue: modeRaw) ?? .lifting }
+
+    // Claude  Date 08/29/2026
+    // What the pill is saying right now instead of its standard content. One slot,
+    // last writer wins: a flip banner interrupts the hint, a check-in interrupts
+    // either. `messageTask` is the sleeper that will clear the current message —
+    // cancelled by whoever takes the slot over (see show(_:for:)).
+    private enum NotchMessage: Equatable {
+        case flipHint
+        case sideBanner(AppMode)
+        case checkIn(DailyCheckIn.Award)
+    }
+    @State private var message: NotchMessage?
+    @State private var messageTask: Task<Void, Never>?
+
+    // Once per LAUNCH, not per instance: every root screen mounts a notch, and
+    // each showing its own hint as you toured the tabs would nag.
+    private static var didShowFlipHint = false
 
     var body: some View {
         Button {
@@ -32,59 +80,57 @@ struct ModeNotch: View {
                 modeRaw = mode.toggled.rawValue
             }
         } label: {
-            // Claude  Date 07/13/2026 last changed: 07/21/2026 by: Claude
-            // Tightened to fit: the pill is the nav bar's principal item, so its width
-            // is whatever the screen's leading/trailing buttons leave behind, and the
-            // monospaced theme font pushed the lifting-side content ("Lifting · 1,850
-            // / 2,200 cal") past that — it clipped. Savings, in order: the "·"
-            // separator and its two gaps are gone, the gaps went 8 → 6, the stat
-            // dropped to caption2, and the stat string itself is compact (see `stat`).
-            // The lineLimit/minimumScaleFactor pair is the backstop that guarantees it
-            // scales instead of clipping on a narrower phone or at a larger Dynamic
-            // Type size.
-            HStack(spacing: 6) {
-                // Claude  Date 07/13/2026
-                // Food's icon is a custom template asset (bowl-food), lifting is an
-                // SF Symbol. Frame the custom image to sit alongside the subheadline
-                // text at the same visual weight the symbol had; template rendering
-                // lets it pick up the accent tint.
-                Group {
-                    if mode.iconIsCustomAsset {
-                        Image(mode.icon)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: 17, height: 17)
-                    } else {
-                        Image(systemName: mode.icon)
-                            .font(.subheadline)
-                    }
-                }
-                .foregroundStyle(theme.current.accent)
-                Text(mode.label)
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
-                    .lineLimit(1)
-                Text(stat)
-                    .font(.caption2)
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.75)
-                Image(systemName: "arrow.left.arrow.right")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
+            // Claude  Date 08/31/2026
+            // The balance is ALWAYS here. It is not negotiable against the faces,
+            // and there is no fit test deciding whether it earns its place.
+            //
+            // A ViewThatFits ladder (offer face+chip, fall back to face alone) lived
+            // here for exactly one iteration and dropped the chip on every screen.
+            // The reason is worth keeping written down, because it is not obvious:
+            // ViewThatFits measures each candidate at its IDEAL size, and
+            // minimumScaleFactor does not reduce a Text's ideal width — it only lets
+            // the glyphs shrink at draw time. So the candidates were measured with
+            // the flip banner at full unscaled width, the widest face decided for
+            // every face, both rungs overflowed the bar, and ViewThatFits kept its
+            // last child — the one without coins. The balance disappeared even on
+            // screens with room to spare.
+            //
+            // What replaces it is the arrangement that worked before any of this:
+            // the chip is fixedSize + layoutPriority(1), so the HStack satisfies it
+            // FIRST and the face region takes what's left. Squeeze now lands on the
+            // faces' own scale factors, which is the right place for it — a stat is
+            // a glanceable extra, the balance is a number you read.
+            pillBody
+            // Claude  Date 08/29/2026
+            // "A touch larger": 12/6 → 14/9 padding, stat fonts caption2 → caption.
+            // The nav bar's principal slot absorbs the height (44pt available) and
+            // the scale-factor backstops absorb any width squeeze.
+            .padding(.horizontal, 14)
+            .padding(.vertical, 9)
             .background(theme.current.surface)
             .clipShape(Capsule())
             .overlay(
                 Capsule()
                     .stroke(theme.current.accent.opacity(0.25), lineWidth: 1)
             )
+            // Claude  Date 08/29/2026
+            // The living rim. Sits ABOVE the static ring so the comet traces over
+            // it. Static under Reduce Motion (the faint ring alone), and paused on
+            // tabs that aren't on screen so seven live notches don't each burn a
+            // 40fps timeline.
+            .overlay {
+                if !reduceMotion {
+                    RimTrace(color: theme.current.accent,
+                             paused: tab != activeTabTag)
+                }
+            }
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Switch to \(mode.toggled.label)")
+        // Claude  Date 08/23/2026 last changed: 08/29/2026 by: Claude
+        // Spelled out because none of this is readable from the visuals any more.
+        // While the check-in message plays, VoiceOver gets the award instead of
+        // the standard readout — same sentence the old toast spoke.
+        .accessibilityLabel(accessibilityText)
         // Claude  Date 07/27/2026
         // Report the pill's real frame for the tour's spotlight. This has to go
         // through the global-frame registry rather than .tourTarget: the notch is a
@@ -96,6 +142,302 @@ struct ModeNotch: View {
         // and only the visible tab's notch reports — every root screen has one, and
         // their pills don't all sit at the same x.
         .tourTargetGlobal(.modeNotch, active: store.tourActive && tab == activeTabTag)
+        // Claude  Date 08/29/2026
+        // Every live instance sees the flip; each plays the banner on its own pill.
+        // Only the visible one is seen, and the hidden ones clearing themselves a
+        // couple of seconds later is free.
+        .onChange(of: modeRaw) { newRaw in
+            play(.sideBanner(AppMode(rawValue: newRaw) ?? .lifting),
+                 for: .seconds(2.2))
+        }
+        // Claude  Date 08/29/2026
+        // The once-per-launch "Tap to flip" hint, a beat after the pill settles.
+        // Gated to the visible instance so the flag isn't burned by a hidden tab.
+        .task {
+            guard !Self.didShowFlipHint, tab == activeTabTag else { return }
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled, message == nil, !store.tourActive else { return }
+            Self.didShowFlipHint = true
+            play(.flipHint, for: .seconds(2))
+        }
+        // Claude  Date 08/29/2026
+        // The daily check-in award, formerly DailyCheckInToast. Keyed by the
+        // award's id THROUGH the politeness gate: while a celebration owns the
+        // screen presentableCheckIn is nil, and the moment the gate clears the id
+        // appears and this task fires — the same "waits rather than drops" behaviour
+        // the toast had. Only the visible instance consumes it; dismissing at the
+        // end is what lets recordDailyCheckIn's next award through tomorrow.
+        .task(id: presentableCheckIn?.id) {
+            guard let award = presentableCheckIn, tab == activeTabTag else { return }
+            // The LIGHT tap, deliberately not the .success notification haptic —
+            // that heavier one is the app's signature for badges and PRs, and a
+            // daily login must not land in the hand like one of those.
+            tapHaptic()
+            play(.checkIn(award), for: .milliseconds(3200))
+            try? await Task.sleep(for: .milliseconds(3400))
+            store.dismissCheckIn()
+        }
+    }
+
+    // Claude  Date 08/31/2026
+    // The pill = one cross-fading FACE plus the standing coin chip. Splitting them
+    // is what lets the balance hold still while the face changes underneath it: the
+    // chip is outside the ZStack, so it takes no part in the transitions and never
+    // moves — the scaffold fixes the face region's width, so the chip's x is
+    // constant too.
+    //
+    // ADDING A MESSAGE LATER: write the case, render it in messageView, list it in
+    // sizingMessages, done. It cannot break either of the two properties this file
+    // protects. It cannot evict the balance — the chip is satisfied before the face
+    // region gets a single point. And it cannot make the pill pump — the scaffold
+    // already holds the union. A long one only costs ITSELF legibility, scaling down
+    // inside a face region whose width it shares with the others, which is why the
+    // stats here are written short.
+    private var pillBody: some View {
+        HStack(spacing: 8) {
+            ZStack {
+                sizingScaffold
+
+                if let message {
+                    messageView(for: message)
+                        .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                } else {
+                    standardContent
+                        .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                }
+            }
+
+            coinChip
+        }
+    }
+
+    // Claude  Date 08/23/2026 last changed: 08/31/2026 by: Claude
+    // The spendable balance. Same glyph as the Shop's own chip so it reads as the
+    // same number wherever you meet it. It is NOT its own tap target: the whole pill
+    // is one mode-switch Button, and nesting a second control inside a principal
+    // toolbar item to save one tap to the Shop isn't worth the ambiguity of a pill
+    // where half the surface does something different. Sits after the swap arrow so
+    // the mode-switch group stays visually intact.
+    //
+    // Coins.compact caps this at FOUR characters ("20", "300", "3.7k"), which is what
+    // makes the chip's width independent of the balance — the whole reason the
+    // previous full-number version was a layout risk. .fixedSize plus the layout
+    // priority makes the balance the LAST thing to give inside the pill: if anything
+    // has to shrink it should be a face's text, which is glanceable extra, not the
+    // number. Four characters is small enough that in practice nothing has to.
+    //
+    // (08/31) Lifted OUT of the resting face so it belongs to the pill rather than to
+    // one face — it now stands through the flip banner, the hint and the check-in
+    // instead of blinking out for three seconds whenever one plays.
+    private var coinChip: some View {
+        coinAmount(Coins.compact(theme.balance), weight: .semibold)
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
+            .layoutPriority(1)
+    }
+
+    // Claude  Date 08/31/2026
+    // The coin glyph beside a number — the balance on the chip, "+20" on the
+    // check-in face.
+    //
+    // DELIBERATELY NOT A `Label`. Both of these were Labels, and on device the glyph
+    // drew while the number did not: this pill is a principal toolbar item hosted in
+    // a UIKit navigation bar, and that bar imposes a bar-button label style that
+    // renders icon-only, silently dropping every Label's title. Nothing about the
+    // call site hints at it — the text is right there in the source — and the pill
+    // had been shipping a coin glyph with no balance next to it since the chip
+    // landed on 08/23. (Two other screens hit the same wall and answered it with an
+    // explicit .labelStyle(.titleAndIcon): PresetsListView and MonthlyRecapCard.)
+    //
+    // An HStack is the version that cannot be restyled out from under us by ANY
+    // ancestor, here or in whatever this pill gets embedded in next, so it's what
+    // both coin readouts use.
+    private func coinAmount(_ text: String, weight: Font.Weight) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: "circle.hexagongrid.fill")
+            Text(text)
+                .monospacedDigit()
+        }
+        .font(.caption.weight(weight))
+        .foregroundStyle(theme.current.accent)
+    }
+
+    // Claude  Date 07/13/2026 last changed: 08/31/2026 by: Claude
+    // The pill's resting face: which world you're in, the OTHER world's stat, and the
+    // swap affordance. The coin balance used to live at the end of this row — it's
+    // the pill-level coinChip now, so this is purely the mode-switch group.
+    private var standardContent: some View {
+        HStack(spacing: 6) {
+            modeIcon(for: mode)
+            Text(stat)
+                .font(.caption)
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+            Image(systemName: "arrow.left.arrow.right")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    // Claude  Date 08/31/2026
+    // THE PILL DOES NOT RESIZE. Every face it can ever show is laid out here at
+    // once and hidden, so the ZStack above reports the UNION of their sizes and the
+    // capsule takes the widest/tallest — no jump when a message arrives or leaves,
+    // and no jump between one message and the next. The real face is centered
+    // inside that constant frame.
+    //
+    // Measured from the LIVE faces rather than a hand-tuned width constant, which is
+    // what keeps it honest as the strings change (a four-digit calorie count, a
+    // two-digit workout count). A future NotchMessage case only has to be added to
+    // `sizingMessages` to be accounted for.
+    //
+    // (08/31) Scopes the FACE region only — the coin chip is a sibling of this stack,
+    // not a member of it, so the chip's own width is added once, after.
+    //
+    // This cannot crowd the nav bar's own buttons: the principal item is only ever
+    // GIVEN the width the leading/trailing buttons leave, so a scaffold wider than
+    // that is compressed into it — and only the oversized face (the flip banner)
+    // scales, since the narrower faces still fit the same proposal at full size.
+    private var sizingScaffold: some View {
+        ZStack {
+            standardContent
+            ForEach(Self.sizingMessages.indices, id: \.self) { index in
+                messageView(for: Self.sizingMessages[index])
+            }
+        }
+        .opacity(0)
+        .accessibilityHidden(true)
+        .allowsHitTesting(false)
+    }
+
+    // Claude  Date 08/31/2026
+    // Every message face, at its worst-case content: both sides' banners (the pill
+    // must not change width when you flip), and a check-in on the last paying day
+    // so the full dot row is counted. `static` so the sample Award's UUID is minted
+    // once rather than on every render.
+    private static let sizingMessages: [NotchMessage] = [
+        .flipHint,
+        .sideBanner(.lifting),
+        .sideBanner(.nutrition),
+        .checkIn(.init(coins: DailyCheckIn.coinsPerDay, dayInWeek: DailyCheckIn.daysPerWeek))
+    ]
+
+    // Claude  Date 08/29/2026
+    // The three transient faces. Each keeps the pill's single-line shape (the nav
+    // bar caps height, not width) with the same scale-factor backstop as the
+    // standard face.
+    @ViewBuilder
+    private func messageView(for message: NotchMessage) -> some View {
+        switch message {
+        case .flipHint:
+            HStack(spacing: 6) {
+                Image(systemName: "hand.tap")
+                    .font(.caption)
+                    .foregroundStyle(theme.current.accent)
+                Text("Tap to flip")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .lineLimit(1)
+            .minimumScaleFactor(0.75)
+
+        case .sideBanner(let side):
+            // The side you just landed on + its OWN headline stat in bold (the
+            // resting face shows the other world's stat; this moment is about
+            // where you arrived).
+            HStack(spacing: 6) {
+                modeIcon(for: side)
+                Text(side.label)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(bannerStat(for: side))
+                    .font(.caption.weight(.bold))
+                    .monospacedDigit()
+            }
+            .lineLimit(1)
+            .minimumScaleFactor(0.6)
+
+        case .checkIn(let award):
+            // The old DailyCheckInToast's content, verbatim vocabulary: the coin
+            // glyph everything else uses, and the same week track as the Shop's
+            // "This week" strip so the two read as one feature.
+            HStack(spacing: 10) {
+                coinAmount("+\(award.coins)", weight: .bold)
+                HStack(spacing: 5) {
+                    ForEach(1...DailyCheckIn.daysPerWeek, id: \.self) { day in
+                        Circle()
+                            .fill(day <= award.dayInWeek
+                                  ? theme.current.accent
+                                  : Color.secondary.opacity(0.3))
+                            .frame(width: 6, height: 6)
+                    }
+                }
+            }
+        }
+    }
+
+    // Claude  Date 07/13/2026 last changed: 08/29/2026 by: Claude
+    // Food's icon is a custom template asset (bowl-food), lifting is an SF Symbol.
+    // Factored out because the flip banner draws the icon too. The custom image is
+    // framed to sit alongside the text at the same visual weight the symbol has;
+    // template rendering lets it pick up the accent tint.
+    @ViewBuilder
+    private func modeIcon(for mode: AppMode) -> some View {
+        Group {
+            if mode.iconIsCustomAsset {
+                Image(mode.icon)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 18, height: 18)
+            } else {
+                Image(systemName: mode.icon)
+                    .font(.subheadline)
+            }
+        }
+        .foregroundStyle(theme.current.accent)
+    }
+
+    // Claude  Date 08/29/2026
+    // Take over the message slot: cancel whatever sleeper was going to clear the
+    // previous message, show the new one, and clear it after `duration` — but only
+    // if it's still ours (a later message may have taken the slot meanwhile).
+    private func play(_ msg: NotchMessage, for duration: Duration) {
+        messageTask?.cancel()
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+            message = msg
+        }
+        messageTask = Task { @MainActor in
+            try? await Task.sleep(for: duration)
+            guard !Task.isCancelled, message == msg else { return }
+            withAnimation(.easeInOut(duration: 0.25)) { message = nil }
+        }
+    }
+
+    // Claude  Date 08/29/2026
+    // When it's polite to surface the daily-bonus award — RootTabView's old
+    // checkInToast gate, moved here with the view that renders it. Every layer
+    // listed owns the whole screen; the award yields to all of them and shows on
+    // the next render once they're gone, because AppStore.pendingCheckIn holds it
+    // until explicitly dismissed.
+    private var presentableCheckIn: DailyCheckIn.Award? {
+        guard store.profile.hasOnboarded,
+              !store.tourActive,
+              store.pendingWorkoutSummary == nil,
+              store.pendingCelebrations.isEmpty,
+              store.pendingPromotions.isEmpty,
+              store.pendingCardUnlock.isEmpty,
+              store.pendingFoundersUnlock.isEmpty
+        else { return nil }
+        return store.pendingCheckIn
+    }
+
+    private var accessibilityText: String {
+        if case .checkIn(let award) = message {
+            return "Daily bonus. \(award.coins) coins. Day \(award.dayInWeek) of \(DailyCheckIn.daysPerWeek) this week."
+        }
+        return "\(mode.label) mode. \(stat). \(theme.balance) coins. Switch to \(mode.toggled.label)."
     }
 
     // Claude  Date 07/13/2026 last changed: 07/21/2026 by: Claude
@@ -116,6 +458,86 @@ struct ModeNotch: View {
             let streak = ProfileStats.weekStreak(of: store.workouts.map(\.date))
             return "\(streak)-wk streak"
         }
+    }
+
+    // Claude  Date 08/29/2026 last changed: 08/31/2026 by: Claude
+    // The flip banner's headline: the arrived-at side's own key number. Kept in
+    // the pill's compact vocabulary ("cal", not "calories") — bold carries the
+    // emphasis, width stays honest on narrow phones.
+    //
+    // (08/31) Shortened again: "remaining" → "left", "this week" → "this wk". These
+    // two strings set the face region's width for every face, so each character
+    // here is one the resting stat and the check-in row pay for too. "wk" is not a
+    // new abbreviation — the resting stat has read "3-wk streak" since July.
+    private func bannerStat(for mode: AppMode) -> String {
+        switch mode {
+        case .nutrition:
+            let eaten = Int(store.nutritionDay(for: Date()).totals.calories)
+            let goal = Int(store.nutritionGoals.calories)
+            let remaining = goal - eaten
+            return remaining >= 0
+                ? "\(remaining) cal left"
+                : "\(-remaining) cal over"
+        case .lifting:
+            let calendar = Calendar.current
+            let count: Int
+            if let week = calendar.dateInterval(of: .weekOfYear, for: Date()) {
+                count = store.workouts.filter {
+                    $0.date >= week.start && $0.date < week.end
+                }.count
+            } else {
+                count = 0
+            }
+            return "\(count) workout\(count == 1 ? "" : "s") this wk"
+        }
+    }
+}
+
+// Claude  Date 08/29/2026
+// The light that laps the pill's rim. A single dashed capsule stroke whose dash
+// is one bright segment (~30% of the perimeter) and one gap (the rest); driving
+// dashPhase through exactly one perimeter per lap moves the segment around the
+// edge with a clean wraparound — the trick .trim can't do without stitching two
+// arcs at the seam. A blurred copy underneath gives the segment a soft glow.
+// TimelineView recomputes the phase from the clock each frame, so there's no
+// repeatForever animation for other state changes to hijack; `paused` freezes
+// the timeline entirely for off-screen instances.
+private struct RimTrace: View {
+    let color: Color
+    let paused: Bool
+
+    /// Seconds per full lap. Slow enough to read as ambient, not urgent.
+    private static let lapDuration: TimeInterval = 3.5
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 40.0, paused: paused)) { context in
+            GeometryReader { geo in
+                let w = geo.size.width
+                let h = geo.size.height
+                // Capsule perimeter: two straight runs + the two end caps' circle.
+                let perimeter = max(2 * (w - h) + .pi * h, 1)
+                let dash = perimeter * 0.3
+                let t = context.date.timeIntervalSinceReferenceDate
+                let phase = CGFloat((t / Self.lapDuration)
+                    .truncatingRemainder(dividingBy: 1))
+                let dashes: [CGFloat] = [dash, perimeter - dash]
+                let dashPhase = -phase * perimeter
+
+                ZStack {
+                    Capsule()
+                        .stroke(color.opacity(0.35),
+                                style: StrokeStyle(lineWidth: 3, lineCap: .round,
+                                                   dash: dashes, dashPhase: dashPhase))
+                        .blur(radius: 2)
+                    Capsule()
+                        .stroke(color.opacity(0.9),
+                                style: StrokeStyle(lineWidth: 1.5, lineCap: .round,
+                                                   dash: dashes, dashPhase: dashPhase))
+                }
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }
 
