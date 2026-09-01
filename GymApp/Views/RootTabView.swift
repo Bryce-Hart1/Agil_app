@@ -188,6 +188,12 @@ struct RootTabView: View {
         .animation(.easeInOut(duration: 0.25), value: store.pendingPromotions.first)
         .animation(.easeInOut(duration: 0.25), value: store.pendingCardUnlock.first?.id)
         .animation(.easeInOut(duration: 0.25), value: store.pendingFoundersUnlock.isEmpty)
+        // Claude  Date 08/29/2026
+        // The daily check-in award no longer floats here as its own overlay layer —
+        // it plays INSIDE the ModeNotch pill as one of its transient messages, so
+        // the reward reads as part of the chrome rather than a banner over it. The
+        // politeness gate (yield to the full-screen celebration ladder above) moved
+        // with it: see ModeNotch.presentableCheckIn. recordDailyCheckIn stays here.
         // Claude  Date 07/14/2026 last changed: 07/14/2026 by: Claude
         // The first-boot spotlight tour, above everything (its own layer, after the
         // celebration ladder — in practice they never coexist: the tour fires on a
@@ -237,7 +243,16 @@ struct RootTabView: View {
         // covers a relaunch where the tour never ran (killed mid-tour, or an
         // existing pre-tour profile that migrated in hasSeenTour = false).
         .onChange(of: store.profile.hasOnboarded) { done in
-            guard done, !store.profile.hasSeenTour else { return }
+            guard done else { return }
+            // Claude  Date 08/23/2026
+            // Day 1 of the check-in streak. recordDailyCheckIn refuses to run while
+            // hasOnboarded is false (no coin pill over the name prompt), so a brand-new
+            // user needs this nudge the moment they finish — otherwise their first
+            // bonus waits until the app is next foregrounded. The award's politeness
+            // gate (ModeNotch.presentableCheckIn) keeps it out of the way of the tour
+            // that starts just below.
+            store.recordDailyCheckIn()
+            guard !store.profile.hasSeenTour else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { store.startTour() }
         }
         .onAppear {
@@ -271,6 +286,16 @@ struct RootTabView: View {
             switch phase {
             case .active:
                 cardSync.sync(from: store)
+                // Claude  Date 08/23/2026
+                // First open of a new day pays the +20 check-in bonus. No-ops on every
+                // other foreground. The wallet picks the coins up through the
+                // totalCoinsEarned .onChange below.
+                //
+                // KNOWN LIMIT: if the app is left foregrounded across midnight there's
+                // no .active transition, so the bonus waits for the next foreground.
+                // ModeNotch documents and accepts the same midnight-rollover behaviour
+                // for its stat; not worth a timer at alpha.
+                store.recordDailyCheckIn()
                 // Catch the rest timer up to real elapsed time after backgrounding/locking.
                 session.refreshRest()
                 // Claude  Date 07/01/2026
