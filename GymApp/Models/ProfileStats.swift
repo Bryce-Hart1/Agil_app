@@ -48,6 +48,13 @@ struct ProfileStats: Codable, Hashable {
     // reason: it's a welcome badge with nothing to cheat. Only init(events:)
     // populates it; init(workouts:exercises:) is the display path with no profile.
     var tookFirstStep: Bool
+    // Claude  Date 08/29/2026
+    // Distinct days the whole due supplement stack was cleared — the count of
+    // AppStore.clearedSupplementDays, which is a real-time, monotone ledger (same
+    // anti-cheat shape as daysLogged). Ready to drive supplement badges; nothing
+    // in the catalog reads it yet. Only init(events:) populates it —
+    // init(workouts:exercises:) is the display path with no supplement data.
+    var daysSupplementsCleared: Int
 
 
     init(workouts: [Workout], exercises: [Exercise]) {
@@ -126,6 +133,7 @@ struct ProfileStats: Codable, Hashable {
         // Likewise no profile here, so the profile-driven flags stay neutral.
         completedNutritionSetup = false
         tookFirstStep = false
+        daysSupplementsCleared = 0
     }
 
     // Claude  Date 06/14/2026
@@ -151,10 +159,15 @@ struct ProfileStats: Codable, Hashable {
     // Claude  Date 07/27/2026 last changed: 07/27/2026 by: Claude
     // Added `tookFirstStep` (defaulted, same trick again) for the First Step badge —
     // the second and, deliberately, last of the non-ledger welcome-badge inputs.
+    // Claude  Date 08/29/2026
+    // Added `clearedSupplementDays` (defaulted, same trick) — the supplement
+    // ledger AppStore.evaluateAchievements already passes; counted into
+    // daysSupplementsCleared for the coming supplement badges.
     init(events: [ActivityEvent], foodLog: [FoodEntry] = [],
          nutritionGoals: NutritionGoals = NutritionGoals(),
          setup: NutritionSetup = NutritionSetup(),
-         tookFirstStep: Bool = false) {
+         tookFirstStep: Bool = false,
+         clearedSupplementDays: Set<Date> = []) {
         let calendar = Calendar.current
         totalWorkouts = 0
         totalSets = events.count
@@ -235,6 +248,11 @@ struct ProfileStats: Codable, Hashable {
         // Claude  Date 07/27/2026
         // Straight passthrough of profile.tookFirstStep — see the property note.
         self.tookFirstStep = tookFirstStep
+
+        // Claude  Date 08/29/2026
+        // The ledger entries are already day-normalized by AppStore, so the count
+        // IS the distinct-day count — see the property note.
+        daysSupplementsCleared = clearedSupplementDays.count
     }
 
     // Claude  Date 07/13/2026

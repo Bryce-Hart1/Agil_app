@@ -128,3 +128,59 @@ enum PresetIcons {
     /// True when `name` is one of our custom PNG assets (vs an SF Symbol).
     static func isCustomAsset(_ name: String) -> Bool { customAssets.contains(name) }
 }
+
+// Claude  Date 08/25/2026
+// Content identity, for the "this preset already exists" check at every point a
+// preset can be saved (see AppStore.duplicatePreset(of:)).
+//
+// What counts as "the same preset" is exactly what the user can see and set: the
+// name, the icon, the adaptive toggle, the preset-wide notes, and the ordered list
+// of exercises with each one's plan. What's deliberately EXCLUDED:
+//  - `id` — every copy has its own, so including it would make the check useless;
+//  - `premadeID` — provenance, not content: a template installed twice under the
+//    same name is the duplicate this check exists to catch, and a hand-built preset
+//    that happens to match an installed one is just as much a duplicate;
+//  - `PresetItem.id` — same reasoning as the preset's;
+//  - `PresetItem.note` — retired (see its declaration); nothing writes it any more.
+// Order matters: the same lifts in a different order is a different session plan.
+extension WorkoutPreset {
+    struct ContentKey: Hashable {
+        let name: String
+        let symbolName: String
+        let isAdaptive: Bool
+        let notes: String
+        let items: [ItemKey]
+
+        struct ItemKey: Hashable {
+            let exerciseId: UUID
+            let targetRepRange: RepRange?
+            let restSeconds: Int?
+            let weightIncrement: Double?
+            let targetSets: Int?
+        }
+    }
+
+    /// Name as compared: trimmed and case-folded, so "Push Day" and "push day " are
+    /// the same preset. Also what the duplicate alert shows.
+    var comparableName: String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var contentKey: ContentKey {
+        ContentKey(
+            name: comparableName.lowercased(),
+            symbolName: symbolName,
+            isAdaptive: isAdaptive,
+            // nil and "" are the same absence of notes — the editor's field bridges
+            // the two, so they must not read as different presets.
+            notes: (notes ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
+            items: items.map {
+                ContentKey.ItemKey(exerciseId: $0.exerciseId,
+                                   targetRepRange: $0.targetRepRange,
+                                   restSeconds: $0.restSeconds,
+                                   weightIncrement: $0.weightIncrement,
+                                   targetSets: $0.targetSets)
+            }
+        )
+    }
+}

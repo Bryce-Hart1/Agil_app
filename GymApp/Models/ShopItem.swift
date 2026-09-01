@@ -85,7 +85,7 @@ enum ShopItem: Identifiable, Hashable {
             case .legendary: return 0.22
             // Claude  Date 07/12/2026 last changed: 07/23/2026 by: Claude
             // Unreachable via the Shop — Founders and Gem cards are excluded from every
-            // pool (see ShopView.fullCatalog's isGrantOnly filter). Values are
+            // pool (see ShopCatalogView.fullCatalog's isGrantOnly filter). Values are
             // placeholders to keep this switch exhaustive.
             case .founders:  return 0
             case .gem:       return 0
@@ -161,6 +161,8 @@ extension ShopItem {
             "A crimson-to-plum diagonal. Bold at the top, moody at the bottom.",
         "card:shadow":
             "Charcoal fading to graphite. Subtle enough to wear with anything.",
+        "card:riptide":
+            "Teal pulled down into deep navy. The colour of water with a current in it.",
 
         // MARK: Cards — Legendary (live animations)
         "card:nebula":
@@ -171,6 +173,10 @@ extension ShopItem {
             "Cracked crust over moving lava. ",
         "card:cherry_blossom":
             "Petals drifting down in front of soft pink light. The calmest of the legendary cards.",
+        "card:thunderstorm":
+            "Lightning flickering deep inside the cloud. Never close enough to hear.",
+        "card:coral_reef":
+            "Looking up from the seabed. Kelp swaying, plankton rising through the light.",
 
         // MARK: Cards — grant-only
         "card:founders_shooting_stars":
