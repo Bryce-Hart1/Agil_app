@@ -23,6 +23,12 @@ enum AnimatedCard: Hashable {
     case galaxy
     case molten
     case cherryBlossom
+    // Claude  Date 08/24/2026
+    // Thunderstorm — the view from inside the cloud (see ThunderstormBackground).
+    case thunderstorm
+    // Claude  Date 08/28/2026
+    // Coral Reef — looking up from the seabed (see CoralReefBackground).
+    case coralReef
     // Claude  Date 07/12/2026 last changed: 07/13/2026 by: Claude
     // The Founders Edition upgrades — not sold anywhere (see CardStyle.isFounders
     // / ThemeManager.grantFoundersCards). Added foundersConstellation alongside
@@ -45,6 +51,8 @@ enum AnimatedCard: Hashable {
         case .galaxy:                return Color(red: 0.40, green: 0.55, blue: 0.95)
         case .molten:                return Color(red: 1.0,  green: 0.42, blue: 0.10)
         case .cherryBlossom:         return Color(red: 0.96, green: 0.55, blue: 0.72)
+        case .thunderstorm:          return Color(red: 0.66, green: 0.60, blue: 0.92)
+        case .coralReef:             return Color(red: 0.16, green: 0.78, blue: 0.80)
         case .foundersShootingStars: return Color(red: 1.0,  green: 0.82, blue: 0.25)
         case .foundersGalaxy:        return Color(red: 0.98, green: 0.68, blue: 0.45)
         case .foundersConstellation: return Color(red: 0.98, green: 0.55, blue: 0.75)
@@ -129,7 +137,7 @@ struct CardStyle: Identifiable, Hashable {
     // True only for cards granted directly instead of sold through the Shop/coin
     // system (e.g. Founders Edition). Defaults to false so every existing
     // CardStyle(...) call site is unaffected. See ThemeManager.isCardStyleUnlocked
-    // and grantFoundersCards, plus the exclusion in ShopView.fullCatalog.
+    // and grantFoundersCards, plus the exclusion in ShopCatalogView.fullCatalog.
     let isFounders: Bool
 
     init(id: String, name: String, background: CardBackground, tier: CardTier, isFounders: Bool = false) {
@@ -148,7 +156,7 @@ struct CardStyle: Identifiable, Hashable {
     // never free just because their price is 0): the Founders Edition cards and the
     // achievement-earned gemstone cards. Ownership for these means "explicitly present
     // in unlockedCardStyleIDs" — see ThemeManager.isCardStyleUnlocked and the
-    // ShopView.fullCatalog exclusion.
+    // ShopCatalogView.fullCatalog exclusion.
     var isGrantOnly: Bool { isFounders || tier == .gem }
 
     static let all: [CardStyle] = [
@@ -162,11 +170,18 @@ struct CardStyle: Identifiable, Hashable {
         CardStyle(id: "ember",   name: "Ember",        background: .image(asset: "card_ember"),  tier: .epic),
         CardStyle(id: "cherry",  name: "Cherry",       background: .gradient(from: "#C21F3A", to: "#5E1A4E"), tier: .epic),
         CardStyle(id: "shadow",  name: "Shadow",       background: .gradient(from: "#0A0A0C", to: "#3A3A40"), tier: .epic),
+        // Claude  Date 08/28/2026
+        // Riptide — teal to navy. The first epic in the blue/teal family; kept as
+        // dark as Cherry so the card's white text still reads without a scrim
+        // (CardBackgroundView only scrims .image and .animated, never .gradient).
+        CardStyle(id: "riptide", name: "Riptide",      background: .gradient(from: "#0B6E78", to: "#132C63"), tier: .epic),
         // Legendary — live, code-drawn animations (see AnimatedCardBackground).
         CardStyle(id: "nebula",  name: "Shooting Stars", background: .animated(.shootingStars), tier: .legendary),
         CardStyle(id: "galaxy",  name: "Galaxy",         background: .animated(.galaxy),        tier: .legendary),
         CardStyle(id: "molten",  name: "Molten Core",    background: .animated(.molten),        tier: .legendary),
         CardStyle(id: "cherry_blossom", name: "Cherry Blossom", background: .animated(.cherryBlossom), tier: .legendary),
+        CardStyle(id: "thunderstorm",   name: "Thunderstorm",   background: .animated(.thunderstorm),  tier: .legendary),
+        CardStyle(id: "coral_reef",     name: "Coral Reef",     background: .animated(.coralReef),     tier: .legendary),
         // Claude  Date 07/12/2026
         // Founders Edition — the upgraded Shooting Stars variant. Not sold in the
         // Shop (see isFounders); granted directly by ThemeManager instead.
