@@ -104,6 +104,10 @@ struct PremadeWorkoutDetailView: View {
 
     @State private var name: String
     @State private var symbolName: String
+    // Claude  Date 08/25/2026
+    // The saved preset an install would have duplicated (nil = none) — drives the
+    // "already exists" alert below instead of adding a second identical copy.
+    @State private var duplicate: WorkoutPreset?
 
     init(premade: PremadeWorkout) {
         self.premade = premade
@@ -144,6 +148,17 @@ struct PremadeWorkoutDetailView: View {
             Section {
                 Button {
                     hideKeyboard()
+                    // Claude  Date 08/25/2026
+                    // Refuse an install that would produce a preset identical to one
+                    // already saved — the same template added twice under the same name,
+                    // or one that matches something the user built by hand. The check
+                    // runs on a dry-run build of the preset (premadePresetPreview), so
+                    // nothing is created before we know it's wanted. Renaming it here is
+                    // enough to make it a distinct preset and let the install through.
+                    if let existing = existingDuplicate() {
+                        duplicate = existing
+                        return
+                    }
                     store.installPremade(premade, name: name, symbolName: symbolName)
                     dismiss()
                 } label: {
@@ -166,6 +181,31 @@ struct PremadeWorkoutDetailView: View {
                 Button("Done") { hideKeyboard() }
             }
         }
+        // Claude  Date 08/25/2026
+        // The install was refused because the result would be a copy of a preset already
+        // saved. Staying on this screen (rather than dismissing) is the point — the name
+        // field is right there, and renaming is all it takes to make it a separate preset.
+        .alert("Preset Already Exists", isPresented: duplicateAlertBinding,
+               presenting: duplicate) { existing in
+            Button("OK", role: .cancel) {}
+        } message: { existing in
+            let existingName = existing.name.isEmpty ? "Untitled Preset" : existing.name
+            Text("“\(existingName)” is already identical to this. Give this one a different name if you want a second copy.")
+        }
+    }
+
+    // Claude  Date 08/25/2026
+    // The saved preset this install would duplicate, if any. `premadePresetPreview`
+    // returns nil when the template needs a lift the library doesn't have yet — which
+    // means no saved preset can match it, so there's nothing to refuse.
+    private func existingDuplicate() -> WorkoutPreset? {
+        guard let candidate = store.premadePresetPreview(premade, name: name, symbolName: symbolName)
+        else { return nil }
+        return store.duplicatePreset(of: candidate)
+    }
+
+    private var duplicateAlertBinding: Binding<Bool> {
+        Binding(get: { duplicate != nil }, set: { if !$0 { duplicate = nil } })
     }
 
     // Claude  Date 07/25/2026

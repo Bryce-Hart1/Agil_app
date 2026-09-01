@@ -26,6 +26,12 @@ private struct PresetEditor: View {
     // Claude  Date 07/01/2026
     // Drives the "?" explainer alert for the adaptive-progression toggle.
     @State private var showingAdaptiveHelp = false
+    // Claude  Date 08/25/2026
+    // The other saved preset this one has become identical to (nil = none), found when
+    // "Finish Preset" is tapped. Both ways out are offered — keep editing, or throw this
+    // copy away — because the editor saves live, so refusing to let the user leave would
+    // trap them on this screen.
+    @State private var duplicate: WorkoutPreset?
     // Claude  Date 07/09/2026
     // The library exercise being edited from a section's pencil (nil = none) — same
     // in-place edit affordance the workout editor has.
@@ -35,6 +41,13 @@ private struct PresetEditor: View {
     // level rather than per-row because the rows are built inline in this Form's body
     // and so can't own @State of their own.
     @State private var swappingItemID: UUID?
+
+    /// The lift currently being swapped out, if any — what the picker ranks against.
+    private var swappingExercise: Exercise? {
+        guard let id = swappingItemID,
+              let item = preset.items.first(where: { $0.id == id }) else { return nil }
+        return store.exercise(for: item.exerciseId)
+    }
 
     var body: some View {
         Form {
@@ -165,7 +178,11 @@ private struct PresetEditor: View {
                     }
                 } header: {
                     HStack {
-                        Text(store.exercise(for: item.exerciseId)?.name ?? "Exercise")
+                        // Claude  Date 08/18/2026
+                        // displayLabel + nameplate, matching the workout editor: a preset
+                        // built on a specific branded machine has to say which one.
+                        Text(store.exercise(for: item.exerciseId)?.displayLabel ?? "Exercise")
+                        EquipmentBadge(type: store.exercise(for: item.exerciseId)?.equipmentType)
                         // Claude  Date 07/09/2026
                         // Pencil → edit the underlying library exercise's details in place
                         // while designing the preset, exactly like the workout editor.
@@ -181,7 +198,7 @@ private struct PresetEditor: View {
                             }
                             .buttonStyle(.plain)
                             .foregroundStyle(theme.current.accent)
-                            .accessibilityLabel("Edit \(exercise.name)")
+                            .accessibilityLabel("Edit \(exercise.displayLabel)")
                         }
                     }
                 }
@@ -202,6 +219,15 @@ private struct PresetEditor: View {
             Section {
                 Button {
                     hideKeyboard()
+                    // Claude  Date 08/25/2026
+                    // The editor writes live through its binding, so this is the only
+                    // commit point it has — check here whether editing has turned this
+                    // preset into a copy of another one, and say so before it's left
+                    // sitting in the list as a twin.
+                    if let existing = store.duplicatePreset(of: preset) {
+                        duplicate = existing
+                        return
+                    }
                     dismiss()
                 } label: {
                     Text("Finish Preset")
@@ -250,7 +276,10 @@ private struct PresetEditor: View {
         // lift in place (see the ExerciseActionsRow above for what carries over).
         .sheet(isPresented: Binding(get: { swappingItemID != nil },
                                     set: { if !$0 { swappingItemID = nil } })) {
-            ExercisePickerView { exercise in
+            // Claude  Date 08/16/2026
+            // `relatedTo` floats plausible substitutes for the outgoing lift to the top
+            // of the picker (see Exercise.related); a typed search cancels it.
+            ExercisePickerView(relatedTo: swappingExercise) { exercise in
                 guard let id = swappingItemID,
                       let index = preset.items.firstIndex(where: { $0.id == id }) else { return }
                 // Claude  Date 08/04/2026 last changed: 08/11/2026 by: Claude
@@ -266,7 +295,7 @@ private struct PresetEditor: View {
         }
         .sheet(isPresented: $showingReorder) {
             ReorderExercisesSheet(title: "Reorder", items: $preset.items) {
-                store.exercise(for: $0.exerciseId)?.name ?? "Exercise"
+                store.exercise(for: $0.exerciseId)?.displayLabel ?? "Exercise"
             }
         }
         // Claude  Date 07/09/2026
@@ -288,6 +317,32 @@ private struct PresetEditor: View {
             Suggestions are always editable.
             """)
         }
+        // Claude  Date 08/25/2026
+        // This preset now matches another one exactly. "Delete This Copy" removes the one
+        // being edited (never the original named in the message) and pops back; "Keep
+        // Editing" returns to the form to change something — a rename is enough.
+        .alert("Preset Already Exists", isPresented: duplicateAlertBinding,
+               presenting: duplicate) { existing in
+            Button("Delete This Copy", role: .destructive) {
+                // Pop first, delete after: removing the preset invalidates the binding
+                // this editor is built on, and PresetEditorView would flash its "no
+                // longer exists" fallback on the way out.
+                let id = preset.id
+                dismiss()
+                DispatchQueue.main.async { store.deletePreset(id: id) }
+            }
+            Button("Keep Editing", role: .cancel) {}
+        } message: { existing in
+            let name = existing.name.isEmpty ? "Untitled Preset" : existing.name
+            Text("This is now identical to “\(name)” — same name, exercises, and plan. Change something to keep both, or delete this copy.")
+        }
+    }
+
+    // Claude  Date 08/25/2026
+    // Bool binding over `duplicate` for the alert above (the presenting overload needs
+    // both); dismissing clears it so a later Finish can raise it again.
+    private var duplicateAlertBinding: Binding<Bool> {
+        Binding(get: { duplicate != nil }, set: { if !$0 { duplicate = nil } })
     }
 
     // Claude  Date 07/01/2026
