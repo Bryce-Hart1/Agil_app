@@ -61,15 +61,35 @@ targets:
     # Home-screen widget extension, embedded into the app's PlugIns folder.
     dependencies:
       - target: GymAppWidget
-    # Claude  Date 07/16/2026
+    # Claude  Date 07/16/2026 last changed: 08/13/2026 by: Claude
     # App Group shared with the widget extension — the app writes WidgetSnapshot
     # (today's calories / focus goal / theme) into this group's UserDefaults and
-    # the widget reads it. xcodegen writes this entitlements file on generate.
-    entitlements:
-      path: GymApp/GymApp.entitlements
-      properties:
-        com.apple.security.application-groups:
-          - group.com.brycehart.gymapp
+    # the widget reads it.
+    #
+    # (08/13) The app target's entitlements are now TWO hand-maintained files
+    # selected per configuration (see CODE_SIGN_ENTITLEMENTS under `settings:`
+    # below), so the `entitlements:` block that used to generate GymApp.entitlements
+    # is gone from this target:
+    #
+    #   GymApp/GymApp.entitlements       Release — App Group + iCloud KVS
+    #   GymApp/GymAppDebug.entitlements  Debug   — App Group only
+    #
+    # Why they had to split: iCloud key-value storage backs the coin wallet (see
+    # CloudWalletSync — coin packs are StoreKit *consumables*, so they're absent from
+    # Transaction.currentEntitlements and no "restore purchases" can bring them back;
+    # everything else Agil stores is JSON in Documents, which iOS deletes with the
+    # app). But a free/personal Apple team cannot provision iCloud at all, so with
+    # com.apple.developer.ubiquity-kvstore-identifier present, device debug builds
+    # failed to sign before compiling. Release keeps it, so shipping behavior and the
+    # "purchased currency may not expire" guarantee are unchanged.
+    #
+    # Splitting via `settings: configs:` alone does NOT work — an `entitlements:`
+    # block here sets CODE_SIGN_ENTITLEMENTS for every configuration and silently
+    # overrides the per-config value. Hence both files being explicit and generated
+    # by nothing. Add any new entitlement to BOTH files.
+    #
+    # The widget keeps its generated entitlements block below — App Groups IS
+    # supported on a personal team, so that target never had this problem.
     # Claude  Date 06/18/2026
     # Explicit Info.plist (kept at the repo root, outside the GymApp sources glob) so
     # we can add an App Transport Security exception for the local dev backend. We
@@ -80,19 +100,20 @@ targets:
       properties:
         # Shown when the app first asks for the camera (barcode scanner in Nutrition).
         NSCameraUsageDescription: Agil uses the camera to scan food barcodes so it can look up nutrition info.
-        # Claude  Date 06/30/2026
-        # Backend base URL, injected from the AGIL_BACKEND_BASE_URL build setting (set
-        # per build configuration below) and read at runtime by BackendClient.baseURL.
-        # Switching LAN <-> prod is now a config change, not a code edit: pick the build
-        # configuration (Debug = LAN, Release = prod host).
-        AgilBackendBaseURL: $(AGIL_BACKEND_BASE_URL)
+        # Claude  Date 06/30/2026 last changed: 08/20/2026 by: Claude
+        # (08/19) AgilBackendBaseURL is GONE. The backend host is now chosen in code, by
+        # build configuration, in `enum API` (GymApp/Services/API.swift) — Debug = the
+        # devbox over Tailscale, Release = prod. Nothing reads AGIL_BACKEND_BASE_URL any
+        # more; don't re-add this key without also changing BackendClient.baseURL back.
         # ⚠️ TEST-ONLY cleartext-HTTP exceptions — MUST be removed/replaced before the
-        # production (App Store) release. Production serves the backend over HTTPS, which
-        # needs NONE of this (and the Release AGIL_BACKEND_BASE_URL below must point at
-        # that HTTPS host). See [[agil-release-ats-https-checklist]].
-        #   - 127.0.0.1 / localhost      : simulator dev against the local backend
+        # production (App Store) release. See [[agil-release-ats-https-checklist]].
+        #   - 127.0.0.1 / localhost      : simulator dev against a backend on this Mac
         #   - NSAllowsLocalNetworking    : lets phones reach the Mac on the LAN over plain
         #                                  HTTP (private IP ranges) for the device test
+        # (08/20) The Tailscale devbox needs NOTHING here: `tailscale serve` fronts it on
+        # 443 with a real Let's Encrypt cert for devbox.taile9efe7.ts.net, so it is plain
+        # validating HTTPS. An exception was briefly added for the 100.x IP when that host
+        # was going to be cleartext — it is gone, and must not come back.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
           NSExceptionDomains:
@@ -103,6 +124,14 @@ targets:
         # iOS 14+ prompts for local-network access on first connect to the Mac; this
         # description is required or that request silently fails. (LAN test only.)
         NSLocalNetworkUsageDescription: Agil connects to your Agil server on the local network to sync your profile card and look up foods.
+    # Claude  Date 08/03/2026
+    # Point the Run action at the local StoreKit configuration so coin packs are
+    # buyable in the simulator without App Store Connect (which can't even host the
+    # products until the Paid Apps agreement is active). Declared here rather than
+    # set in Xcode's scheme editor because `xcodegen generate` rewrites the scheme
+    # and would silently drop it every time.
+    scheme:
+      storeKitConfiguration: Agil.storekit
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.brycehart.gymapp
@@ -125,13 +154,25 @@ targets:
         # builds with "Signing requires a development team"). Value = the OU of the
         # "Apple Development: bryce.hart23@gmail.com" certificate.
         DEVELOPMENT_TEAM: 6XTP9P5C7M
-    # Claude  Date 06/30/2026 last changed: 08/04/2026 by: Claude
-    # Backend host per build configuration (feeds AgilBackendBaseURL above).
-    # (08/04) AGIL_BACKEND_BASE_URL moved OUT of `settings: configs:` and into these
-    # xcconfig files, so changing the host is a one-line edit that Xcode picks up on
-    # the next Run — no project.yml change and no `xcodegen generate`.
-    # Do NOT re-add AGIL_BACKEND_BASE_URL under `settings:` below: a target-level
-    # build setting overrides an xcconfig, so it would silently shadow these files.
+      # Claude  Date 08/13/2026
+      # Per-config entitlements — see the long note on the target above for why.
+      # Debug drops iCloud so device builds sign on a personal team; Release keeps
+      # it. Set here rather than in Config/*.xcconfig because a target-level build
+      # setting overrides an xcconfig, so the xcconfig version would be silently
+      # ignored (the same trap the AGIL_BACKEND_BASE_URL note below warns about).
+      #
+      # Once the paid Developer Program membership is active, collapse these back to
+      # one file and delete GymAppDebug.entitlements — debug builds should be
+      # exercising the real entitlement set.
+      configs:
+        Debug:
+          CODE_SIGN_ENTITLEMENTS: GymApp/GymAppDebug.entitlements
+        Release:
+          CODE_SIGN_ENTITLEMENTS: GymApp/GymApp.entitlements
+    # Claude  Date 06/30/2026 last changed: 08/19/2026 by: Claude
+    # Per-configuration xcconfigs. These no longer carry the backend host — that moved
+    # into `enum API` (GymApp/Services/API.swift) on 08/19. Kept wired up because the
+    # files are still the right home for any future per-config build setting.
     configFiles:
       Debug: Config/Debug.xcconfig
       Release: Config/Release.xcconfig
