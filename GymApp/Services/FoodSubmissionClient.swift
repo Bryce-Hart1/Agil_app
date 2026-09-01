@@ -34,15 +34,13 @@ struct FoodSubmissionClient {
             .appendingPathComponent("foods")
             .appendingPathComponent("submit")
 
-        // Per-serving → per-100. A zero/absent serving size can't be scaled, so the
-        // values are sent as-is rather than divided by zero.
-        let scale = food.servingSize > 0 ? 100 / food.servingSize : 1
-        var per100 = micros
-        for field in MicroField.all {
-            if let value = field.value(micros) {
-                per100[keyPath: field.key] = value * scale
-            }
-        }
+        // Per-serving → per-100, through the same factor the stored copy uses
+        // (FoodItem.per100Factor), so the food on the device and the food in the review
+        // queue can't disagree. nil = a count serving with no gram weight, or an absent
+        // serving size: send the values as-is rather than fabricating a basis.
+        // (08/18: this used to divide by servingSize alone, which sent a "2 oz" serving
+        // scaled ×50 instead of ×1.76.)
+        let per100 = MicroField.scaled(micros, by: food.per100Factor ?? 1)
 
         let body = Payload(
             name: food.name,
