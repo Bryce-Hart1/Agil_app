@@ -411,6 +411,10 @@ struct ProfileShowcaseCard: View {
         case .gradient(let from, _): return Color(hex: from)
         case .animated(let kind):   return kind.accent
         case .image:                return .black
+        // Claude  Date 09/02/2026
+        // Outline cards glow in their border colour — the fill is black, which
+        // would give no shadow at all.
+        case .outlined(_, let stroke): return Color(hex: stroke)
         }
     }
 
@@ -418,9 +422,12 @@ struct ProfileShowcaseCard: View {
         content
             .padding(24)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(CardBackgroundView(background: style.background))
+            .background(CardBackgroundView(background: style.background, cornerRadius: 28))
             .clipShape(RoundedRectangle(cornerRadius: 28))
-            .overlay(RoundedRectangle(cornerRadius: 28).stroke(.white.opacity(0.18), lineWidth: 1))
+            // Claude  Date 09/02/2026: outline cards draw their own border, so the
+            // generic white hairline is dropped for them (it read as a double edge).
+            .overlay(RoundedRectangle(cornerRadius: 28)
+                .stroke(.white.opacity(style.isOutlined ? 0 : 0.18), lineWidth: 1))
             .shadow(color: shadowColor.opacity(0.4), radius: 12, y: 6)
     }
 

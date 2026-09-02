@@ -91,7 +91,7 @@ struct FoundersUnlockOverlay: View {
             HStack(spacing: spacing) {
                 ForEach(Array(cards.enumerated()), id: \.element.id) { index, style in
                     VStack(spacing: 8) {
-                        CardBackgroundView(background: style.background)
+                        CardBackgroundView(background: style.background, cornerRadius: 16)
                             .frame(width: cardW, height: cardH)
                             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                             .overlay(

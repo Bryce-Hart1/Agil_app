@@ -73,9 +73,12 @@ struct PerformanceCardView: View {
         .padding(.horizontal, 24)
         .padding(.vertical, 34)
         .frame(maxWidth: .infinity)
-        .background(CardBackgroundView(background: style.background))
+        .background(CardBackgroundView(background: style.background, cornerRadius: 28))
         .clipShape(RoundedRectangle(cornerRadius: 28))
-        .overlay(RoundedRectangle(cornerRadius: 28).stroke(.white.opacity(0.18), lineWidth: 1))
+        // Claude  Date 09/02/2026: see ProfileShowcaseCard — outline cards supply
+        // their own border, so the white hairline would double it.
+        .overlay(RoundedRectangle(cornerRadius: 28)
+            .stroke(.white.opacity(style.isOutlined ? 0 : 0.18), lineWidth: 1))
         .shadow(color: shadowColor.opacity(0.4), radius: 14, y: 6)
     }
 
@@ -187,6 +190,8 @@ struct PerformanceCardView: View {
 
     private var shadowColor: Color {
         if case .color(let hex) = style.background { return Color(hex: hex) }
+        // Claude  Date 09/02/2026: outline cards glow in their border colour.
+        if case .outlined(_, let stroke) = style.background { return Color(hex: stroke) }
         return .black
     }
 }

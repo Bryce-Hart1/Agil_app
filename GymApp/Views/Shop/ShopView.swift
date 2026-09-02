@@ -379,7 +379,7 @@ private struct FeaturedItemCard: View {
     var body: some View {
         Button(action: onTap) {
             VStack(alignment: .leading, spacing: 8) {
-                ShopItemArtwork(item: item)
+                ShopItemArtwork(item: item, cornerRadius: 14)
                     .frame(height: 130)
                     .frame(maxWidth: .infinity)
                     .clipShape(RoundedRectangle(cornerRadius: 14))
@@ -429,7 +429,7 @@ private struct CatalogRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            ShopItemArtwork(item: item)
+            ShopItemArtwork(item: item, cornerRadius: 8)
                 .frame(width: 44, height: 44)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 .overlay(RoundedRectangle(cornerRadius: 8).stroke(.quaternary))
@@ -535,7 +535,7 @@ private struct ShopItemDetailView: View {
         Group {
             switch item {
             case .card:
-                ShopItemArtwork(item: item).frame(height: 240)
+                ShopItemArtwork(item: item, cornerRadius: 20).frame(height: 240)
             case .theme(let appTheme):
                 ThemeShowcaseView(theme: appTheme).frame(height: 330)
             }
@@ -683,11 +683,15 @@ private struct RarityBadge: View {
 // at the top of the funnel.
 private struct ShopItemArtwork: View {
     let item: ShopItem
+    // Claude  Date 09/02/2026
+    // Radius of the shape the caller clips this artwork to, forwarded so outline
+    // cards trace the right curve (see CardBackgroundView.cornerRadius).
+    var cornerRadius: CGFloat? = nil
 
     var body: some View {
         switch item {
         case .card(let style):
-            CardBackgroundView(background: style.background)
+            CardBackgroundView(background: style.background, cornerRadius: cornerRadius)
         case .theme(let appTheme):
             ThemeMiniMock(theme: appTheme)
         }

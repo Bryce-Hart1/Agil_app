@@ -83,7 +83,7 @@ struct CardUnlockOverlay: View {
 
     // The granted card as a live mini-preview (its animated gemstone background).
     private var cardPreview: some View {
-        CardBackgroundView(background: style.background)
+        CardBackgroundView(background: style.background, cornerRadius: 18)
             .frame(width: 132, height: 184)
             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             .overlay(

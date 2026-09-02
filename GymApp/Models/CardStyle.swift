@@ -11,6 +11,11 @@ enum CardBackground: Hashable {
     case gradient(from: String, to: String) // a two-color diagonal gradient (no asset needed)
     case image(asset: String)               // a PNG in Assets.xcassets, drawn full-bleed
     case animated(AnimatedCard)             // a code-drawn live animation (see AnimatedCardBackground)
+    // Claude  Date 09/02/2026
+    // A flat `fill` field with a thin `stroke` border hugging the card's rounded
+    // edge — the quiet, outline-only look (see CardBackgroundView, which needs the
+    // card's corner radius to trace it, hence CardBackgroundView.cornerRadius).
+    case outlined(fill: String, stroke: String)
 }
 
 // Claude  Date 06/16/2026
@@ -151,6 +156,14 @@ struct CardStyle: Identifiable, Hashable {
     // Cost to unlock = the tier's price (Common = free).
     var price: Int { tier.price }
 
+    // Claude  Date 09/02/2026
+    // True for outline-style cards, which paint their own border — callers that
+    // stroke a generic hairline around the card skip it for these.
+    var isOutlined: Bool {
+        if case .outlined = background { return true }
+        return false
+    }
+
     // Claude  Date 07/23/2026
     // Cards that are only ever obtained by being granted (never sold in the Shop and
     // never free just because their price is 0): the Founders Edition cards and the
@@ -160,7 +173,11 @@ struct CardStyle: Identifiable, Hashable {
     var isGrantOnly: Bool { isFounders || tier == .gem }
 
     static let all: [CardStyle] = [
-        CardStyle(id: "default", name: "Classic Pink", background: .color(hex: "#EA0F8B"), tier: .common),
+        // Claude  Date 09/02/2026
+        // Classic Pink is now black with a thin logo-pink outline instead of a
+        // full pink fill — same colour, far less shout.
+        CardStyle(id: "default", name: "Classic Pink",
+                  background: .outlined(fill: "#000000", stroke: "#EA0F8B"), tier: .common),
         // Rare — solid-colour cards.
         CardStyle(id: "black",       name: "Black",       background: .color(hex: "#000000"), tier: .rare),
         CardStyle(id: "dark_green",  name: "Dark Green",  background: .color(hex: "#15351F"), tier: .rare),

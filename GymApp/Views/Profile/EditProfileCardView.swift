@@ -201,6 +201,12 @@ private struct CardStyleRow: View {
             // Live animated preview right in the swatch so the motion sells itself.
             case .animated(let kind):
                 AnimatedCardBackground(kind: kind)
+            // Claude  Date 09/02/2026
+            // Outline cards: the swatch is the card in miniature — filled disc
+            // with its border colour ringing the edge.
+            case .outlined(let fill, let stroke):
+                Circle().fill(Color(hex: fill))
+                    .overlay(Circle().strokeBorder(Color(hex: stroke), lineWidth: 2))
             }
         }
         .frame(width: 28, height: 28)
