@@ -1166,7 +1166,13 @@ final class AppStore: ObservableObject {
     // for each checked-off set (stamped with that set's real completion time, idempotent
     // by setId), which re-evaluates achievements via activityLog's didSet — producing
     // the badge "burst" on completion. The big-3 `liftType` is frozen into each event.
-    func finishWorkout(id: UUID) {
+    //
+    // Claude  Date 09/02/2026
+    // `at` overrides the finish stamp (nil = now) and `showSummary` suppresses the
+    // performance card; both exist for autoFinishStaleWorkouts below, which closes a
+    // forgotten session at the time it really stopped, silently. Manual completion —
+    // the Complete Workout button — still uses the defaults.
+    func finishWorkout(id: UUID, at finishDate: Date? = nil, showSummary: Bool = true) {
         guard let index = workouts.firstIndex(where: { $0.id == id }),
               !workouts[index].isFinished else { return }
 
@@ -1189,7 +1195,7 @@ final class AppStore: ObservableObject {
         // Stamp the real finish time so the performance card's elapsed span
         // (startedAt → finishedAt) is the true wall-clock duration — including any time
         // the app spent backgrounded or the phone was locked.
-        workouts[index].finishedAt = Date()
+        workouts[index].finishedAt = finishDate ?? Date()
         workouts[index].isFinished = true
 
         // Claude  Date 06/16/2026 last changed: 07/21/2026 by: Claude
@@ -1198,11 +1204,34 @@ final class AppStore: ObservableObject {
         // (07/21) The card's "Best Set" is now scored against the user's history, so it
         // gets the ledger — MINUS this session's own events, which were appended a few
         // lines up. Without that filter every workout would set a record against itself.
+        guard showSummary else { return }
         let ownSetIds = Set(workouts[index].exercises.flatMap { $0.sets.map(\.id) })
         pendingWorkoutSummary = WorkoutSummary(
             workout: workouts[index],
             exercises: exercises,
             history: activityLog.filter { !ownSetIds.contains($0.setId) })
+    }
+
+    // Claude  Date 09/02/2026
+    // Safeguard against a session the user simply forgot to finish, which used to run
+    // for hours or days and report that as its elapsed time. Any active workout idle
+    // past Workout.idleFinishLimit (1h with no set checked off) is completed here and
+    // stamped with `lastActivityAt` — the last set they actually checked, or the start
+    // if they never checked one — so the session reads as the hour it really took.
+    //
+    // Credit is unchanged: this goes through finishWorkout, so every checked set still
+    // lands in the ledger with its own timestamp and still earns badges. Side effects:
+    // the workout leaves the mini-bar / "In progress" row, and the performance card is
+    // deliberately suppressed — it would otherwise pop full-screen on launch for a
+    // session that ended yesterday. Called on launch, on foreground, and from a
+    // one-minute tick (see RootTabView).
+    @discardableResult
+    func autoFinishStaleWorkouts(asOf now: Date = Date()) -> [UUID] {
+        let stale = workouts.filter { $0.isStale(asOf: now) }
+        for workout in stale {
+            finishWorkout(id: workout.id, at: workout.lastActivityAt, showSummary: false)
+        }
+        return stale.map(\.id)
     }
 
     // Claude  Date 06/16/2026

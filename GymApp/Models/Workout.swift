@@ -199,6 +199,29 @@ struct Workout: Identifiable, Codable, Hashable {
         return last.timeIntervalSince(first)
     }
 
+    // Claude  Date 09/02/2026
+    // How long an active session may sit with nothing checked off before the app
+    // closes it out on its own (see AppStore.autoFinishStaleWorkouts).
+    static let idleFinishLimit: TimeInterval = 60 * 60
+
+    // Claude  Date 09/02/2026
+    // The last moment this session showed real activity: the newest checked-off set,
+    // or `startedAt` when nothing has been checked yet (so a just-started workout gets
+    // the full idle window). Clamped to `startedAt` so a hand-edited date can't push it
+    // earlier. This is both the idle clock for auto-finish AND the finish stamp it uses,
+    // which is what keeps a forgotten session's elapsed time honest.
+    var lastActivityAt: Date {
+        let times = exercises.flatMap { $0.sets.compactMap(\.completedAt) }
+        return Swift.max(times.max() ?? startedAt, startedAt)
+    }
+
+    // Claude  Date 09/02/2026
+    // True for an unfinished workout that's been idle past `idleFinishLimit` — i.e. the
+    // user walked away and never hit Complete.
+    func isStale(asOf now: Date = Date()) -> Bool {
+        !isFinished && now.timeIntervalSince(lastActivityAt) >= Workout.idleFinishLimit
+    }
+
     // Claude  Date 08/21/2026
     // `elapsed` rendered for display, or nil when there's nothing to show.
     var elapsedText: String? {

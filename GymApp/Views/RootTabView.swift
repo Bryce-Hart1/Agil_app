@@ -37,6 +37,14 @@ struct RootTabView: View {
     @AppStorage("liftingTab") private var liftingTab = 1
     @AppStorage("nutritionTab") private var nutritionTab = 1
 
+    // Claude  Date 09/02/2026
+    // Heartbeat for the idle auto-finish (store.autoFinishStaleWorkouts). The launch and
+    // foreground checks below can't catch a workout forgotten while the app just sits on
+    // screen, so this re-checks every minute. Static because a struct-level publisher would
+    // be rebuilt — and restarted — on every body evaluation. Cheap: the handler is one
+    // filter over `workouts` that no-ops until something is genuinely stale.
+    private static let idleCheck = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
+
     // Claude  Date 06/12/2026
     // First-run onboarding shows until the user completes it (enters a name).
     private var showOnboarding: Binding<Bool> {
@@ -266,6 +274,10 @@ struct RootTabView: View {
         // (name / style / rank toggle / pinned badges) and the earned-badge set (which
         // drives the equipped rank). Each call no-ops unless in Friends mode + changed.
         .task {
+            // Claude  Date 09/02/2026
+            // Close out any session left running since the last launch, before anything
+            // else reads activeWorkout.
+            store.autoFinishStaleWorkouts()
             cardSync.sync(from: store)
             // Claude  Date 07/23/2026
             // Silently backfill gemstone-card grants for any tier already earned — no
@@ -298,6 +310,10 @@ struct RootTabView: View {
                 store.recordDailyCheckIn()
                 // Catch the rest timer up to real elapsed time after backgrounding/locking.
                 session.refreshRest()
+                // Claude  Date 09/02/2026
+                // Back after a long absence with a workout still open? Finish it at its
+                // last checked set rather than letting it keep accruing elapsed time.
+                store.autoFinishStaleWorkouts()
                 // Claude  Date 07/01/2026
                 // They came back — drop any pending "still running" nudge (and clear it
                 // from Notification Center if it already fired).
@@ -313,6 +329,7 @@ struct RootTabView: View {
                 break
             }
         }
+        .onReceive(Self.idleCheck) { _ in store.autoFinishStaleWorkouts() }
         .onChange(of: store.profile) { _ in cardSync.sync(from: store) }
         .onChange(of: store.unlockedAchievementIDs) { _ in cardSync.sync(from: store) }
         // Claude  Date 07/23/2026 last changed: 07/24/2026 by: Claude
