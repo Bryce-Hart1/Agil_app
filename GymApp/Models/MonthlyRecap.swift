@@ -23,7 +23,7 @@ import Foundation
 // it stays previewable and testable.
 struct MonthlyRecap {
 
-    /// Length of the window, and of the comparison window before it.
+    /// Default length of the window, and of the comparison window before it.
     static let windowDays = 30
 
     // Claude  Date 08/16/2026
@@ -75,6 +75,8 @@ struct MonthlyRecap {
 
     let windowStart: Date
     let windowEnd: Date
+    /// False for all-time recaps, where no equally sized earlier period exists.
+    let hasComparisonWindow: Bool
 
     let workouts: Int
     let previousWorkouts: Int
@@ -105,15 +107,25 @@ struct MonthlyRecap {
 
     // MARK: - Build
 
+    // Bryce Hart  Date 09/02/2026
+    // `days` lets the Progress toolbar expand this same recap to 90/180/365 days.
+    // nil means all time; there is deliberately no previous comparison window in that
+    // case, so the card shows honest totals without inventing a pre-history baseline.
     init(workouts allWorkouts: [Workout], events: [ActivityEvent],
-         exercises: [Exercise], asOf: Date = Date()) {
+         exercises: [Exercise], asOf: Date = Date(), days: Int? = Self.windowDays) {
         let calendar = Calendar.current
         let end = asOf
-        let start = calendar.date(byAdding: .day, value: -Self.windowDays, to: end) ?? end
-        let previousStart = calendar.date(byAdding: .day, value: -Self.windowDays * 2, to: end) ?? start
+        let finishedStamps = allWorkouts.compactMap { workout -> Date? in
+            guard workout.isFinished else { return nil }
+            return workout.finishedAt ?? workout.date
+        }
+        let earliest = (events.map(\.loggedAt) + finishedStamps).min() ?? end
+        let start = days.flatMap { calendar.date(byAdding: .day, value: -$0, to: end) } ?? earliest
+        let previousStart = days.flatMap { calendar.date(byAdding: .day, value: -($0 * 2), to: end) }
 
         windowStart = start
         windowEnd = end
+        hasComparisonWindow = previousStart != nil
 
         // One dictionary, built once — the per-event `exercises.first { }` scan this
         // replaces would be O(events × library) on a ledger that only ever grows.
@@ -123,9 +135,10 @@ struct MonthlyRecap {
         var current: [ActivityEvent] = []
         var previous: [ActivityEvent] = []
         for event in events {
-            if event.loggedAt > start, event.loggedAt <= end {
+            if event.loggedAt >= start, event.loggedAt <= end {
                 current.append(event)
-            } else if event.loggedAt > previousStart, event.loggedAt <= start {
+            } else if let previousStart,
+                      event.loggedAt >= previousStart, event.loggedAt < start {
                 previous.append(event)
             }
         }
@@ -165,7 +178,7 @@ struct MonthlyRecap {
         // still standing AND were set recently. Recomputing "best within the window"
         // instead would call a lift a record every month it was trained.
         personalRecords = PersonalRecord.bests(from: events, exercises: exercises)
-            .filter { $0.achievedAt > start && $0.achievedAt <= end }
+            .filter { $0.achievedAt >= start && $0.achievedAt <= end }
 
         strengthShifts = Self.strengthShifts(current: current, previous: previous, byID: byID)
 
@@ -174,14 +187,16 @@ struct MonthlyRecap {
         let sessions = allWorkouts.filter { workout in
             guard workout.isFinished else { return false }
             let stamp = workout.finishedAt ?? workout.date
-            return stamp > start && stamp <= end
+            return stamp >= start && stamp <= end
         }
         workouts = sessions.count
-        previousWorkouts = allWorkouts.filter { workout in
-            guard workout.isFinished else { return false }
-            let stamp = workout.finishedAt ?? workout.date
-            return stamp > previousStart && stamp <= start
-        }.count
+        previousWorkouts = previousStart.map { previousStart in
+            allWorkouts.filter { workout in
+                guard workout.isFinished else { return false }
+                let stamp = workout.finishedAt ?? workout.date
+                return stamp >= previousStart && stamp < start
+            }.count
+        } ?? 0
 
         let best = Self.bestSession(among: sessions, events: events, exercises: exercises)
         bestSession = best

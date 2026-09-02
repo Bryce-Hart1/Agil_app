@@ -1,6 +1,83 @@
 import SwiftUI
 import Charts
 
+// Bryce Hart  Date 09/02/2026
+// The range selected from the Progress tab's leading calendar menu. Day counts are
+// rolling windows so every option has a same-length preceding window for the recap;
+// all time intentionally has no comparison period.
+private enum ProgressTimeRange: String, CaseIterable, Identifiable {
+    case thirtyDays
+    case threeMonths
+    case sixMonths
+    case oneYear
+    case allTime
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .thirtyDays: return "Last 30 Days"
+        case .threeMonths: return "Last 3 Months"
+        case .sixMonths: return "Last 6 Months"
+        case .oneYear: return "Last Year"
+        case .allTime: return "All Time"
+        }
+    }
+
+    var recapTitle: String {
+        switch self {
+        case .thirtyDays: return "Last 30 days"
+        case .threeMonths: return "Last 3 months"
+        case .sixMonths: return "Last 6 months"
+        case .oneYear: return "Last year"
+        case .allTime: return "All time"
+        }
+    }
+
+    var days: Int? {
+        switch self {
+        case .thirtyDays: return 30
+        case .threeMonths: return 90
+        case .sixMonths: return 180
+        case .oneYear: return 365
+        case .allTime: return nil
+        }
+    }
+}
+
+private enum ProgressFrequencyInterval {
+    case week
+    case month
+    case year
+
+    var component: Calendar.Component {
+        switch self {
+        case .week: return .weekOfYear
+        case .month: return .month
+        case .year: return .year
+        }
+    }
+
+    var sectionTitle: String {
+        switch self {
+        case .week: return "Workouts per week"
+        case .month: return "Workouts per month"
+        case .year: return "Workouts per year"
+        }
+    }
+
+    func axisLabel(for date: Date) -> String {
+        switch self {
+        case .week:
+            return date.formatted(.dateTime.month(.defaultDigits).day())
+        case .month:
+            return date.formatted(.dateTime.month(.abbreviated))
+        case .year:
+            return date.formatted(.dateTime.year())
+        }
+    }
+}
+
 // Claude  Date 07/22/2026
 // The "Volume over time" chart was dropped here — per-workout total volume swings with
 // exercise selection rather than progress, so the line wasn't rewarding to look at. The
@@ -12,6 +89,7 @@ struct ProgressDashboardView: View {
     @EnvironmentObject private var theme: ThemeManager
 
     @State private var selectedExerciseID: UUID?
+    @State private var selectedRange: ProgressTimeRange = .thirtyDays
     // Claude  Date 08/16/2026
     // Held in state rather than computed: building the recap summarizes every finished
     // session in the window against the ledger, so it must not re-run on each `body`
@@ -23,8 +101,11 @@ struct ProgressDashboardView: View {
     var body: some View {
         NavigationStack {
             List {
-                if store.workouts.isEmpty {
+                if completedWorkouts.isEmpty {
                     Text("Log some workouts to see your progress here.")
+                        .foregroundStyle(.secondary)
+                } else if filteredWorkouts.isEmpty {
+                    Text("No completed workouts in \(selectedRange.title.lowercased()).")
                         .foregroundStyle(.secondary)
                 } else {
                     recapSection
@@ -40,21 +121,67 @@ struct ProgressDashboardView: View {
             // Claude  Date 07/13/2026
             // Centered mode-switcher pill in the nav bar (shared by all root tabs).
             .modeNotchToolbar(tab: AgilTabItem.progress.tag)
-            .onAppear {
-                if selectedExerciseID == nil {
-                    selectedExerciseID = loggedExercises.first?.id
+            // Bryce Hart  Date 09/02/2026
+            // A scope control on the left and a destination on the right match the
+            // other root tabs while keeping both labels the same fixed width so the
+            // ModeNotch remains centered. SF Symbols are temporary until the custom
+            // Progress SVGs are ready.
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Menu {
+                        Picker("Time range", selection: $selectedRange) {
+                            ForEach(ProgressTimeRange.allCases) { range in
+                                Text(range.title).tag(range)
+                            }
+                        }
+                    } label: {
+                        toolbarIcon("calendar")
+                    }
+                    .accessibilityLabel("Progress time range")
+                    .accessibilityValue(selectedRange.title)
                 }
+                ToolbarItem(placement: .primaryAction) {
+                    NavigationLink {
+                        AllPersonalRecordsView(records: allPersonalRecords)
+                            .themed(theme.current)
+                    } label: {
+                        toolbarIcon("trophy")
+                    }
+                    .accessibilityLabel("Personal records")
+                }
+            }
+            .onAppear {
+                synchronizeSelectedExercise()
                 refreshRecap()
             }
             .onChange(of: store.workouts.count) { _ in refreshRecap() }
             .onChange(of: store.activityLog.count) { _ in refreshRecap() }
+            .onChange(of: selectedRange) { _ in
+                synchronizeSelectedExercise()
+                refreshRecap()
+            }
         }
     }
 
     private func refreshRecap() {
         recap = MonthlyRecap(workouts: store.workouts,
                              events: store.activityLog,
-                             exercises: store.exercises)
+                             exercises: store.exercises,
+                             days: selectedRange.days)
+    }
+
+    private func synchronizeSelectedExercise() {
+        if let selectedExerciseID,
+           loggedExercises.contains(where: { $0.id == selectedExerciseID }) {
+            return
+        }
+        selectedExerciseID = loggedExercises.first?.id
+    }
+
+    private func toolbarIcon(_ systemName: String) -> some View {
+        Image(systemName: systemName)
+            .font(.system(size: 19))
+            .frame(width: 22, height: 22)
     }
 
     // MARK: - Sections
@@ -69,6 +196,7 @@ struct ProgressDashboardView: View {
         if let recap, recap.hasData {
             Section {
                 MonthlyRecapCard(recap: recap,
+                                 title: selectedRange.recapTitle,
                                  surface: theme.current.surface,
                                  accent: theme.current.accent)
                     .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
@@ -85,7 +213,7 @@ struct ProgressDashboardView: View {
     private var summarySection: some View {
         Section {
             HStack(spacing: 8) {
-                StatCard(title: "Workouts", value: "\(store.workouts.count)",
+                StatCard(title: "Workouts", value: "\(filteredWorkouts.count)",
                          systemImage: "calendar", surface: theme.current.surface, accent: theme.current.accent)
                 StatCard(title: "Streak", value: "\(currentStreak)",
                          systemImage: "flame", surface: theme.current.surface, accent: theme.current.accent)
@@ -122,8 +250,10 @@ struct ProgressDashboardView: View {
     }
 
     private var frequencySection: some View {
-        Section("Workouts per week") {
-            FrequencyChart(weeks: weeklyCounts, color: theme.current.accent)
+        Section(frequencyInterval.sectionTitle) {
+            FrequencyChart(periods: frequencyCounts,
+                           interval: frequencyInterval,
+                           color: theme.current.accent)
         }
     }
 
@@ -170,11 +300,28 @@ struct ProgressDashboardView: View {
         store.workouts.reduce(0) { $0 + volume(of: $1) }
     }
 
+    private var rangeStart: Date? {
+        selectedRange.days.flatMap {
+            Calendar.current.date(byAdding: .day, value: -$0, to: Date())
+        }
+    }
+
+    private var completedWorkouts: [Workout] {
+        store.workouts.filter(\.isFinished)
+    }
+
+    private var filteredWorkouts: [Workout] {
+        completedWorkouts.filter { workout in
+            guard let rangeStart else { return true }
+            return workout.date >= rangeStart
+        }
+    }
+
     /// Number of workouts logged in the current calendar week.
     private var workoutsThisWeek: Int {
         let calendar = Calendar.current
         guard let interval = calendar.dateInterval(of: .weekOfYear, for: Date()) else { return 0 }
-        return store.workouts.filter { interval.contains($0.date) }.count
+        return filteredWorkouts.filter { interval.contains($0.date) }.count
     }
 
     /// Consecutive weeks (ending this week) that contain at least one workout.
@@ -182,7 +329,7 @@ struct ProgressDashboardView: View {
         let calendar = Calendar.current
         guard let thisWeek = calendar.dateInterval(of: .weekOfYear, for: Date())?.start else { return 0 }
         var weeksWithWorkouts = Set<Date>()
-        for workout in store.workouts {
+        for workout in filteredWorkouts {
             if let weekStart = calendar.dateInterval(of: .weekOfYear, for: workout.date)?.start {
                 weeksWithWorkouts.insert(weekStart)
             }
@@ -198,7 +345,7 @@ struct ProgressDashboardView: View {
     }
 
     private var lastWorkoutText: String {
-        guard let date = store.workouts.map(\.date).max() else { return "—" }
+        guard let date = filteredWorkouts.map(\.date).max() else { return "—" }
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .abbreviated
         return formatter.localizedString(for: date, relativeTo: Date())
@@ -206,7 +353,7 @@ struct ProgressDashboardView: View {
 
     /// Exercises that appear in at least one workout, sorted by name.
     private var loggedExercises: [Exercise] {
-        let usedIDs = Set(store.workouts.flatMap { $0.exercises.map(\.exerciseId) })
+        let usedIDs = Set(filteredWorkouts.flatMap { $0.exercises.map(\.exerciseId) })
         return store.exercises.filter { usedIDs.contains($0.id) }.sorted { $0.name < $1.name }
     }
 
@@ -214,7 +361,7 @@ struct ProgressDashboardView: View {
     private var oneRepMaxPoints: [DatedValue] {
         guard let id = selectedExerciseID else { return [] }
         var points: [DatedValue] = []
-        for workout in store.workouts.sorted(by: { $0.date < $1.date }) {
+        for workout in filteredWorkouts.sorted(by: { $0.date < $1.date }) {
             let sets = workout.exercises.filter { $0.exerciseId == id }.flatMap { $0.sets }
             // Claude  Date 07/21/2026
             // Shared Epley helper (was an inline copy of the same formula) so the chart
@@ -227,28 +374,54 @@ struct ProgressDashboardView: View {
         return points
     }
 
-    private var weeklyCounts: [WeekBar] {
+    private var frequencyInterval: ProgressFrequencyInterval {
+        switch selectedRange {
+        case .thirtyDays, .threeMonths:
+            return .week
+        case .sixMonths, .oneYear:
+            return .month
+        case .allTime:
+            guard let earliest = filteredWorkouts.map(\.date).min()
+            else { return .month }
+            let months = Calendar.current.dateComponents([.month], from: earliest, to: Date()).month ?? 0
+            return months > 24 ? .year : .month
+        }
+    }
+
+    private var frequencyCounts: [FrequencyBar] {
         let calendar = Calendar.current
-        guard let thisWeekStart = calendar.dateInterval(of: .weekOfYear, for: Date())?.start
-        else { return [] }
+        let interval = frequencyInterval
+        guard let currentStart = calendar.dateInterval(of: interval.component, for: Date())?.start else {
+            return []
+        }
+
+        let firstWorkout = filteredWorkouts.map(\.date).min()
+        guard let lowerBound = rangeStart ?? firstWorkout,
+              let firstStart = calendar.dateInterval(of: interval.component, for: lowerBound)?.start else {
+            return []
+        }
 
         var buckets: [Date: Int] = [:]
-        for workout in store.workouts {
-            if let weekStart = calendar.dateInterval(of: .weekOfYear, for: workout.date)?.start {
-                buckets[weekStart, default: 0] += 1
+        for workout in filteredWorkouts {
+            if let periodStart = calendar.dateInterval(of: interval.component, for: workout.date)?.start {
+                buckets[periodStart, default: 0] += 1
             }
         }
 
-        return (0..<8).reversed().compactMap { offset in
-            guard let weekStart = calendar.date(byAdding: .weekOfYear, value: -offset, to: thisWeekStart)
-            else { return nil }
-            return WeekBar(weekStart: weekStart, count: buckets[weekStart] ?? 0)
+        var result: [FrequencyBar] = []
+        var cursor = firstStart
+        while cursor <= currentStart {
+            result.append(FrequencyBar(start: cursor, count: buckets[cursor] ?? 0))
+            guard let next = calendar.date(byAdding: interval.component, value: 1, to: cursor),
+                  next > cursor else { break }
+            cursor = next
         }
+        return result
     }
 
     private var categorySets: [CategoryBar] {
         var counts: [String: Int] = [:]
-        for workout in store.workouts {
+        for workout in filteredWorkouts {
             for logged in workout.exercises {
                 let category = store.exercise(for: logged.exerciseId)?.category ?? "Other"
                 counts[category, default: 0] += logged.sets.count
@@ -262,9 +435,14 @@ struct ProgressDashboardView: View {
     // Claude  Date 07/22/2026 last changed: 08/16/2026 by: Claude
     // (08/16) The derivation moved to PersonalRecord.bests (MonthlyRecap.swift) so the
     // recap card and this list can't drift into two definitions of "record" — the recap
-    // shows the same records, filtered to the ones set in the last 30 days.
-    private var personalRecords: [PersonalRecord] {
+    // shows the same records, filtered to the selected time range.
+    private var allPersonalRecords: [PersonalRecord] {
         PersonalRecord.bests(from: store.activityLog, exercises: store.exercises)
+    }
+
+    private var personalRecords: [PersonalRecord] {
+        guard let rangeStart else { return allPersonalRecords }
+        return allPersonalRecords.filter { $0.achievedAt >= rangeStart }
     }
 }
 
@@ -276,11 +454,10 @@ private struct DatedValue: Identifiable {
     var id: Date { date }
 }
 
-private struct WeekBar: Identifiable {
-    let weekStart: Date
+private struct FrequencyBar: Identifiable {
+    let start: Date
     let count: Int
-    var id: Date { weekStart }
-    var label: String { weekStart.formatted(.dateTime.month(.defaultDigits).day()) }
+    var id: Date { start }
 }
 
 private struct CategoryBar: Identifiable {
@@ -312,20 +489,32 @@ private struct TrendChart: View {
 }
 
 private struct FrequencyChart: View {
-    let weeks: [WeekBar]
+    let periods: [FrequencyBar]
+    let interval: ProgressFrequencyInterval
     let color: Color
 
     var body: some View {
-        Chart(weeks) { week in
-            BarMark(x: .value("Week", week.label), y: .value("Workouts", week.count))
+        Chart(periods) { period in
+            BarMark(x: .value("Period", period.start, unit: interval.component),
+                    y: .value("Workouts", period.count))
                 .foregroundStyle(color.gradient)
                 .annotation(position: .top) {
-                    if week.count > 0 {
-                        Text("\(week.count)").font(.caption2).foregroundStyle(.secondary)
+                    if period.count > 0 {
+                        Text("\(period.count)").font(.caption2).foregroundStyle(.secondary)
                     }
                 }
         }
-        .chartXScale(domain: weeks.map(\.label))
+        .chartXAxis {
+            AxisMarks(values: .automatic(desiredCount: 5)) { value in
+                AxisGridLine()
+                AxisTick()
+                AxisValueLabel {
+                    if let date = value.as(Date.self) {
+                        Text(interval.axisLabel(for: date))
+                    }
+                }
+            }
+        }
         .chartYAxis { AxisMarks(values: .automatic(desiredCount: 4)) }
         .frame(height: 200)
         .padding(.vertical, 4)
@@ -384,8 +573,13 @@ private struct AllPersonalRecordsView: View {
 
     var body: some View {
         List {
-            ForEach(records) { pr in
-                PRRow(record: pr)
+            if records.isEmpty {
+                Text("Complete weighted exercises to build your personal-record history.")
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(records) { pr in
+                    PRRow(record: pr)
+                }
             }
         }
         .navigationTitle("Personal records")

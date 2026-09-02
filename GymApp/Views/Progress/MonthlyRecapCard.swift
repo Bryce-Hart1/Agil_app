@@ -17,6 +17,7 @@ import SwiftUI
 // `shown` resets on disappear so the card replays each time the tab is opened.
 struct MonthlyRecapCard: View {
     let recap: MonthlyRecap
+    var title = "Last 30 days"
     let surface: Color
     let accent: Color
 
@@ -57,7 +58,7 @@ struct MonthlyRecapCard: View {
                 .frame(width: 26, height: 26)
                 .background(accent.opacity(0.15), in: RoundedRectangle(cornerRadius: 7))
             VStack(alignment: .leading, spacing: 1) {
-                Text("Last 30 days")
+                Text(title)
                     .font(.headline)
                 Text(dateRange)
                     .font(.caption)
@@ -271,7 +272,12 @@ struct MonthlyRecapCard: View {
 
     @ViewBuilder
     private func regionDelta(_ shift: MonthlyRecap.RegionShift) -> some View {
-        if let change = shift.percentChange {
+        if !recap.hasComparisonWindow {
+            Text("\(shift.sets) sets")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .lineLimit(1).minimumScaleFactor(0.7)
+        } else if let change = shift.percentChange {
             Text(percentText(change))
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(abs(change) < 0.01 ? Color.secondary : (change > 0 ? .green : .red))
