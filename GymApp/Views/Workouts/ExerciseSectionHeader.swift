@@ -1,0 +1,73 @@
+import SwiftUI
+
+// Claude  Date 09/01/2026
+// Two-line header for one exercise in the workout editor. Line 1 is the bare lift
+// NAME at .headline, not uppercased; line 2 carries the facts that used to be crammed
+// into the name string — equipment type (tinted, with its text), brand, unilateral.
+// Callers MUST apply .textCase(nil) or SwiftUI uppercases the whole thing.
+struct ExerciseSectionHeader: View {
+    let exercise: Exercise?
+    let targetRepRange: RepRange?
+    let accent: Color
+    let onEdit: (Exercise) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(alignment: .firstTextBaseline) {
+                // Claude  Date 09/01/2026
+                // `name`, not displayLabel: brand and the unilateral flag are chips on
+                // line 2 now, so using displayLabel here would label them twice.
+                Text(exercise?.name ?? "Exercise")
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .layoutPriority(1)
+
+                // Claude  Date 06/18/2026 last changed: 09/01/2026 by: Claude
+                // Pencil → edit the underlying library exercise's details in place.
+                if let exercise {
+                    Button {
+                        onEdit(exercise)
+                    } label: {
+                        Image(systemName: "pencil")
+                            .fontWeight(.bold)
+                            .imageScale(.medium)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(accent)
+                    .accessibilityLabel("Edit \(exercise.displayLabel)")
+                }
+
+                Spacer(minLength: 8)
+
+                if let targetRepRange {
+                    Text("\(targetRepRange.display) reps")
+                        .font(.subheadline)
+                        .foregroundStyle(accent)
+                        .lineLimit(1)
+                }
+            }
+
+            // Claude  Date 09/01/2026
+            // The metadata strip. Each chip self-hides when its fact is unknown, so an
+            // unclassified custom lift draws nothing here and the row collapses to one
+            // line instead of leaving an empty band.
+            if hasMetadata {
+                HStack(spacing: 6) {
+                    EquipmentBadge(type: exercise?.equipmentType, style: .detail)
+                    BrandBadge(brand: exercise.flatMap(\.brandLabel))
+                    if exercise?.isUnilateral == true {
+                        NeutralChip(text: "Unilateral")
+                    }
+                }
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    private var hasMetadata: Bool {
+        guard let exercise else { return false }
+        return exercise.equipmentType != nil || exercise.brandLabel != nil || exercise.isUnilateral
+    }
+}

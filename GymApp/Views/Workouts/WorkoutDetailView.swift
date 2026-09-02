@@ -253,6 +253,7 @@ private struct WorkoutEditor: View {
                     // looked up by exerciseId, so it re-resolves to the new lift's own.
                     ExerciseLogSection(logged: $logged, accent: theme.current.accent,
                                        isPresetBacked: workout.presetID != nil,
+                                       isFirst: workout.exercises.first?.id == logged.id,
                                        focusedField: $focusedField) { exercise in
                         logged.exerciseId = exercise.id
                         logged.targetRepRange = store.defaultRepRange(for: exercise.id)
@@ -272,35 +273,15 @@ private struct WorkoutEditor: View {
                         }
                     }
                 } header: {
-                    HStack {
-                        // Claude  Date 08/18/2026
-                        // displayLabel, not name: two library lifts can share a name once
-                        // one is a branded version ("Leg Press · Hammer Strength"), and the
-                        // header is where you check you're logging the right machine.
-                        Text(store.exercise(for: logged.exerciseId)?.displayLabel ?? "Exercise")
-                        EquipmentBadge(type: store.exercise(for: logged.exerciseId)?.equipmentType)
-                        // Claude  Date 06/18/2026
-                        // Pencil → edit the underlying library exercise's details in place.
-                        if let exercise = store.exercise(for: logged.exerciseId) {
-                            Button {
-                                editingExercise = exercise
-                            } label: {
-                                // Claude  Date 06/18/2026 — heavier stroke so the edit
-                                // affordance reads clearly in the section header.
-                                Image(systemName: "pencil")
-                                    .fontWeight(.bold)
-                                    .imageScale(.large)
-                            }
-                            .buttonStyle(.plain)
-                            .foregroundStyle(theme.current.accent)
-                            .accessibilityLabel("Edit \(exercise.displayLabel)")
-                        }
-                        if let range = logged.targetRepRange {
-                            Spacer()
-                            Text("\(range.display) reps")
-                                .foregroundStyle(theme.current.accent)
-                        }
-                    }
+                    // Claude  Date 09/01/2026
+                    // Two lines now (see ExerciseSectionHeader): the lift NAME on top, the
+                    // equipment/brand/unilateral chips beneath. .textCase(nil) is required —
+                    // the grouped-header default would uppercase the name and every chip.
+                    ExerciseSectionHeader(exercise: store.exercise(for: logged.exerciseId),
+                                          targetRepRange: logged.targetRepRange,
+                                          accent: theme.current.accent,
+                                          onEdit: { editingExercise = $0 })
+                        .textCase(nil)
                 }
             }
 
@@ -628,6 +609,10 @@ private struct ExerciseLogSection: View {
     // session OF THAT PRESET, so an ad-hoc workout has nowhere to send one and doesn't
     // offer the row at all (see ExerciseNoteFields.showsSessionNote).
     let isPresetBacked: Bool
+    // Claude  Date 09/01/2026
+    // True for the workout's first exercise only — the one place the one-time
+    // swipe/long-press hint row is allowed to appear, so it isn't repeated per section.
+    let isFirst: Bool
     // Claude  Date 07/21/2026
     // The editor's set-field focus, passed straight through to each SetRow so the
     // keyboard accessory bar knows which value it's stepping.
@@ -638,6 +623,15 @@ private struct ExerciseLogSection: View {
     // Claude  Date 07/19/2026
     // Drives the exercise picker opened by the row's "Swap" button.
     @State private var showingSwapPicker = false
+
+    // Claude  Date 09/01/2026
+    // Drag-reorder sheet for this exercise's sets, opened from a set's long-press menu.
+    @State private var showingReorderSets = false
+
+    // Claude  Date 09/01/2026
+    // App-wide, one-time: the swipe replaced a visible checkmark button, so the gesture
+    // has to be taught once. Cleared the first time any set is checked off.
+    @AppStorage("hasSeenSetSwipeHint") private var hasSeenSetSwipeHint = false
 
     var body: some View {
         RepRangeRow(targetRepRange: $logged.targetRepRange)
@@ -682,7 +676,10 @@ private struct ExerciseLogSection: View {
             AdaptiveHintRow(suggestion: adaptive, accent: accent)
         }
 
-        ForEach(logged.sets.indices, id: \.self) { index in
+        // Claude  Date 09/01/2026
+        // Keyed by the set's own id, not its position: a reorder has to animate as a row
+        // MOVING, and index identity animates it as two rows swapping their contents.
+        ForEach(Array(logged.sets.enumerated()), id: \.element.id) { index, _ in
             SetRow(number: setNumber(at: index),
                    sideLabel: logged.sets[index].side?.title,
                    lagsBehind: lagsBehind(at: index),
@@ -690,13 +687,83 @@ private struct ExerciseLogSection: View {
                    set: $logged.sets[index],
                    targetRange: logged.targetRepRange, accent: accent,
                    focusedField: $focusedField)
+                // Claude  Date 09/01/2026
+                // Swipe RIGHT to check a set off — full swipe finishes it in one flick,
+                // swiping again undoes it. This replaced the ~17pt checkmark button that
+                // used to sit at the row's leading edge.
+                .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                    Button {
+                        toggleComplete(at: index)
+                    } label: {
+                        Label(isCompleted(at: index) ? "Undo" : "Done",
+                              systemImage: isCompleted(at: index)
+                                  ? "arrow.uturn.backward" : "checkmark")
+                    }
+                    .tint(isCompleted(at: index) ? .gray : accent)
+                }
+                // Explicit trailing delete replaces the ForEach's old .onDelete so both
+                // edges are declared here; deleteSets still drops a unilateral pair whole.
+                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                    Button(role: .destructive) {
+                        deleteSets(at: IndexSet(integer: index))
+                    } label: {
+                        Label("Delete", systemImage: "trash")
+                    }
+                }
+                // Claude  Date 09/01/2026
+                // Long-press to reorder: deliberate enough that it can't fire by accident,
+                // and it avoids edit mode, which would disable the reps/weight fields.
+                // Moves act on LOGICAL sets, so a unilateral L/R pair travels as one.
+                .contextMenu {
+                    Button {
+                        moveSet(at: index, by: -1)
+                    } label: {
+                        Label("Move Up", systemImage: "arrow.up")
+                    }
+                    .disabled(!canMove(at: index, by: -1))
+
+                    Button {
+                        moveSet(at: index, by: 1)
+                    } label: {
+                        Label("Move Down", systemImage: "arrow.down")
+                    }
+                    .disabled(!canMove(at: index, by: 1))
+
+                    Divider()
+
+                    Button {
+                        showingReorderSets = true
+                    } label: {
+                        Label("Reorder Sets…", systemImage: "arrow.up.arrow.down")
+                    }
+                    .disabled(setGroups.wrappedValue.count < 2)
+                }
         }
-        .onDelete { deleteSets(at: $0) }
+
+        // Claude  Date 09/01/2026
+        // One-time teaching row for the gestures that replaced the check button. Shown
+        // only on the first exercise, and only until the first set is checked off.
+        if isFirst && !hasSeenSetSwipeHint && !logged.sets.isEmpty {
+            Label("Swipe a set right to finish it. Long-press to reorder.",
+                  systemImage: "hand.draw")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
 
         Button {
             addSet()
         } label: {
             Label("Add Set", systemImage: "plus.circle")
+        }
+        // Claude  Date 09/01/2026
+        // Hung here rather than on a set row so it survives that row being reordered out
+        // from under the presentation (and so only one sheet exists per exercise).
+        .sheet(isPresented: $showingReorderSets) {
+            ReorderExercisesSheet(title: "Reorder Sets", items: setGroups) { group in
+                let first = group.sets[0]
+                let sides = group.sets.count > 1 ? " · L/R" : ""
+                return "\(first.reps) reps × \(SetFormat.weight(first.weight)) lb\(sides)"
+            }
         }
 
         // Claude  Date 07/19/2026
@@ -802,6 +869,91 @@ private struct ExerciseLogSection: View {
         return mine.weight < theirs.weight || mine.reps < theirs.reps
     }
 
+    private func isCompleted(at index: Int) -> Bool {
+        logged.sets.indices.contains(index) && logged.sets[index].completedAt != nil
+    }
+
+    // Claude  Date 09/01/2026
+    // Check a set off / undo it, from the leading swipe. Only stamps completedAt — credit
+    // is still granted in one batch by AppStore.finishWorkout. Side effects: a light
+    // haptic, and it retires the one-time swipe hint app-wide.
+    private func toggleComplete(at index: Int) {
+        guard logged.sets.indices.contains(index) else { return }
+        tapHaptic()
+        hasSeenSetSwipeHint = true
+        withAnimation(.easeInOut(duration: 0.25)) {
+            logged.sets[index].completedAt = isCompleted(at: index) ? nil : Date()
+        }
+    }
+
+    // Claude  Date 09/01/2026
+    // One LOGICAL set: a single row normally, a Left+Right pair for a unilateral lift.
+    // Reordering has to move these, not raw rows — setNumber/partnerIndex/lagsBehind all
+    // assume a pair sits at adjacent even/odd indices, so splitting one corrupts them all.
+    private struct SetGroup: Identifiable {
+        let id: UUID          // the leading set's id, so identity survives a move
+        var sets: [ExerciseSet]
+    }
+
+    private func groups(from sets: [ExerciseSet]) -> [SetGroup] {
+        guard isUnilateral else { return sets.map { SetGroup(id: $0.id, sets: [$0]) } }
+        var result: [SetGroup] = []
+        var index = 0
+        while index < sets.count {
+            // Pair adjacent OPPOSITE sides; a stray unpaired set stands on its own so
+            // legacy/half-deleted data still renders instead of crashing.
+            if index + 1 < sets.count,
+               let mine = sets[index].side,
+               let theirs = sets[index + 1].side,
+               mine != theirs {
+                result.append(SetGroup(id: sets[index].id, sets: [sets[index], sets[index + 1]]))
+                index += 2
+            } else {
+                result.append(SetGroup(id: sets[index].id, sets: [sets[index]]))
+                index += 1
+            }
+        }
+        return result
+    }
+
+    // Claude  Date 09/01/2026
+    // The sets as logical groups, writable — flattening back through this binding is what
+    // persists a reorder (AppStore.binding(for:) → @Published workouts → disk).
+    private var setGroups: Binding<[SetGroup]> {
+        Binding(get: { groups(from: logged.sets) },
+                set: { logged.sets = $0.flatMap(\.sets) })
+    }
+
+    /// The logical-set index that row `index` belongs to.
+    private func groupIndex(forRow index: Int) -> Int? {
+        var row = 0
+        for (position, group) in groups(from: logged.sets).enumerated() {
+            if index < row + group.sets.count { return position }
+            row += group.sets.count
+        }
+        return nil
+    }
+
+    private func canMove(at index: Int, by delta: Int) -> Bool {
+        guard let position = groupIndex(forRow: index) else { return false }
+        let target = position + delta
+        return target >= 0 && target < groups(from: logged.sets).count
+    }
+
+    // Claude  Date 09/01/2026
+    // Swap this row's logical set with its neighbour. Set NUMBERS are positional, so the
+    // list renumbers itself top-down afterwards; the ledger keys off setId, so nothing
+    // already earned is disturbed.
+    private func moveSet(at index: Int, by delta: Int) {
+        guard canMove(at: index, by: delta), let position = groupIndex(forRow: index) else { return }
+        var all = groups(from: logged.sets)
+        all.swapAt(position, position + delta)
+        tapHaptic()
+        withAnimation(.easeInOut(duration: 0.25)) {
+            logged.sets = all.flatMap(\.sets)
+        }
+    }
+
 }
 
 // Claude  Date 07/01/2026
@@ -892,20 +1044,23 @@ private struct SetRow: View {
 
     var body: some View {
         HStack {
-            // Claude  Date 06/14/2026 last changed: 06/18/2026 by: Claude
-            // Explicit "complete set" tap — the only thing that earns achievement
-            // credit. Filled checkmark once done; tapping again un-completes it. (The
-            // reps/weight fields stay editable either way, so a typo no longer needs an
-            // un-check to fix.)
-            Button(action: toggleComplete) {
-                Image(systemName: isCompleted ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(isCompleted ? accent : .secondary)
+            // Claude  Date 06/14/2026 last changed: 09/01/2026 by: Claude
+            // One indicator slot, two meanings: the rep-range mark while the set is open,
+            // a filled check once it's done. Pure STATE — nothing here is tappable now
+            // that completion is a leading swipe (wired up in ExerciseLogSection). The
+            // range signal survives completion via the reps field's own tint below.
+            ZStack {
+                if isCompleted {
+                    Image(systemName: "checkmark.circle.fill")
+                        .imageScale(.small)
+                        .foregroundStyle(accent)
+                } else {
+                    Circle()
+                        .fill(markColor ?? .clear)
+                        .frame(width: 8, height: 8)
+                }
             }
-            .buttonStyle(.plain)
-
-            Circle()
-                .fill(markColor ?? .clear)
-                .frame(width: 8, height: 8)
+            .frame(width: 18)
 
             // Claude  Date 06/14/2026
             // Set number, with the Left/Right side beneath it for unilateral sets.
@@ -958,16 +1113,22 @@ private struct SetRow: View {
             Text("lb")
                 .foregroundStyle(.secondary)
         }
-        .opacity(isCompleted ? 0.6 : 1)
-    }
-
-    // Claude  Date 06/14/2026 last changed: 06/18/2026 by: Claude
-    // Toggle completion. This only stamps/clears the set's real check-off time — no
-    // ledger write happens here. Credit is granted in one batch when the workout is
-    // marked complete (AppStore.finishWorkout), so an unfinished workout never counts.
-    // The reps/weight fields are always editable, so a completed set can still be fixed.
-    private func toggleComplete() {
-        set.completedAt = isCompleted ? nil : Date()
+        // Claude  Date 09/01/2026
+        // A finished set needs to read as finished at a glance now that no glyph toggles:
+        // an accent wash behind the row plus a lighter dim than the old 0.6. Drawn INSIDE
+        // the cell (not .listRowBackground) so the theme's own row fill is left alone, and
+        // as an opacity change so it cross-fades instead of popping.
+        .opacity(isCompleted ? 0.75 : 1)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(accent.opacity(isCompleted ? 0.12 : 0))
+                .padding(.horizontal, -6)
+                .padding(.vertical, -4)
+        )
+        // Swipe actions reach VoiceOver through the Actions rotor on their own, but the
+        // row still has to say which state it is in.
+        .accessibilityElement(children: .contain)
+        .accessibilityValue(isCompleted ? "Completed" : "Not completed")
     }
 
     // Claude  Date 06/09/2026
