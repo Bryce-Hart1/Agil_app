@@ -288,12 +288,18 @@ struct MonthlyRecap {
 // and the PR list share one definition of "record" instead of two that can drift.
 struct PersonalRecord: Identifiable {
     let id: UUID            // exercise id
-    let name: String
+    let name: String         // base exercise name; brand is presented separately
+    let brand: String?
     let isUnilateral: Bool
     let reps: Int           // reps of the winning set
     let weight: Double      // weight of the winning set (lb)
     let estOneRepMax: Double
     let achievedAt: Date    // loggedAt of the winning set — drives "last 5"
+
+    /// Compact contexts such as the monthly recap can still opt into one-line naming.
+    var displayName: String {
+        brand.map { "\(name) · \($0)" } ?? name
+    }
 }
 
 extension PersonalRecord {
@@ -322,8 +328,10 @@ extension PersonalRecord {
         return best.compactMap { id, event in
             guard let exercise = byID[id] else { return nil }
             return PersonalRecord(
-                // brandedName: PersonalRecord carries isUnilateral as its own field.
-                id: id, name: exercise.brandedName, isUnilateral: exercise.isUnilateral,
+                // Brand and unilateral are separate so richer PR surfaces can place
+                // them without inflating the exercise's primary title.
+                id: id, name: exercise.name, brand: exercise.brandLabel,
+                isUnilateral: exercise.isUnilateral,
                 reps: event.reps, weight: event.weight,
                 estOneRepMax: BestSetScoring.e1RM(weight: event.weight, reps: event.reps),
                 achievedAt: event.loggedAt)

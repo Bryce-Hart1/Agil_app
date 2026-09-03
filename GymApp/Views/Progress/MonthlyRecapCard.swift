@@ -196,7 +196,7 @@ struct MonthlyRecapCard: View {
     @ViewBuilder
     private var recordsRow: some View {
         if !recap.personalRecords.isEmpty {
-            let names = recap.personalRecords.prefix(3).map(\.name).joined(separator: ", ")
+            let names = recap.personalRecords.prefix(3).map(\.displayName).joined(separator: ", ")
             let extra = recap.personalRecords.count - min(3, recap.personalRecords.count)
 
             HStack(spacing: 8) {

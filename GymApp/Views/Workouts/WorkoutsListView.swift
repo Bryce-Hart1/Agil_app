@@ -94,10 +94,10 @@ struct WorkoutsListView: View {
                 ToolbarItem(placement: .topBarLeading) {
                     Group {
                         if let active = store.activeWorkout {
-                            Button { open(active.id) } label: { toolbarIcon("note-blank") }
+                            Button { open(active.id) } label: { toolbarIcon("empty_workout") }
                                 .accessibilityLabel("Resume workout")
                         } else {
-                            Button { start(Workout()) } label: { toolbarIcon("note-blank") }
+                            Button { start(Workout()) } label: { toolbarIcon("empty_workout") }
                                 .accessibilityLabel("New blank workout")
                         }
                     }
@@ -153,19 +153,22 @@ struct WorkoutsListView: View {
 
     // Claude  Date 07/28/2026
     // Custom-asset toolbar glyph, matching the treatment the tab bar gives its own
-    // asset icons (AgilTabItem.Icon.styledImage). .renderingMode(.template) has to
-    // be set here — neither note.svg nor note-blank.svg declares a
-    // template-rendering-intent in its Contents.json, so without it they'd draw as
-    // flat artwork instead of picking up the accent tint. Both buttons go through
-    // this so their widths can't drift apart: the pill between them is centered by
-    // UIKit splitting the space the bar buttons leave, so unequal icons would push
-    // it off the midline.
+    // asset icons (AgilTabItem.Icon.styledImage). The supplied workout PNGs have
+    // opaque white backgrounds, so invert + luminance-to-alpha turns their dark art
+    // into a clean mask without modifying the source files. Both buttons go through
+    // this fixed frame so their widths cannot push the centered ModeNotch off-axis.
     private func toolbarIcon(_ asset: String) -> some View {
-        Image(asset)
-            .renderingMode(.template)
-            .resizable()
-            .scaledToFit()
+        theme.current.accent
             .frame(width: 22, height: 22)
+            .mask {
+                Image(asset)
+                    .renderingMode(.original)
+                    .resizable()
+                    .scaledToFit()
+                    .colorInvert()
+                    .luminanceToAlpha()
+                    .scaleEffect(1.3)
+            }
     }
 
     // Claude  Date 07/28/2026
@@ -176,10 +179,10 @@ struct WorkoutsListView: View {
     @ViewBuilder
     private var presetButton: some View {
         if let active = store.activeWorkout {
-            Button { open(active.id) } label: { toolbarIcon("note") }
+            Button { open(active.id) } label: { toolbarIcon("preset_workout") }
                 .accessibilityLabel("Resume workout")
         } else if store.presets.isEmpty {
-            Button { showingNoPresets = true } label: { toolbarIcon("note") }
+            Button { showingNoPresets = true } label: { toolbarIcon("preset_workout") }
                 .accessibilityLabel("Start from a preset")
         } else {
             Menu {
@@ -198,7 +201,7 @@ struct WorkoutsListView: View {
                     }
                 }
             } label: {
-                toolbarIcon("note")
+                toolbarIcon("preset_workout")
             }
             .accessibilityLabel("Start from a preset")
         }
