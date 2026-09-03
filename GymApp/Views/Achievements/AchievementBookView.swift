@@ -6,7 +6,7 @@ import SwiftUI
 // MARK: - Summary
 
 // The Achievement Book — the collection screen that replaced AchievementsView's
-// flat 56-row List. Two things drove the redesign:
+// flat achievement List. Two things drove the redesign:
 //
 //  1. Unlocks no longer interrupt. Earning a badge used to slam a full-screen
 //     CelebrationOverlay over whatever you were doing, mid-set included. Now the

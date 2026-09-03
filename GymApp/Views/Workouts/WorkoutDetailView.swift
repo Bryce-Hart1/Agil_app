@@ -771,6 +771,10 @@ private struct ExerciseLogSection: View {
         // picker and replaces this entry's lift in place, keeping its position in the
         // workout; Remove drops it entirely.
         ExerciseActionsRow(onSwap: { showingSwapPicker = true }, onRemove: onRemove)
+            // Claude  Date 09/01/2026
+            // Warm the Taptic Engine as the lift scrolls in, so the FIRST swipe of the
+            // session lands with the animation instead of a beat behind it.
+            .onAppear { Haptics.prepare() }
             .sheet(isPresented: $showingSwapPicker) {
                 // Claude  Date 08/16/2026
                 // Hand the picker the lift being swapped out so plausible substitutes
@@ -875,15 +879,31 @@ private struct ExerciseLogSection: View {
 
     // Claude  Date 09/01/2026
     // Check a set off / undo it, from the leading swipe. Only stamps completedAt — credit
-    // is still granted in one batch by AppStore.finishWorkout. Side effects: a light
-    // haptic, and it retires the one-time swipe hint app-wide.
+    // is still granted in one batch by AppStore.finishWorkout. Side effects: a haptic
+    // graded by what just happened, and it retires the one-time swipe hint app-wide.
     private func toggleComplete(at index: Int) {
         guard logged.sets.indices.contains(index) else { return }
-        tapHaptic()
-        hasSeenSetSwipeHint = true
-        withAnimation(.easeInOut(duration: 0.25)) {
-            logged.sets[index].completedAt = isCompleted(at: index) ? nil : Date()
+        let completing = !isCompleted(at: index)
+        // Three textures, so the gesture tells you WHICH thing happened without looking:
+        // the last open set of the lift celebrates, any other set succeeds, undo is soft.
+        if !completing {
+            Haptics.soften()
+        } else if openSetCount == 1 {
+            Haptics.celebrate()
+        } else {
+            Haptics.success()
         }
+        // Underdamped on purpose — the check overshoots and settles, which is what makes
+        // finishing a set feel like a physical action instead of a state flag flipping.
+        withAnimation(.spring(response: 0.34, dampingFraction: 0.62)) {
+            logged.sets[index].completedAt = completing ? Date() : nil
+            hasSeenSetSwipeHint = true
+        }
+    }
+
+    /// Sets on this lift still open — drives the "last one" celebration above.
+    private var openSetCount: Int {
+        logged.sets.filter { $0.completedAt == nil }.count
     }
 
     // Claude  Date 09/01/2026
@@ -948,8 +968,9 @@ private struct ExerciseLogSection: View {
         guard canMove(at: index, by: delta), let position = groupIndex(forRow: index) else { return }
         var all = groups(from: logged.sets)
         all.swapAt(position, position + delta)
-        tapHaptic()
-        withAnimation(.easeInOut(duration: 0.25)) {
+        // A crisp detent click, not the generic tap — the set snapped into a new slot.
+        Haptics.click()
+        withAnimation(.spring(response: 0.38, dampingFraction: 0.78)) {
             logged.sets = all.flatMap(\.sets)
         }
     }
@@ -1042,6 +1063,11 @@ private struct SetRow: View {
     // keyword (the binding is named `set`).
     private var isCompleted: Bool { self.set.completedAt != nil }
 
+    // Claude  Date 09/01/2026
+    // Transient overshoot on the completion mark: snap up, spring back. Purely visual —
+    // it is driven off isCompleted below and never persists.
+    @State private var pop: CGFloat = 1
+
     var body: some View {
         HStack {
             // Claude  Date 06/14/2026 last changed: 09/01/2026 by: Claude
@@ -1054,13 +1080,17 @@ private struct SetRow: View {
                     Image(systemName: "checkmark.circle.fill")
                         .imageScale(.small)
                         .foregroundStyle(accent)
+                        // Grows in from a dot, so it reads as the mark BECOMING a check.
+                        .transition(.scale(scale: 0.3).combined(with: .opacity))
                 } else {
                     Circle()
                         .fill(markColor ?? .clear)
                         .frame(width: 8, height: 8)
+                        .transition(.scale.combined(with: .opacity))
                 }
             }
             .frame(width: 18)
+            .scaleEffect(pop)
 
             // Claude  Date 06/14/2026
             // Set number, with the Left/Right side beneath it for unilateral sets.
@@ -1068,6 +1098,10 @@ private struct SetRow: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text("Set \(number)")
                     .foregroundStyle(.secondary)
+                    // Claude  Date 09/01/2026 — reordering renumbers the rows, so roll the
+                    // digit rather than swapping it (the app's idiom, see MonthlyRecapCard).
+                    .contentTransition(.numericText())
+                    .animation(.easeInOut(duration: 0.25), value: number)
                     // Claude  Date 07/21/2026 — the 54pt column below is fixed, so a
                     // label that outgrows it (a wide face, a big Dynamic Type size,
                     // "Set 10"+) must truncate rather than wrap the row open.
@@ -1124,11 +1158,19 @@ private struct SetRow: View {
                 .fill(accent.opacity(isCompleted ? 0.12 : 0))
                 .padding(.horizontal, -6)
                 .padding(.vertical, -4)
+                // Claude  Date 09/01/2026 — deliberately NOT the row's spring: the wash
+                // settles calmly underneath while the check overshoots on top of it.
+                .animation(.easeOut(duration: 0.3), value: isCompleted)
         )
         // Swipe actions reach VoiceOver through the Actions rotor on their own, but the
         // row still has to say which state it is in.
         .accessibilityElement(children: .contain)
         .accessibilityValue(isCompleted ? "Completed" : "Not completed")
+        .onChange(of: isCompleted) { done in
+            guard done else { return }
+            pop = 1.45
+            withAnimation(.spring(response: 0.45, dampingFraction: 0.5)) { pop = 1 }
+        }
     }
 
     // Claude  Date 06/09/2026

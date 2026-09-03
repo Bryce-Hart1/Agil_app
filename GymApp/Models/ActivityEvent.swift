@@ -28,12 +28,17 @@ struct ActivityEvent: Identifiable, Codable, Hashable {
     // any non-big-3 lift. Stored per-lift (not just a Bool) so each lift earns its
     // own badges. Frozen here so renaming/retagging an exercise can't change credit.
     let liftType: LiftType?
+    // The exercise's region at completion time. New region-based achievements use
+    // this frozen value so later library edits cannot rewrite earned progress.
+    // Optional keeps activity logs from older app versions decodable.
+    let muscleRegion: MuscleRegion?
 
     // Convenience: was this a big-3 lift at all.
     var countsAsBig3: Bool { liftType != nil }
 
     init(id: UUID = UUID(), setId: UUID, exerciseId: UUID,
-         reps: Int, weight: Double, loggedAt: Date = Date(), liftType: LiftType? = nil) {
+         reps: Int, weight: Double, loggedAt: Date = Date(), liftType: LiftType? = nil,
+         muscleRegion: MuscleRegion? = nil) {
         self.id = id
         self.setId = setId
         self.exerciseId = exerciseId
@@ -41,5 +46,6 @@ struct ActivityEvent: Identifiable, Codable, Hashable {
         self.weight = weight
         self.loggedAt = loggedAt
         self.liftType = liftType
+        self.muscleRegion = muscleRegion
     }
 }

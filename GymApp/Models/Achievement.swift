@@ -139,7 +139,7 @@ struct Achievement: Identifiable {
     // The big-3 lift is now split into three separate categories (squat / bench /
     // deadlift), each with its own tiered badges.
     enum Category: String, CaseIterable {
-        case daysLogged, squat, bench, deadlift, totalLifted, streak
+        case daysLogged, squat, bench, deadlift, back, totalLifted, streak
         // Claude  Date 07/11/2026
         // Two new categories: curl (Bicep Curl, an isolation lift tracked like the
         // big-3 but not flagged isBig3Lift) and daysTracked (nutrition — distinct
@@ -152,6 +152,7 @@ struct Achievement: Identifiable {
             case .squat:       return "Back Squat"
             case .bench:       return "Bench Press"
             case .deadlift:    return "Deadlift"
+            case .back:        return "Back Strength"
             case .totalLifted: return "Total Lifted"
             case .streak:      return "Week Streak"
             case .curl:        return "Bicep Curl"
@@ -171,6 +172,7 @@ struct Achievement: Identifiable {
             case .squat:       return "badge_squat"
             case .bench:       return "badge_benchPress"
             case .deadlift:    return "badge_deadlift"
+            case .back:        return "back_badge"
             case .totalLifted: return "scalemass.fill"
             case .streak:      return "flame.fill"
             case .curl:        return "dumbbell.fill"
@@ -184,20 +186,20 @@ struct Achievement: Identifiable {
     }
 
     // Claude  Date 06/13/2026 last changed: 07/14/2026 by: Claude
-    // The 56-achievement catalog: 8 categories × 7 tiers. Thresholds map to tiers
+    // The 63-achievement catalog: 9 categories × 7 tiers. Thresholds map to tiers
     // in order (bronze → legend). Top tiers (diamond/emerald/legend) are tuned so a
     // natural, drug-free lifter can realistically reach them — notably the big-3,
     // where bench has a lower ceiling than squat/deadlift (see big3Specs).
     // (This pass: the catalog is now gender-calibrated — see catalog(for:) below —
-    // and the stale "42/6" count in this header was corrected to 56/8.)
+    // and the stale "42/6" count in this header was corrected as the catalog grew.)
 
     // Claude  Date 07/14/2026
-    // Gender-calibrated catalog. Strength categories (squat/bench/deadlift/curl/
-    // totalLifted) carry female threshold+title variants tuned to natural female
+    // Gender-calibrated catalog. Strength categories (squat/bench/deadlift/back/
+    // curl/totalLifted) carry female threshold+title variants tuned to natural female
     // strength ceilings; day/streak categories are identical. .male/.unspecified
     // use the baseline arrays. CRITICAL INVARIANT: achievement ids are ALWAYS
-    // derived from the BASELINE threshold arrays, so the same 56 ids exist in
-    // every variant — persisted unlock sets (achievements.json), pinned badges,
+    // derived from the BASELINE threshold arrays, so the same ids exist in every
+    // variant — persisted unlock sets (achievements.json), pinned badges,
     // coin rewards, and Strategist rank scoring stay valid when the user changes
     // their identity in Settings. Unlocks are sticky either way (never removed).
     static func catalog(for gender: Gender) -> [Achievement] {
@@ -272,6 +274,23 @@ struct Achievement: Identifiable {
                     title: spec.titles[i], detail: "\(spec.verb) \(w) lb",
                     icon: spec.category.iconName, isUnlocked: { spec.best($0) >= Double(w) }))
             }
+        }
+
+        // Back Strength — the heaviest non-deadlift back exercise confirmed on two
+        // distinct days. This intentionally excludes conventional deadlift because
+        // it already has a dedicated seven-tier ladder. Female thresholds follow
+        // the same calibrated shape as Curl; ids remain based on the male/baseline
+        // values so changing gender never invalidates saved unlocks or pinned badges.
+        let backBaseline = [50, 80, 110, 140, 170, 200, 250]
+        let backThresholds = female ? [30, 50, 70, 90, 110, 130, 160] : backBaseline
+        let backTitles = ["First Pull", "Back Builder", "Row Power", "Wing Builder",
+                          "V-Taper", "Cobra Back", "Titan Back"]
+        for (i, tier) in tiers.enumerated() {
+            let w = backThresholds[i]
+            result.append(Achievement(
+                id: "back_\(backBaseline[i])", category: .back, tier: tier,
+                title: backTitles[i], detail: "Lift \(w) lb on a back exercise",
+                icon: Category.back.iconName, isUnlocked: { $0.bestBackLift >= Double(w) }))
         }
 
         // Total Lifted — lifetime volume (Σ reps × weight). The 50k/day credit cap

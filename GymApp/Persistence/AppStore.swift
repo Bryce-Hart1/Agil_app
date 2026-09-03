@@ -577,7 +577,7 @@ final class AppStore: ObservableObject {
         // NOT from editable workout numbers — that's the anti-cheat fix. Now also
         // feeds the food diary + calorie goal for the Days Tracked badges, and the
         // nutrition setup checklist for First Plan.
-        let stats = ProfileStats(events: activityLog, foodLog: foodLog,
+        let stats = ProfileStats(events: activityLog, exercises: exercises, foodLog: foodLog,
                                  nutritionGoals: nutritionGoals,
                                  setup: profile.nutritionSetup,
                                  tookFirstStep: profile.tookFirstStep,
@@ -1181,13 +1181,16 @@ final class AppStore: ObservableObject {
             // Claude  Date 07/11/2026
             // effectiveLiftType (not the raw liftType tag) so any Arms/Biceps exercise
             // credits the curl badge automatically, not just an explicitly tagged one.
-            let liftType = exercise(for: logged.exerciseId)?.effectiveLiftType
+            // Region is frozen alongside it for region-wide ladders such as Back Strength.
+            let exercise = exercise(for: logged.exerciseId)
+            let liftType = exercise?.effectiveLiftType
             for set in logged.sets where set.completedAt != nil {
                 guard !activityLog.contains(where: { $0.setId == set.id }) else { continue }
                 newEvents.append(ActivityEvent(
                     setId: set.id, exerciseId: logged.exerciseId,
                     reps: set.reps, weight: set.weight,
-                    loggedAt: set.completedAt ?? Date(), liftType: liftType))
+                    loggedAt: set.completedAt ?? Date(), liftType: liftType,
+                    muscleRegion: exercise?.region))
             }
         }
         if !newEvents.isEmpty { activityLog.append(contentsOf: newEvents) }

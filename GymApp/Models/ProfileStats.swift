@@ -23,6 +23,9 @@ struct ProfileStats: Codable, Hashable {
     // Heaviest confirmed Bicep Curl set, in lb — drives the Bicep Curl badges
     // (same treatment as the big-3 lifts, just not flagged isBig3Lift).
     var bestCurlLift: Double
+    // Heaviest confirmed non-deadlift back exercise, in lb. This drives the Back
+    // Strength badge while leaving conventional deadlift to its own ladder.
+    var bestBackLift: Double
     var weekStreak: Int          // consecutive calendar weeks (incl. current) with a workout
     var topMuscleGroup: String?  // most-trained category by set count
     var memberSince: Date?       // date of the earliest workout
@@ -67,6 +70,10 @@ struct ProfileStats: Codable, Hashable {
         var volume = 0.0
         var heaviest = 0.0
         var bestByLift: [LiftType: Double] = [:]
+        var bestBack = 0.0
+        let exerciseByID = Dictionary(
+            exercises.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first }
+        )
         let categoryByExercise = Dictionary(
             exercises.map { ($0.id, $0.category) }, uniquingKeysWith: { first, _ in first }
         )
@@ -92,6 +99,10 @@ struct ProfileStats: Codable, Hashable {
                     if let liftType {
                         bestByLift[liftType] = Swift.max(bestByLift[liftType] ?? 0, set.weight)
                     }
+                    if let exercise = exerciseByID[logged.exerciseId],
+                       exercise.region == .back, exercise.effectiveLiftType != .deadlift {
+                        bestBack = Swift.max(bestBack, set.weight)
+                    }
                 }
             }
         }
@@ -102,6 +113,7 @@ struct ProfileStats: Codable, Hashable {
         bestBenchLift = bestByLift[.bench] ?? 0
         bestDeadliftLift = bestByLift[.deadlift] ?? 0
         bestCurlLift = bestByLift[.curl] ?? 0
+        bestBackLift = bestBack
         topMuscleGroup = setsByCategory.max { $0.value < $1.value }?.key
         memberSince = workouts.map(\.date).min()
 
@@ -140,8 +152,8 @@ struct ProfileStats: Codable, Hashable {
     // Achievement-facing stats derived from the tamper-resistant activity ledger
     // (ActivityEvent) instead of editable workout numbers. Only the fields the
     // achievement catalog actually reads are meaningful here — daysLogged,
-    // totalVolume, bestBig3Lift, heaviestLift, weekStreak; display-only fields are
-    // left at neutral defaults because unlock decisions never touch them. This is
+    // totalVolume, confirmed lift/back bests, heaviestLift, and weekStreak;
+    // display-only fields are left at neutral defaults. This is
     // the anti-cheat boundary: credit comes ONLY from sets completed in real time,
     // and days/streak are counted from each event's `loggedAt`, so backdating or
     // bulk-typing in a single session can't fabricate progress.
@@ -163,7 +175,7 @@ struct ProfileStats: Codable, Hashable {
     // Added `clearedSupplementDays` (defaulted, same trick) — the supplement
     // ledger AppStore.evaluateAchievements already passes; counted into
     // daysSupplementsCleared for the coming supplement badges.
-    init(events: [ActivityEvent], foodLog: [FoodEntry] = [],
+    init(events: [ActivityEvent], exercises: [Exercise] = [], foodLog: [FoodEntry] = [],
          nutritionGoals: NutritionGoals = NutritionGoals(),
          setup: NutritionSetup = NutritionSetup(),
          tookFirstStep: Bool = false,
@@ -201,18 +213,30 @@ struct ProfileStats: Codable, Hashable {
         // 3) Big-3 credit requires a weight to be hit on ≥ big3ConfirmationDays
         // distinct days, per lift. The credited best for a lift is the Nth-highest
         // of its per-day bests, so a single fake heavy set never unlocks a tier.
-        func confirmedBest(_ type: LiftType) -> Double {
+        func confirmedBest(where includes: (ActivityEvent) -> Bool) -> Double {
             let dayBests = byDay.values
-                .compactMap { day in day.filter { $0.liftType == type }.map(\.weight).max() }
+                .compactMap { day in day.filter(includes).map(\.weight).max() }
                 .sorted(by: >)
             return dayBests.count >= AchievementPolicy.big3ConfirmationDays
                 ? dayBests[AchievementPolicy.big3ConfirmationDays - 1]
                 : 0
         }
-        bestSquatLift = confirmedBest(.squat)
-        bestBenchLift = confirmedBest(.bench)
-        bestDeadliftLift = confirmedBest(.deadlift)
-        bestCurlLift = confirmedBest(.curl)
+        bestSquatLift = confirmedBest { $0.liftType == .squat }
+        bestBenchLift = confirmedBest { $0.liftType == .bench }
+        bestDeadliftLift = confirmedBest { $0.liftType == .deadlift }
+        bestCurlLift = confirmedBest { $0.liftType == .curl }
+
+        // Current events carry a frozen region. For older ledger entries that
+        // predate that field, fall back to the referenced exercise so existing
+        // legitimate back work receives credit when this badge is introduced.
+        let historicalBackExerciseIDs = Set(exercises.lazy.filter {
+            $0.region == .back && $0.effectiveLiftType != .deadlift
+        }.map(\.id))
+        bestBackLift = confirmedBest { event in
+            guard event.liftType != .deadlift else { return false }
+            return event.muscleRegion == .back
+                || (event.muscleRegion == nil && historicalBackExerciseIDs.contains(event.exerciseId))
+        }
 
         // Claude  Date 07/13/2026
         // Consecutive calendar weeks ending this week with a completed set — same
