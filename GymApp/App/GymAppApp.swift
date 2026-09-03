@@ -2,6 +2,11 @@ import SwiftUI
 
 @main
 struct GymAppApp: App {
+    // Claude  Date 09/03/2026
+    // Adopted purely so a tapped notification has somewhere to land — see AppDelegate.
+    // A cold launch from a banner is delivered before any view exists, so the delegate
+    // has to be in place at didFinishLaunching, which only this adaptor can guarantee.
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var store = AppStore()
     @StateObject private var theme = ThemeManager()
     // Claude  Date 06/16/2026
@@ -26,6 +31,11 @@ struct GymAppApp: App {
         WindowGroup {
             RootTabView()
                 .environmentObject(store)
+                // Claude  Date 09/03/2026
+                // Notification deep links. A singleton because AppDelegate writes to it
+                // from outside the view hierarchy; injected here so RootTabView can
+                // observe it like anything else.
+                .environmentObject(NotificationRouter.shared)
                 .environmentObject(theme)
                 .environmentObject(session)
                 .environmentObject(cardSync)

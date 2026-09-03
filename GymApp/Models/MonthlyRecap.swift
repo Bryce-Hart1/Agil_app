@@ -26,6 +26,41 @@ struct MonthlyRecap {
     /// Default length of the window, and of the comparison window before it.
     static let windowDays = 30
 
+    // Claude  Date 09/03/2026
+    // How a window-over-window change should be PRESENTED. A percentage taken off a
+    // near-empty previous window is where "+1900%" comes from — a first-month user has
+    // one stray session behind them, so every number divides by ~nothing. A percent is
+    // therefore only earned once the baseline is thick enough to be stable; below that
+    // the row states the raw move instead, and even a qualified percent is clamped.
+    // Side effect: thin-baseline rows now read "+3" rather than a percentage.
+    enum Delta {
+        case none                 // nothing meaningful to compare against
+        case absolute(Double)     // baseline too thin for a percentage — raw change
+        case percent(Double)      // fractional change, clamped to ±maxPercent
+
+        /// Smallest previous-window figure that makes a percentage meaningful.
+        /// Counts (workouts, training days) are the noisiest — 1 → 4 is not "+300%".
+        static let minimumCount = 3.0
+        static let minimumSets = 5.0
+        static let minimumRegionSets = 5.0   // regions get a slice of the sets, so lower
+        static let minimumVolume = 2_000.0   // lb, roughly ten working sets
+
+        /// Ceiling on a displayed percent. Past ~10× the figure has stopped being
+        /// information and is just a big number.
+        static let maxPercent = 9.99
+
+        init(current: Double, previous: Double, minimumBaseline: Double) {
+            guard previous > 0 else { self = .none; return }
+            guard previous >= minimumBaseline else {
+                let change = current - previous
+                self = change == 0 ? .none : .absolute(change)
+                return
+            }
+            let change = (current - previous) / previous
+            self = .percent(min(max(change, -Self.maxPercent), Self.maxPercent))
+        }
+    }
+
     // Claude  Date 08/16/2026
     // Sets performed for one body REGION (MuscleRegion — Legs, Back…) this window vs
     // last. Region, not the finer `Exercise.category` the sets-per-muscle-group chart
@@ -43,6 +78,15 @@ struct MonthlyRecap {
         var percentChange: Double? {
             guard previousSets > 0 else { return nil }
             return (Double(sets) - Double(previousSets)) / Double(previousSets)
+        }
+
+        // Claude  Date 09/03/2026
+        // What the card should actually print. `percentChange` stays raw because
+        // `magnitude` ranks on it; this is the presentation-safe reading of the same
+        // move, so a region going 1 → 12 sets reads "+11 sets", not "+1100%".
+        var delta: Delta {
+            Delta(current: Double(sets), previous: Double(previousSets),
+                  minimumBaseline: Delta.minimumRegionSets)
         }
 
         // Claude  Date 08/16/2026

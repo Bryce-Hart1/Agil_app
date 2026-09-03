@@ -66,6 +66,13 @@ struct NutritionJournalView: View {
                 if !store.profile.nutritionSetup.acknowledged {
                     NutritionSetupCard(onOpenFocus: openFocusGoals)
                 }
+                // Claude  Date 09/03/2026
+                // The supplement checklist, between the setup card and Summary — the
+                // one prompt in the journal rather than a record, so it sits above the
+                // day's totals. The card was written for this slot but never mounted,
+                // which is why the tracker had no journal surface at all; it decides
+                // its own five states (including drawing nothing).
+                SupplementCard(selectedDate: selectedDate)
                 summarySection
                 if !store.focusGoals.isEmpty {
                     focusSection

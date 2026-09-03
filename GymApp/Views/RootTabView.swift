@@ -16,6 +16,9 @@ struct RootTabView: View {
     // and whenever the profile or earned badges change. It only acts in Friends mode
     // and dedupes/debounces, so calling it freely here is cheap and safe.
     @EnvironmentObject private var cardSync: CardSyncService
+    // Claude  Date 09/03/2026
+    // Destination for a tapped notification, published by AppDelegate.
+    @EnvironmentObject private var router: NotificationRouter
     @Environment(\.scenePhase) private var scenePhase
     // Claude  Date 06/16/2026 last changed: 07/13/2026 by: Claude
     // Selected tab. Tabs are tagged from 1 (the old tag-0 switcher placeholder is
@@ -345,6 +348,17 @@ struct RootTabView: View {
         // achievements land. noteEarned only ever raises it, so this is also what
         // makes deleting a workout stop costing you coins you'd already banked.
         .onChange(of: store.totalCoinsEarned) { earned in theme.noteEarned(earned) }
+        // Claude  Date 09/03/2026
+        // Notification deep links. `$route` replays its current value to a new
+        // subscriber, so a tap that cold-launched the app — routed before this view
+        // existed — is still delivered here on first appear. Cleared after acting so
+        // the same tap can't fire twice.
+        .onReceive(router.$route.compactMap { $0 }) { route in
+            switch route {
+            case .supplements: openSupplements()
+            }
+            router.route = nil
+        }
     }
 
     // Claude  Date 07/23/2026 last changed: 07/24/2026 by: Claude
@@ -450,6 +464,19 @@ struct RootTabView: View {
         session.requestedWorkoutID = id
     }
 
+    // Claude  Date 09/03/2026
+    // Landing spot for a tapped supplement reminder: the Nutrition world's Journal,
+    // where the checklist is actually ticked off. nutritionTab is pre-set for the same
+    // reason openActiveWorkout pre-sets liftingTab — the onChange(of: modeRaw) restore
+    // would otherwise drop us on whatever nutrition tab was last used.
+    private func openSupplements() {
+        if mode != .nutrition {
+            nutritionTab = AgilTabItem.journal.tag
+            modeRaw = AppMode.nutrition.rawValue
+        }
+        selection = AgilTabItem.journal.tag
+    }
+
     // Claude  Date 07/14/2026
     // The real device safe-area insets, read from the key window. Needed because
     // the tour overlay's GeometryReader ignores safe area for full-screen
@@ -492,4 +519,5 @@ struct RootTabView: View {
         .environmentObject(ThemeManager())
         .environmentObject(WorkoutSession())
         .environmentObject(CardSyncService())
+        .environmentObject(NotificationRouter.shared)
 }

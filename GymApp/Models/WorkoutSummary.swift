@@ -78,6 +78,11 @@ struct WorkoutSummary: Identifiable, Hashable {
             }
             guard let ratio = relativeToBaseline else { return "First time logging this lift" }
             let percent = Int(((ratio - 1) * 100).rounded())
+            // Claude  Date 09/03/2026
+            // Ceiling as well as a floor: nobody doubles their working 1RM in a session,
+            // so past +100% the "usual" was a one-off stub (a single light day early on)
+            // and the number is fiction — say it in words instead of printing "+430%".
+            if percent > 100 { return "Well above your usual" }
             return percent >= 3 ? "\(percent)% above your usual" : nil
         }
     }

@@ -23,6 +23,8 @@ struct MonthlyRecapCard: View {
 
     @State private var shown = false
 
+    private typealias Delta = MonthlyRecap.Delta
+
     /// Gold, matching the performance card's personal-record treatment.
     private let gold = Color(red: 1.0, green: 0.84, blue: 0.35)
 
@@ -84,23 +86,24 @@ struct MonthlyRecapCard: View {
     private var totalsStrip: some View {
         HStack(spacing: 0) {
             totalCell("Workouts", value: Double(recap.workouts), previous: Double(recap.previousWorkouts),
-                      delay: 0.10) { "\(Int($0))" }
+                      minimumBaseline: Delta.minimumCount, delay: 0.10) { "\(Int($0))" }
             statDivider
             totalCell("Volume", value: recap.totalVolume, previous: recap.previousVolume,
-                      delay: 0.14, format: volumeText)
+                      minimumBaseline: Delta.minimumVolume, delay: 0.14, format: volumeText)
             statDivider
             totalCell("Sets", value: Double(recap.totalSets), previous: Double(recap.previousSets),
-                      delay: 0.18) { "\(Int($0))" }
+                      minimumBaseline: Delta.minimumSets, delay: 0.18) { "\(Int($0))" }
             statDivider
             totalCell("Days", value: Double(recap.trainingDays), previous: Double(recap.previousTrainingDays),
-                      delay: 0.22) { "\(Int($0))" }
+                      minimumBaseline: Delta.minimumCount, delay: 0.22) { "\(Int($0))" }
         }
         .padding(.vertical, 10)
         .background(accent.opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
     }
 
     private func totalCell(_ title: String, value: Double, previous: Double,
-                           delay: Double, format: @escaping (Double) -> String) -> some View {
+                           minimumBaseline: Double, delay: Double,
+                           format: @escaping (Double) -> String) -> some View {
         VStack(spacing: 3) {
             CountUpText(value: value, shown: shown, delay: delay, format: format)
                 .font(.subheadline.weight(.bold))
@@ -108,7 +111,8 @@ struct MonthlyRecapCard: View {
             Text(title)
                 .font(.caption2).foregroundStyle(.secondary)
                 .lineLimit(1).minimumScaleFactor(0.7)
-            deltaPill(current: value, previous: previous, delay: delay + 0.12)
+            deltaPill(Delta(current: value, previous: previous, minimumBaseline: minimumBaseline),
+                      delay: delay + 0.12, format: format)
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 4)
@@ -120,15 +124,32 @@ struct MonthlyRecapCard: View {
             .frame(width: 1, height: 34)
     }
 
+    // Claude  Date 09/03/2026
+    // The under-value change pill. MonthlyRecap.Delta decides whether a percentage is
+    // even defensible here: off a thin previous window it hands back the raw move
+    // instead ("↑ 3", "↑ 1.2k lb", formatted exactly like the value above it), which is
+    // what a user in their first months now sees in place of a four-digit percentage.
+    // Side effect: `.none` renders nothing, so a cell can be delta-less.
     @ViewBuilder
-    private func deltaPill(current: Double, previous: Double, delay: Double) -> some View {
-        if previous > 0 {
-            let change = (current - previous) / previous
+    private func deltaPill(_ delta: Delta, delay: Double,
+                           format: (Double) -> String) -> some View {
+        switch delta {
+        case .none:
+            EmptyView()
+        case .absolute(let change), .percent(let change):
             let up = change >= 0
-            Label(percentText(change), systemImage: up ? "arrow.up" : "arrow.down")
+            let text: String = {
+                if case .percent = delta { return percentText(change) }
+                return format(abs(change))
+            }()
+            let flat: Bool = {
+                if case .percent = delta { return abs(change) < 0.01 }
+                return false
+            }()
+            Label(text, systemImage: up ? "arrow.up" : "arrow.down")
                 .font(.system(size: 9).weight(.semibold))
                 .labelStyle(.titleAndIcon)
-                .foregroundStyle(abs(change) < 0.01 ? Color.secondary : (up ? .green : .red))
+                .foregroundStyle(flat ? Color.secondary : (up ? .green : .red))
                 .lineLimit(1).minimumScaleFactor(0.7)
                 .scaleEffect(shown ? 1 : 0.6)
                 .opacity(shown ? 1 : 0)
@@ -270,6 +291,10 @@ struct MonthlyRecapCard: View {
         }
     }
 
+    // Claude  Date 09/03/2026
+    // Same rule as the totals pill: a region that went 1 → 12 sets reads "+11 sets",
+    // not "+1100%", because one accessory set last month is not a baseline. Untrained
+    // last window still reads "New"; an all-time recap has no comparison at all.
     @ViewBuilder
     private func regionDelta(_ shift: MonthlyRecap.RegionShift) -> some View {
         if !recap.hasComparisonWindow {
@@ -277,15 +302,28 @@ struct MonthlyRecapCard: View {
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(.secondary)
                 .lineLimit(1).minimumScaleFactor(0.7)
-        } else if let change = shift.percentChange {
-            Text(percentText(change))
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(abs(change) < 0.01 ? Color.secondary : (change > 0 ? .green : .red))
-                .lineLimit(1).minimumScaleFactor(0.7)
-        } else {
+        } else if shift.previousSets == 0 {
             Text("New")
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(accent)
+        } else {
+            switch shift.delta {
+            case .none:
+                Text("Even")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1).minimumScaleFactor(0.7)
+            case .percent(let change):
+                Text(percentText(change))
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(abs(change) < 0.01 ? Color.secondary : (change > 0 ? .green : .red))
+                    .lineLimit(1).minimumScaleFactor(0.7)
+            case .absolute(let change):
+                Text(change > 0 ? "+\(Int(change)) sets" : "−\(Int(abs(change))) sets")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(change > 0 ? .green : .red)
+                    .lineLimit(1).minimumScaleFactor(0.7)
+            }
         }
     }
 

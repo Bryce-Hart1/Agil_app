@@ -54,11 +54,16 @@ struct ExerciseSectionHeader: View {
             // unclassified custom lift draws nothing here and the row collapses to one
             // line instead of leaving an empty band.
             if hasMetadata {
+                // Claude  Date 09/03/2026
+                // Brand leads, then equipment type: the strip reads as one phrase —
+                // "Egym Machine" — the way the plate on the machine itself does. All
+                // three chips share EquipmentBadge's `.detail` size so the neutral ones
+                // don't read as a footnote to the tinted one.
                 HStack(spacing: 6) {
+                    BrandBadge(brand: exercise.flatMap(\.brandLabel), style: .detail)
                     EquipmentBadge(type: exercise?.equipmentType, style: .detail)
-                    BrandBadge(brand: exercise.flatMap(\.brandLabel))
                     if exercise?.isUnilateral == true {
-                        NeutralChip(text: "Unilateral")
+                        NeutralChip(text: "Unilateral", style: .detail)
                     }
                 }
             }
