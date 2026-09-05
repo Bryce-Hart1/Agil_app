@@ -16,6 +16,11 @@ import UIKit
 struct PerformanceCardView: View {
     let summary: WorkoutSummary
     let style: CardStyle
+    // CLAUDE  Date 09/03/2026
+    // The equipped theme's logo asset (see ThemeIcon). Passed in rather than read from
+    // ThemeManager because this view has no environment object — and the card is also used
+    // to render other people's synced cards, so the mark should be the viewer's, not baked in.
+    var logoAsset: String = ThemeIcon.classicLogoAsset
     let onDismiss: () -> Void
 
     @State private var appear = false
@@ -85,10 +90,7 @@ struct PerformanceCardView: View {
     // The same AGIL logo + wordmark as the profile card.
     private var header: some View {
         HStack(spacing: 8) {
-            Image("AppLogo")
-                .resizable().scaledToFit()
-                .frame(width: 28, height: 28)
-                .clipShape(RoundedRectangle(cornerRadius: 7))
+            AgilLogoMark(assetName: logoAsset, size: 28, cornerRadius: 7)
             Text("AGIL")
                 .font(.caption.bold()).tracking(3)
                 .foregroundStyle(.white.opacity(0.85))

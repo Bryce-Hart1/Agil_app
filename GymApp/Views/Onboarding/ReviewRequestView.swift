@@ -56,7 +56,7 @@ struct ReviewRequestView: View {
                               "Agil has no ads, and the stuff that matters isn't behind a paywall.",
                               accent: accent)
                     AskBullet("magnifyingglass",
-                              "Reviews are how people find us — they're basically the whole marketing budget.",
+                              "Reviews are how people find Agil.",
                               accent: accent)
                     AskBullet("clock.fill",
                               "It takes about ten seconds, and it genuinely helps.",

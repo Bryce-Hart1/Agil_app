@@ -501,6 +501,8 @@ private struct ShopItemDetailView: View {
                         .multilineTextAlignment(.center)
                         .padding(.horizontal)
 
+                    includedIconRow
+
                     priceRow
                 }
                 .padding(.horizontal)
@@ -547,6 +549,30 @@ private struct ShopItemDetailView: View {
                 .stroke(item.rarityColor.opacity(0.65), lineWidth: 2)
         )
         .shadow(color: item.rarityColor.opacity(0.4), radius: 14, y: 4)
+    }
+
+    // CLAUDE  Date 09/03/2026
+    // Themes ship with a matching home-screen icon, equipped with the theme. Shown as the
+    // real art rather than described in the blurb, because it's the half of the purchase
+    // you can't see in the showcase above. Cards have no icon, so they get nothing.
+    @ViewBuilder private var includedIconRow: some View {
+        if case .theme(let appTheme) = item {
+            HStack(spacing: 12) {
+                AgilLogoMark(theme: appTheme, size: 56, cornerRadius: 13)
+                    .shadow(color: .black.opacity(0.25), radius: 6, y: 3)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Includes the \(appTheme.name.capitalized) app icon")
+                        .font(.subheadline.weight(.semibold))
+                    Text("Equipped with the theme.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(12)
+            .background(theme.current.surface, in: RoundedRectangle(cornerRadius: 14))
+            .padding(.horizontal)
+        }
     }
 
     // Price and what's left in the wallet — worth showing now there's room for it.

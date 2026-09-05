@@ -139,8 +139,24 @@ targets:
         TARGETED_DEVICE_FAMILY: "1"
         SUPPORTED_PLATFORMS: "iphoneos iphonesimulator"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # CLAUDE  Date 09/03/2026
+        # Themed alternate app icons — one per paid built-in theme (see ThemeIcon.swift).
+        # These two settings are what make the asset-catalog compiler emit CFBundleIcons /
+        # CFBundleAlternateIcons into the built Info.plist; setAlternateIconName can only
+        # name an icon declared here. Declared in project.yml and NOT in the root
+        # Info.plist because xcodegen rewrites that file from `info.properties` on every
+        # generate. Classic isn't listed: it's the primary AppIcon.
+        ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS: YES
+        ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES: "AppIcon-Midnight AppIcon-DeepSea AppIcon-Sunset AppIcon-Leaf AppIcon-Woods"
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        # CLAUDE  Date 09/04/2026
+        # Portrait-only. With no orientation key at all, iOS defaults an iPhone app to
+        # portrait + both landscapes, so testers with rotation lock off saw Agil flip
+        # sideways (no screen is laid out for it). Listing only the portrait orientation
+        # here makes UIKit refuse every rotation app-wide — no per-view work needed.
+        # Side effect: upside-down is excluded too (iPhone never honors it anyway).
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
         # Display name shown on the home screen / app switcher / Settings.
         # The internal target/module stays "GymApp" (renaming the Swift module is
         # invasive and offers no user-facing benefit — only this name is seen).

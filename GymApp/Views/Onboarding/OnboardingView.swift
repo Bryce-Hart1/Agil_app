@@ -45,7 +45,9 @@ struct OnboardingView: View {
                 Group {
                     switch step {
                     case .welcome:
-                        WelcomeStep(name: $name, accent: accent, surface: surface,
+                        WelcomeStep(name: $name,
+                                    logoAsset: ThemeIcon.logoAsset(for: theme.current),
+                                    accent: accent, surface: surface,
                                     canAdvance: !trimmedName.isEmpty, onSubmit: advance)
                     case .identity: identityStep
                     case .data: dataStep
@@ -369,6 +371,9 @@ struct OnboardingView: View {
 // comes back to this step, which reads as intentional polish rather than a bug.
 private struct WelcomeStep: View {
     @Binding var name: String
+    // CLAUDE  Date 09/03/2026 — the equipped theme's mark (Classic during onboarding),
+    // passed down like accent/surface rather than read from the environment.
+    let logoAsset: String
     let accent: Color
     let surface: Color
     let canAdvance: Bool
@@ -386,10 +391,7 @@ private struct WelcomeStep: View {
                     .fill(accent.opacity(0.25))
                     .frame(width: 140, height: 140)
                     .blur(radius: 24)
-                Image("AppLogo")
-                    .resizable().scaledToFit()
-                    .frame(width: 110, height: 110)
-                    .clipShape(RoundedRectangle(cornerRadius: 24))
+                AgilLogoMark(assetName: logoAsset, size: 110, cornerRadius: 24)
                     .shadow(color: .black.opacity(0.25), radius: 10, y: 6)
             }
             .scaleEffect(logoShown ? 1 : 0.5)

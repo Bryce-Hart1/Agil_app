@@ -64,6 +64,7 @@ struct EditProfileCardView: View {
                     ProfileShowcaseCard(
                         name: store.profile.resolvedName,
                         style: CardStyle.style(for: store.profile.cardStyleID),
+                        logoAsset: ThemeIcon.logoAsset(for: theme.current),
                         unlockedIDs: store.unlockedAchievementIDs,
                         pinnedIDs: store.profile.showcasedAchievementIDs,
                         memberSince: stats.memberSince,

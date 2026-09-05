@@ -142,6 +142,8 @@ struct RootTabView: View {
                 PerformanceCardView(
                     summary: summary,
                     style: CardStyle.style(for: store.profile.cardStyleID),
+                    // CLAUDE  Date 09/03/2026 — the mark wears the equipped theme, like the icon.
+                    logoAsset: ThemeIcon.logoAsset(for: theme.current),
                     onDismiss: { store.dismissWorkoutSummary() }
                 )
                 .id(summary.id)
@@ -297,10 +299,20 @@ struct RootTabView: View {
         .onChange(of: theme.current.fontDesignRaw) { _ in
             ChromeFontAppearance.apply(theme.current.fontDesign)
         }
+        // CLAUDE  Date 09/03/2026
+        // Equipping a theme equips its home-screen icon too (AppIconManager). Here rather
+        // than in ThemeManager.select so ThemeManager stays UIKit-free, like the font
+        // chrome above. Launch/foreground is handled in scenePhase .active below.
+        .onChange(of: theme.selectedID) { _ in AppIconManager.apply(theme.current) }
         .onChange(of: scenePhase) { phase in
             switch phase {
             case .active:
                 cardSync.sync(from: store)
+                // CLAUDE  Date 09/03/2026
+                // Catch the icon up to the equipped theme. No-ops when it already matches,
+                // which is the common case — without that guard iOS would show its "You
+                // have changed the icon" alert on every foreground.
+                AppIconManager.apply(theme.current)
                 // Claude  Date 08/23/2026
                 // First open of a new day pays the +20 check-in bonus. No-ops on every
                 // other foreground. The wallet picks the coins up through the

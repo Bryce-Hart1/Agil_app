@@ -25,7 +25,8 @@ struct ThemeSettingsView: View {
             } header: {
                 Text("Your Themes")
             } footer: {
-                Text("Unlock more themes in the Shop (Profile → Shop).")
+                // CLAUDE  Date 09/03/2026 — say that the icon comes with the theme.
+                Text("Each theme brings its own app icon. Unlock more themes in the Shop (Profile → Shop).")
             }
         }
         .navigationTitle("Theme")
@@ -42,13 +43,18 @@ private struct ThemeRow: View {
     var body: some View {
         Button(action: onSelect) {
             HStack(spacing: 12) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(theme.background)
-                    Circle().fill(theme.accent).frame(width: 16, height: 16)
-                }
-                .frame(width: 34, height: 34)
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(.quaternary))
+                // CLAUDE  Date 09/03/2026
+                // The theme's app icon, not an abstract colour swatch — a theme now carries
+                // its icon too, and this is the row you equip it from. The accent dot stays
+                // as a small overlay so the palette is still readable at a glance.
+                AgilLogoMark(theme: theme, size: 34, cornerRadius: 8)
+                    .overlay(alignment: .bottomTrailing) {
+                        Circle()
+                            .fill(theme.accent)
+                            .frame(width: 12, height: 12)
+                            .overlay(Circle().stroke(.background, lineWidth: 1.5))
+                            .offset(x: 3, y: 3)
+                    }
 
                 Text(theme.name).foregroundStyle(.primary)
                 Spacer()

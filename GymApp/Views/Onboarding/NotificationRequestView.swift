@@ -60,7 +60,7 @@ struct NotificationRequestView: View {
                               "Your rest timer buzzes even when your phone is locked or in your pocket.",
                               accent: accent)
                     AskBullet("figure.strengthtraining.traditional",
-                              "A nudge if you walk away mid-workout, so your session time stays accurate.",
+                              "A nudge if you walk away mid workout, so your session time stays accurate.",
                               accent: accent)
                     AskBullet("hand.raised.fill",
                               "That's it. No marketing, no daily pestering, nothing you didn't start.",
@@ -102,7 +102,7 @@ struct NotificationRequestView: View {
             // only route. Saying so is better than a button that does nothing.
             return "Notifications are off for Agil. iOS only asks once, so this one has to be flipped in Settings."
         case .authorized, .provisional, .ephemeral:
-            return "Notifications are already on — you're all set."
+            return "Notifications are already on. You're all set."
         default:
             return "We'll only use them for your workout. Promise."
         }

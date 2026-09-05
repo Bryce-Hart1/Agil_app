@@ -30,6 +30,7 @@ struct ProfileView: View {
                         ProfileShowcaseCard(
                             name: store.profile.resolvedName,
                             style: CardStyle.style(for: store.profile.cardStyleID),
+                            logoAsset: ThemeIcon.logoAsset(for: theme.current),
                             unlockedIDs: store.unlockedAchievementIDs,
                             pinnedIDs: store.profile.showcasedAchievementIDs,
                             memberSince: stats.memberSince,
@@ -359,6 +360,11 @@ struct ProfileCardEditActions {
 struct ProfileShowcaseCard: View {
     let name: String
     let style: CardStyle
+    // CLAUDE  Date 09/03/2026
+    // The equipped theme's logo asset (see ThemeIcon). Passed in, not read from
+    // ThemeManager, because this card is rendered in three places — including a friend's
+    // card — and it has no environment object of its own.
+    var logoAsset: String = ThemeIcon.classicLogoAsset
     let unlockedIDs: Set<String>
     let pinnedIDs: [String]
     let memberSince: Date?
@@ -596,10 +602,7 @@ struct ProfileShowcaseCard: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            Image("AppLogo")
-                .resizable().scaledToFit()
-                .frame(width: 28, height: 28)
-                .clipShape(RoundedRectangle(cornerRadius: 7))
+            AgilLogoMark(assetName: logoAsset, size: 28, cornerRadius: 7)
             Text("AGIL")
                 .font(.caption.bold()).tracking(3)
                 .foregroundStyle(.white.opacity(0.85))

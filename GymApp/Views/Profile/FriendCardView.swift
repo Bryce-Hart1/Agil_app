@@ -10,11 +10,16 @@ import SwiftUI
 // friends manager in FriendsView; this card renderer is now used by that screen.)
 struct FriendCardView: View {
     let card: SharedCard
+    // CLAUDE  Date 09/03/2026
+    // The AGIL mark on a friend's card is the VIEWER's themed logo, not theirs — the theme
+    // is what the local user owns, and SharedCard carries no theme.
+    @EnvironmentObject private var theme: ThemeManager
 
     var body: some View {
         ProfileShowcaseCard(
             name: card.displayName,
             style: CardStyle.style(for: card.cardStyleID),
+            logoAsset: ThemeIcon.logoAsset(for: theme.current),
             unlockedIDs: Set(card.showcasedAchievementIDs),
             pinnedIDs: card.showcasedAchievementIDs,
             memberSince: card.memberSince,

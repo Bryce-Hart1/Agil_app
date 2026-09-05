@@ -623,11 +623,16 @@ private enum PersonalRecordSort: String, CaseIterable, Identifiable {
 
     var id: Self { self }
 
+    // CLAUDE  Date 09/04/2026
+    // Kept deliberately short — these render inside a caption-sized capsule button that
+    // shares one row with the record count, so a long title ("Times completed") wrapped
+    // to two lines and threw off both the button and the menu row heights. "Most
+    // sessions" also matches the wording on each card ("N completed sessions").
     var title: String {
         switch self {
-        case .newest: return "Newest first"
+        case .newest: return "Newest"
         case .heaviest: return "Heaviest"
-        case .mostCompleted: return "Times completed"
+        case .mostCompleted: return "Most sessions"
         }
     }
 
@@ -730,7 +735,9 @@ private struct AllPersonalRecordsView: View {
                 LazyVStack(spacing: 12) {
                     HStack {
                         Text("\(sortedRecords.count) all-time best\(sortedRecords.count == 1 ? "" : "s")")
-                        Spacer()
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                        Spacer(minLength: 8)
                         Menu {
                             Picker("Sort records", selection: $sort) {
                                 ForEach(PersonalRecordSort.allCases) { option in
@@ -739,11 +746,17 @@ private struct AllPersonalRecordsView: View {
                                 }
                             }
                         } label: {
+                            // CLAUDE  Date 09/04/2026
+                            // One line, sized to its own content: the label must never
+                            // wrap, and the count text to its left yields width first
+                            // (it truncates/scales) rather than squeezing this capsule.
                             HStack(spacing: 5) {
                                 Label(sort.title, systemImage: sort.systemImage)
                                 Image(systemName: "chevron.down")
                                     .font(.system(size: 9, weight: .bold))
                             }
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
                             .foregroundStyle(theme.current.accent)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 5)
