@@ -21,8 +21,9 @@ enum TourTarget: String, Hashable {
     case modeNotch
     case newBlankWorkout, newFromPreset                   // Workouts nav bar
     case profileAchievements, profileSettings             // Profile nav bar
-    case tabWorkouts, tabBuild, tabProgress, tabProfile   // lifting world
+    case tabWorkouts, tabBuild                            // lifting world
     case tabJournal                                       // nutrition world
+    case tabProgress, tabProfile                          // shared position in both
     case profileCard
 
     // Claude  Date 07/14/2026 last changed: 07/21/2026 by: Claude
@@ -76,10 +77,9 @@ enum TourTarget: String, Hashable {
             return nil
         case .tabWorkouts: return mode == .lifting ? tabRect(index: 0, of: 4) : nil
         case .tabBuild:    return mode == .lifting ? tabRect(index: 1, of: 4) : nil
-        case .tabProgress: return mode == .lifting ? tabRect(index: 2, of: 4) : nil
-        case .tabProfile:
-            return mode == .lifting ? tabRect(index: 3, of: 4) : tabRect(index: 2, of: 3)
-        case .tabJournal:  return mode == .nutrition ? tabRect(index: 0, of: 3) : nil
+        case .tabProgress: return tabRect(index: 2, of: 4)
+        case .tabProfile:  return tabRect(index: 3, of: 4)
+        case .tabJournal:  return mode == .nutrition ? tabRect(index: 0, of: 4) : nil
         case .profileCard:
             // In-content target: no synthesized fallback — it must come from the
             // anchor preference (the overlay shows a centered card if it's missing).

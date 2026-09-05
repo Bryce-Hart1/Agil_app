@@ -20,10 +20,11 @@ struct RootTabView: View {
     // Destination for a tapped notification, published by AppDelegate.
     @EnvironmentObject private var router: NotificationRouter
     @Environment(\.scenePhase) private var scenePhase
-    // Claude  Date 06/16/2026 last changed: 07/13/2026 by: Claude
-    // Selected tab. Tabs are tagged from 1 (the old tag-0 switcher placeholder is
-    // gone — the ModeNotch pill at the top switches worlds now).
-    @State private var selection = 1
+    // Bryce Hart  Date 09/05/2026
+    // One persisted tab position is shared by both worlds. Because both tab sets use
+    // matching positional tags, flipping Food ↔ Workouts now keeps you in the same
+    // slot (Foods ↔ Build, Progress ↔ Progress, and so on) across switches and relaunches.
+    @AppStorage("selectedTabPosition") private var selection = 1
     // Claude  Date 07/27/2026
     // Frames reported by tour targets that can't carry a preference anchor — today
     // just the ModeNotch, hosted in a UIKit nav bar. Owned here and injected into
@@ -35,11 +36,6 @@ struct RootTabView: View {
     // where you left off. Flipped by switchMode(to:), driven by the ModeNotch pill.
     @AppStorage("appMode") private var modeRaw = AppMode.lifting.rawValue
     private var mode: AppMode { AppMode(rawValue: modeRaw) ?? .lifting }
-    // Claude  Date 07/13/2026
-    // Each world remembers its last-selected tab across switches (and relaunches).
-    @AppStorage("liftingTab") private var liftingTab = 1
-    @AppStorage("nutritionTab") private var nutritionTab = 1
-
     // Claude  Date 09/02/2026
     // Heartbeat for the idle auto-finish (store.autoFinishStaleWorkouts). The launch and
     // foreground checks below can't catch a workout forgotten while the app just sits on
@@ -427,8 +423,9 @@ struct RootTabView: View {
                     .agilTab(.liftingProfile)
             } else {
                 // Claude  Date 06/16/2026 Edited 6/16/26 Bryce Hart last changed: 07/21/2026 by: Claude
-                // Nutrition world: per-day food Journal, the food library, and the
-                // shared profile. Goals are reached from the Journal's toolbar.
+                // Nutrition world: per-day food Journal, the food library, food
+                // progress, and the shared profile. Goals are reached from the
+                // Journal's toolbar.
                 // (Icons: custom template assets "notepad"/"orange", replacing
                 // fork.knife/carrot.)
                 NutritionJournalView()
@@ -437,6 +434,12 @@ struct RootTabView: View {
                 FoodLibraryView()
                     .agilTab(.foods)
 
+                // Bryce Hart  Date 09/05/2026
+                // Progress occupies slot 3 in both worlds. Food gets its own page so
+                // nutrition-specific tracking can grow without mixing workout charts.
+                NutritionProgressDashboardView()
+                    .agilTab(.progress)
+
                 // Claude  Date 07/13/2026
                 // Icon: custom template asset "user-circle-dashed" (was
                 // person.crop.circle). Shared by both worlds' Profile tab.
@@ -444,46 +447,26 @@ struct RootTabView: View {
                     .agilTab(.nutritionProfile)
             }
         }
-        // Claude  Date 07/13/2026
-        // World flips come from the ModeNotch pill (mounted in each root screen's
-        // nav bar), which writes the shared "appMode" key. React here: bank the
-        // outgoing world's tab and restore the incoming world's last-selected one.
-        // With only two modes, the outgoing mode is always the new one's toggle.
-        .onChange(of: modeRaw) { newRaw in
-            let next = AppMode(rawValue: newRaw) ?? .lifting
-            if next == .lifting {
-                nutritionTab = selection
-                selection = liftingTab
-            } else {
-                liftingTab = selection
-                selection = nutritionTab
-            }
-        }
     }
 
-    // Claude  Date 06/16/2026 last changed: 07/13/2026 by: Claude
+    // Claude  Date 06/16/2026 last changed: 09/05/2026 by: Bryce Hart
     // Jump back into the active workout from the mini-bar: switch to Lifting mode +
     // the Workouts tab, then hand the id to WorkoutsListView (it pushes the editor).
-    // When flipping from Food, pre-set liftingTab so the onChange(of: modeRaw)
-    // restore lands on Workouts regardless of ordering with `selection = 1` here.
     private func openActiveWorkout() {
         guard let id = store.activeWorkout?.id else { return }
         if mode != .lifting {
-            liftingTab = 1
             modeRaw = AppMode.lifting.rawValue
         }
         selection = 1
         session.requestedWorkoutID = id
     }
 
-    // Claude  Date 09/03/2026
+    // Claude  Date 09/03/2026 last changed: 09/05/2026 by: Bryce Hart
     // Landing spot for a tapped supplement reminder: the Nutrition world's Journal,
-    // where the checklist is actually ticked off. nutritionTab is pre-set for the same
-    // reason openActiveWorkout pre-sets liftingTab — the onChange(of: modeRaw) restore
-    // would otherwise drop us on whatever nutrition tab was last used.
+    // where the checklist is actually ticked off. This intentional deep link overrides
+    // the shared position that an ordinary mode flip preserves.
     private func openSupplements() {
         if mode != .nutrition {
-            nutritionTab = AgilTabItem.journal.tag
             modeRaw = AppMode.nutrition.rawValue
         }
         selection = AgilTabItem.journal.tag
@@ -506,20 +489,14 @@ struct RootTabView: View {
         #endif
     }
 
-    // Claude  Date 07/14/2026
-    // Put the app in the state a tour step needs before its spotlight lands. Uses
-    // the same ordering trick as openActiveWorkout: when flipping worlds, pre-set
-    // the destination world's remembered tab so the onChange(of: modeRaw) restore
-    // lands exactly where the step points.
+    // Claude  Date 07/14/2026 last changed: 09/05/2026 by: Bryce Hart
+    // Put the app in the world and tab position each spotlight needs. Tour navigation
+    // is explicit, so it is allowed to replace the shared position rather than preserve it.
     private func applyTourStep(_ tourStep: TourStep) {
         if tourStep.mode != mode {
-            if tourStep.mode == .lifting {
-                liftingTab = tourStep.tab ?? liftingTab
-            } else {
-                nutritionTab = tourStep.tab ?? nutritionTab
-            }
             modeRaw = tourStep.mode.rawValue
-        } else if let tab = tourStep.tab {
+        }
+        if let tab = tourStep.tab {
             selection = tab
         }
     }

@@ -69,8 +69,8 @@ extension AgilTabItem.Icon {
 }
 
 // Claude  Date 07/21/2026
-// The two worlds' tab sets. Tags match the `.tag(_:)` values in RootTabView (and
-// the persisted liftingTab / nutritionTab), so they start at 1 in both worlds.
+// The two worlds' tab sets. Tags match the `.tag(_:)` values and shared persisted
+// position in RootTabView, so the same tag means the same slot in either world.
 extension AgilTabItem {
     static let workouts = AgilTabItem(tag: 1, title: "Workouts",
                                       icon: .system("dumbbell"), tour: .tabWorkouts)
@@ -85,18 +85,19 @@ extension AgilTabItem {
                                      icon: .asset("notepad"), tour: .tabJournal)
     static let foods = AgilTabItem(tag: 2, title: "Foods",
                                    icon: .asset("orange"), tour: nil)
-    static let nutritionProfile = AgilTabItem(tag: 3, title: "Profile",
+    static let nutritionProfile = AgilTabItem(tag: 4, title: "Profile",
                                               icon: .asset("user-circle-dashed"), tour: .tabProfile)
 
     static func items(for mode: AppMode) -> [AgilTabItem] {
         switch mode {
         case .lifting:   return [.workouts, .build, .progress, .liftingProfile]
-        case .nutrition: return [.journal, .foods, .nutritionProfile]
+        case .nutrition: return [.journal, .foods, .progress, .nutritionProfile]
         }
     }
 
     // Claude  Date 07/24/2026
-    // Which tag the Profile tab has in a given world (4 lifting, 3 nutrition).
+    // Which tag the Profile tab has in a given world. Both worlds keep Progress in
+    // slot 3 and Profile in slot 4, so switching modes preserves their position.
     // Exists so the unopened-achievements count can be addressed to "the Profile
     // tab" without RootTabView hardcoding a number that moves whenever a tab is
     // added to either set.

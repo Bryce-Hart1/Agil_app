@@ -1,50 +1,6 @@
 import SwiftUI
 import Charts
 
-// Bryce Hart  Date 09/02/2026
-// The range selected from the Progress tab's leading calendar menu. Day counts are
-// rolling windows so every option has a same-length preceding window for the recap;
-// all time intentionally has no comparison period.
-private enum ProgressTimeRange: String, CaseIterable, Identifiable {
-    case thirtyDays
-    case threeMonths
-    case sixMonths
-    case oneYear
-    case allTime
-
-    var id: Self { self }
-
-    var title: String {
-        switch self {
-        case .thirtyDays: return "Last 30 Days"
-        case .threeMonths: return "Last 3 Months"
-        case .sixMonths: return "Last 6 Months"
-        case .oneYear: return "Last Year"
-        case .allTime: return "All Time"
-        }
-    }
-
-    var recapTitle: String {
-        switch self {
-        case .thirtyDays: return "Last 30 days"
-        case .threeMonths: return "Last 3 months"
-        case .sixMonths: return "Last 6 months"
-        case .oneYear: return "Last year"
-        case .allTime: return "All time"
-        }
-    }
-
-    var days: Int? {
-        switch self {
-        case .thirtyDays: return 30
-        case .threeMonths: return 90
-        case .sixMonths: return 180
-        case .oneYear: return 365
-        case .allTime: return nil
-        }
-    }
-}
-
 private enum ProgressFrequencyInterval {
     case week
     case month
@@ -93,6 +49,11 @@ struct ProgressDashboardView: View {
     // Keep the user's dashboard scope across launches. AppStorage persists the enum's
     // raw string while preserving Last 30 Days as the default for existing installs.
     @AppStorage("progressTimeRange") private var selectedRange: ProgressTimeRange = .thirtyDays
+    // Bryce Hart  Date 09/05/2026
+    // A compact id list written by ProgressCustomizationView. Separate keys per world
+    // let the two Progress pages be personalized independently.
+    @AppStorage("liftingProgressWidgetLayoutV1") private var storedWidgetLayout =
+        ProgressCustomizationMode.lifting.defaultStorageValue
     // Claude  Date 08/16/2026
     // Held in state rather than computed: building the recap summarizes every finished
     // session in the window against the ledger, so it must not re-run on each `body`
@@ -107,50 +68,41 @@ struct ProgressDashboardView: View {
     var body: some View {
         NavigationStack {
             List {
-                if completedWorkouts.isEmpty {
-                    Text("Log some workouts to see your progress here.")
-                        .foregroundStyle(.secondary)
-                } else if filteredWorkouts.isEmpty {
-                    Text("No completed workouts in \(selectedRange.title.lowercased()).")
-                        .foregroundStyle(.secondary)
-                } else {
-                    recapSection
-                    summarySection
-                    oneRepMaxSection
-                    frequencySection
-                    muscleGroupSection
-                    personalRecordsSection
+                progressTitleSection
+                ForEach(selectedWidgets) { widget in
+                    dashboardWidget(widget)
                 }
+                emptyProgressMessage
+                editProgressSection
             }
-            .navigationTitle("Progress")
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
             .themed(theme.current)
             // Claude  Date 07/13/2026
             // Centered mode-switcher pill in the nav bar (shared by all root tabs).
             .modeNotchToolbar(tab: AgilTabItem.progress.tag)
-            // Bryce Hart  Date 09/02/2026
-            // A scope control on the left and a destination on the right match the
-            // other root tabs while keeping both labels the same fixed width so the
-            // ModeNotch remains centered. SF Symbols are temporary until the custom
-            // Progress SVGs are ready.
+            // Bryce Hart  Date 09/05/2026
+            // Edit replaces the old leading calendar icon. The readable time-range
+            // control now lives beside the large Progress title instead of competing
+            // with the centered ModeNotch in this compact toolbar row.
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Menu {
-                        Picker("Time range", selection: $selectedRange) {
-                            ForEach(ProgressTimeRange.allCases) { range in
-                                Text(range.title).tag(range)
-                            }
-                        }
+                    NavigationLink {
+                        ProgressCustomizationView(mode: .lifting)
                     } label: {
-                        toolbarIcon("calendar")
+                        Image(systemName: "pencil")
+                            .font(.system(size: 17, weight: .semibold))
+                            .frame(width: 22, height: 22)
                     }
-                    .accessibilityLabel("Progress time range")
-                    .accessibilityValue(selectedRange.title)
+                    .accessibilityLabel("Edit Progress")
                 }
                 ToolbarItem(placement: .primaryAction) {
                     NavigationLink {
                         AllPersonalRecordsView(records: allPersonalRecords)
                     } label: {
-                        toolbarIcon("trophy")
+                        Image(systemName: "trophy")
+                            .font(.system(size: 19))
+                            .frame(width: 22, height: 22)
                     }
                     .accessibilityLabel("Personal records")
                 }
@@ -186,13 +138,81 @@ struct ProgressDashboardView: View {
         selectedExerciseID = oneRepMaxExercises.first?.id
     }
 
-    private func toolbarIcon(_ systemName: String) -> some View {
-        Image(systemName: systemName)
-            .font(.system(size: 19))
-            .frame(width: 22, height: 22)
+    // MARK: - Sections
+
+    private var selectedWidgets: [ProgressWidgetKind] {
+        ProgressWidgetLayout.widgets(from: storedWidgetLayout, mode: .lifting)
     }
 
-    // MARK: - Sections
+    // The title and range now share one row: Progress stays hard-left while the full
+    // text selector sits hard-right. The former calendar toolbar slot is free for Edit.
+    private var progressTitleSection: some View {
+        Section {
+            ProgressPageHeader(selectedRange: $selectedRange,
+                               accent: theme.current.accent)
+            .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 2, trailing: 16))
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+        }
+    }
+
+    @ViewBuilder
+    private func dashboardWidget(_ widget: ProgressWidgetKind) -> some View {
+        switch widget {
+        case .workoutActivity:
+            activitySection
+        case .recap:
+            if !filteredWorkouts.isEmpty { recapSection }
+        case .summary:
+            if !filteredWorkouts.isEmpty { summarySection }
+        case .oneRepMax:
+            if !filteredWorkouts.isEmpty { oneRepMaxSection }
+        case .frequency:
+            if !filteredWorkouts.isEmpty { frequencySection }
+        case .muscleGroups:
+            if !filteredWorkouts.isEmpty { muscleGroupSection }
+        case .personalRecords:
+            if !filteredWorkouts.isEmpty { personalRecordsSection }
+        case .foodActivity:
+            EmptyView()
+        }
+    }
+
+    @ViewBuilder
+    private var emptyProgressMessage: some View {
+        if completedWorkouts.isEmpty {
+            Text("Log some workouts to see your progress here.")
+                .foregroundStyle(.secondary)
+        } else if filteredWorkouts.isEmpty {
+            Text("No completed workouts in \(selectedRange.title.lowercased()).")
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var editProgressSection: some View {
+        Section {
+            NavigationLink {
+                ProgressCustomizationView(mode: .lifting)
+            } label: {
+                Label("Edit Progress", systemImage: "slider.horizontal.3")
+                    .foregroundStyle(theme.current.accent)
+            }
+        }
+    }
+
+    // Bryce Hart  Date 09/05/2026
+    // Always stays at the top of Progress, including the empty state, so the grid is
+    // both an immediate activity check and an invitation to fill today's square.
+    private var activitySection: some View {
+        Section {
+            WorkoutActivityBar(workouts: store.workouts,
+                               days: selectedRange.days,
+                               surface: theme.current.surface,
+                               accent: theme.current.accent)
+                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                .listRowBackground(Color.clear)
+        }
+    }
 
     // Claude  Date 08/16/2026
     // The rolling 30-day recap, above the lifetime stat cards: what changed recently is
@@ -290,11 +310,12 @@ struct ProgressDashboardView: View {
                 ForEach(personalRecords.prefix(5)) { pr in
                     PRRow(record: pr)
                 }
-                if personalRecords.count > 5 {
-                    NavigationLink("See all") {
-                        AllPersonalRecordsView(records: personalRecords)
-                            .themed(theme.current)
-                    }
+                NavigationLink("See all") {
+                    // The old top-right trophy opened the all-time record book. Keep
+                    // that destination available here now that the range selector owns
+                    // the far-right side of the Progress title row.
+                    AllPersonalRecordsView(records: allPersonalRecords)
+                        .themed(theme.current)
                 }
             }
         }

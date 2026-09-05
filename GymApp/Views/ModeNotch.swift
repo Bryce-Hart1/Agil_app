@@ -50,9 +50,9 @@ struct ModeNotch: View {
     @EnvironmentObject private var theme: ThemeManager
     @Environment(\.activeTabTag) private var activeTabTag
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    // Claude  Date 07/13/2026
-    // Same persisted key RootTabView reads — flipping it here swaps the whole
-    // tab set there (and its onChange restores that world's last-selected tab).
+    // Claude  Date 07/13/2026 last changed: 09/05/2026 by: Bryce Hart
+    // Same persisted key RootTabView reads. Flipping it swaps the tab set while
+    // RootTabView's shared selection keeps the user in the matching tab position.
     @AppStorage("appMode") private var modeRaw = AppMode.lifting.rawValue
     private var mode: AppMode { AppMode(rawValue: modeRaw) ?? .lifting }
 
