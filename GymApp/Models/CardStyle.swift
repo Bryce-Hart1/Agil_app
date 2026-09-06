@@ -164,6 +164,30 @@ struct CardStyle: Identifiable, Hashable {
         return false
     }
 
+    // Claude  Date 06/12/2026 last changed: 09/05/2026 by: CLAUDE
+    // A representative colour for the card's drop shadow: the card colour, a gradient's
+    // start, an animated card's accent, or black for image cards. (09/05: moved here off
+    // ProfileShowcaseCard, where it was private, so both card faces share one definition.)
+    var shadowColor: Color {
+        switch background {
+        case .color(let hex):        return Color(hex: hex)
+        case .gradient(let from, _): return Color(hex: from)
+        case .animated(let kind):    return kind.accent
+        case .image:                 return .black
+        // Outline cards glow in their border colour — the fill is black, which
+        // would give no shadow at all.
+        case .outlined(_, let stroke): return Color(hex: stroke)
+        }
+    }
+
+    // Claude  Date 09/05/2026
+    // True for the TimelineView/Canvas-driven styles. The card flip uses this to opt
+    // out of the 3D transform for them if their .drawingGroup() layers misbehave.
+    var isAnimated: Bool {
+        if case .animated = background { return true }
+        return false
+    }
+
     // Claude  Date 07/23/2026
     // Cards that are only ever obtained by being granted (never sold in the Shop and
     // never free just because their price is 0): the Founders Edition cards and the

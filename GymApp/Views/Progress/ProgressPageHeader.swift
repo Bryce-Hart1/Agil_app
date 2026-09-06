@@ -51,22 +51,24 @@ struct ProgressPageHeader: View {
     let accent: Color
 
     var body: some View {
-        HStack(alignment: .center, spacing: 10) {
-            HStack(spacing: 9) {
+        HStack(alignment: .center, spacing: 8) {
+            HStack(spacing: 7) {
                 Image(systemName: "chart.line.uptrend.xyaxis")
-                    .font(.system(size: 14, weight: .bold))
+                    .font(.system(size: 13, weight: .bold))
                     .foregroundStyle(accent)
-                    .frame(width: 30, height: 30)
-                    .background(accent.opacity(0.13), in: RoundedRectangle(cornerRadius: 9))
+                    .frame(width: 28, height: 28)
+                    .background(accent.opacity(0.13), in: RoundedRectangle(cornerRadius: 8))
 
                 Text("Progress")
-                    .font(.title.weight(.bold))
+                    // A fixed compact title is more reliable than asking the large
+                    // title to scale after the range capsule claims its width.
+                    .font(.system(size: 23, weight: .bold))
                     .foregroundStyle(
                         LinearGradient(colors: [Color.primary, accent],
                                        startPoint: .leading, endPoint: .trailing)
                     )
                     .lineLimit(1)
-                    .minimumScaleFactor(0.82)
+                    .minimumScaleFactor(0.72)
                     .allowsTightening(true)
             }
             .layoutPriority(1)
@@ -89,7 +91,7 @@ struct ProgressPageHeader: View {
                 .foregroundStyle(accent)
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
-                .padding(.horizontal, 9)
+                .padding(.horizontal, 8)
                 .padding(.vertical, 7)
                 .background(accent.opacity(0.11), in: Capsule())
                 .overlay(Capsule().stroke(accent.opacity(0.24), lineWidth: 0.5))
@@ -99,4 +101,3 @@ struct ProgressPageHeader: View {
         }
     }
 }
-

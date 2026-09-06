@@ -59,6 +59,14 @@ struct UserProfile: Codable, Hashable {
     // a workout (empty or from a preset). Drives the First Step badge. Sticky once
     // set; see AppStore.markFirstStep.
     var tookFirstStep: Bool
+    // CLAUDE  Date 09/05/2026
+    // The card's BACK face. cardBackStyleID nil means "Match front" — the back tracks
+    // whatever the front is set to, rather than a copied id that would strand the back
+    // on a stale style. The stat ids are ordered CardStat raw values (hero is separate,
+    // and may repeat in neither list); unknown ids are dropped at render, not decode.
+    var cardBackStyleID: String?
+    var cardBackHeroStat: String?
+    var cardBackStatIDs: [String]
 
     init(displayName: String = "", hasOnboarded: Bool = false,
          cardStyleID: String = CardStyle.defaultStyle.id,
@@ -66,7 +74,9 @@ struct UserProfile: Codable, Hashable {
          showcasedAchievementIDs: [String] = [],
          gender: Gender = .unspecified, hasSeenTour: Bool = false,
          nutritionSetup: NutritionSetup = NutritionSetup(),
-         tookFirstStep: Bool = false) {
+         tookFirstStep: Bool = false,
+         cardBackStyleID: String? = nil, cardBackHeroStat: String? = nil,
+         cardBackStatIDs: [String] = []) {
         self.displayName = displayName
         self.hasOnboarded = hasOnboarded
         self.cardStyleID = cardStyleID
@@ -76,6 +86,9 @@ struct UserProfile: Codable, Hashable {
         self.hasSeenTour = hasSeenTour
         self.nutritionSetup = nutritionSetup
         self.tookFirstStep = tookFirstStep
+        self.cardBackStyleID = cardBackStyleID
+        self.cardBackHeroStat = cardBackHeroStat
+        self.cardBackStatIDs = cardBackStatIDs
     }
 
     // Claude  Date 06/12/2026 last changed: 06/13/2026 by: Claude
@@ -88,7 +101,8 @@ struct UserProfile: Codable, Hashable {
     // stay in older files on disk and are simply ignored — unknown keys never fail a decode.)
     enum CodingKeys: String, CodingKey {
         case displayName, hasOnboarded, cardStyleID, dataMode, showcasedAchievementIDs,
-             gender, hasSeenTour, nutritionSetup, tookFirstStep
+             gender, hasSeenTour, nutritionSetup, tookFirstStep,
+             cardBackStyleID, cardBackHeroStat, cardBackStatIDs
     }
     private enum LegacyKeys: String, CodingKey { case cardColorHex }
     init(from decoder: Decoder) throws {
@@ -107,6 +121,11 @@ struct UserProfile: Codable, Hashable {
         // Claude  Date 07/27/2026 — new field; a profile saved before it existed
         // starts false and re-earns First Step the next time it starts a workout.
         tookFirstStep = try c.decodeIfPresent(Bool.self, forKey: .tookFirstStep) ?? false
+        // CLAUDE  Date 09/05/2026 — new fields; a profile saved before the card back
+        // existed gets a back that matches the front and carries no stats yet.
+        cardBackStyleID = try c.decodeIfPresent(String.self, forKey: .cardBackStyleID)
+        cardBackHeroStat = try c.decodeIfPresent(String.self, forKey: .cardBackHeroStat)
+        cardBackStatIDs = try c.decodeIfPresent([String].self, forKey: .cardBackStatIDs) ?? []
         if let id = try c.decodeIfPresent(String.self, forKey: .cardStyleID) {
             cardStyleID = id
         } else {

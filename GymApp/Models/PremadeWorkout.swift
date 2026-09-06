@@ -29,7 +29,7 @@ struct PremadeExercise {
     var note: String? = nil
     // Claude  Date 07/25/2026
     // Metadata used ONLY when `name` matches neither the user's library nor the seed
-    // list — it lets the catalog introduce lifts beyond the 45 shipped ones. Its `id`
+    // list — it lets the catalog introduce lifts beyond the 55 shipped ones. Its `id`
     // is ignored; installPremade mints a fresh one. nil for every seed-library lift,
     // which is the common case.
     var fallback: Exercise? = nil
@@ -81,7 +81,7 @@ enum PremadeWorkouts {
             symbolName: "figure.strengthtraining.traditional",
             subtitle: "Chest, shoulders, triceps",
             items: [
-                PremadeExercise("Flat Barbell Bench Press", sets: 4, reps: RepRange(min: 6, max: 8), rest: 180),
+                PremadeExercise("Barbell Bench Press", sets: 4, reps: RepRange(min: 6, max: 8), rest: 180),
                 PremadeExercise("Incline Barbell Press", sets: 3, reps: RepRange(min: 8, max: 10), rest: 150),
                 PremadeExercise("Overhead Press", sets: 3, reps: RepRange(min: 8, max: 10), rest: 150),
                 PremadeExercise("Cable Lateral Raise", sets: 3, reps: RepRange(min: 12, max: 15), rest: 60),
@@ -96,7 +96,7 @@ enum PremadeWorkouts {
             subtitle: "One session, every major muscle",
             items: [
                 PremadeExercise("Barbell Back Squat", sets: 3, reps: RepRange(min: 5, max: 8), rest: 180),
-                PremadeExercise("Flat Barbell Bench Press", sets: 3, reps: RepRange(min: 6, max: 8), rest: 180),
+                PremadeExercise("Barbell Bench Press", sets: 3, reps: RepRange(min: 6, max: 8), rest: 180),
                 PremadeExercise("Seated Cable Row", sets: 3, reps: RepRange(min: 8, max: 12), rest: 120),
                 PremadeExercise("Romanian Deadlift", sets: 3, reps: RepRange(min: 8, max: 10), rest: 150),
                 PremadeExercise("Dumbbell Lateral Raise", sets: 3, reps: RepRange(min: 12, max: 15), rest: 60),

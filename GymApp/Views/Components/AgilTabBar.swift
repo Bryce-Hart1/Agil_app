@@ -78,20 +78,21 @@ extension AgilTabItem {
                                    icon: .asset("hammer"), tour: .tabBuild)
     static let progress = AgilTabItem(tag: 3, title: "Progress",
                                       icon: .asset("chart-scatter"), tour: .tabProgress)
-    static let liftingProfile = AgilTabItem(tag: 4, title: "Profile",
-                                            icon: .asset("user-circle-dashed"), tour: .tabProfile)
+    // CLAUDE  Date 09/05/2026
+    // ONE Profile item, not one per world. The two were already identical in every
+    // field, and RootTabView now mounts a single shared ProfileView outside the
+    // world conditional so it is never torn down on a mode switch.
+    static let profile = AgilTabItem(tag: 4, title: "Profile",
+                                     icon: .asset("user-circle-dashed"), tour: .tabProfile)
 
     static let journal = AgilTabItem(tag: 1, title: "Journal",
                                      icon: .asset("notepad"), tour: .tabJournal)
     static let foods = AgilTabItem(tag: 2, title: "Foods",
                                    icon: .asset("orange"), tour: nil)
-    static let nutritionProfile = AgilTabItem(tag: 4, title: "Profile",
-                                              icon: .asset("user-circle-dashed"), tour: .tabProfile)
-
     static func items(for mode: AppMode) -> [AgilTabItem] {
         switch mode {
-        case .lifting:   return [.workouts, .build, .progress, .liftingProfile]
-        case .nutrition: return [.journal, .foods, .progress, .nutritionProfile]
+        case .lifting:   return [.workouts, .build, .progress, .profile]
+        case .nutrition: return [.journal, .foods, .progress, .profile]
         }
     }
 
@@ -101,12 +102,7 @@ extension AgilTabItem {
     // Exists so the unopened-achievements count can be addressed to "the Profile
     // tab" without RootTabView hardcoding a number that moves whenever a tab is
     // added to either set.
-    static func profileTag(for mode: AppMode) -> Int {
-        switch mode {
-        case .lifting:   return liftingProfile.tag
-        case .nutrition: return nutritionProfile.tag
-        }
-    }
+    static func profileTag(for mode: AppMode) -> Int { profile.tag }
 }
 
 struct AgilTabBar: View {

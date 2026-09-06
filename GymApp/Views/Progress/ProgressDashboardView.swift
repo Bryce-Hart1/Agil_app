@@ -173,7 +173,9 @@ struct ProgressDashboardView: View {
             if !filteredWorkouts.isEmpty { muscleGroupSection }
         case .personalRecords:
             if !filteredWorkouts.isEmpty { personalRecordsSection }
-        case .foodActivity:
+        case .foodActivity, .proteinIntake, .carbIntake, .fatIntake,
+                .proteinFoods, .carbFoods, .fatFoods, .focusCompletion,
+                .waterIntake:
             EmptyView()
         }
     }

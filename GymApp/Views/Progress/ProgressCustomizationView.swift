@@ -10,7 +10,7 @@ enum ProgressCustomizationMode: Equatable {
     var storageKey: String {
         switch self {
         case .lifting: return "liftingProgressWidgetLayoutV1"
-        case .nutrition: return "nutritionProgressWidgetLayoutV1"
+        case .nutrition: return "nutritionProgressWidgetLayoutV2"
         }
     }
 
@@ -20,7 +20,9 @@ enum ProgressCustomizationMode: Equatable {
             return [.workoutActivity, .recap, .summary, .oneRepMax,
                     .frequency, .muscleGroups, .personalRecords]
         case .nutrition:
-            return [.foodActivity]
+            return [.foodActivity, .proteinIntake, .proteinFoods,
+                    .carbIntake, .carbFoods, .fatIntake, .fatFoods,
+                    .focusCompletion, .waterIntake]
         }
     }
 
@@ -38,6 +40,14 @@ enum ProgressWidgetKind: String, Identifiable, Equatable {
     case muscleGroups
     case personalRecords
     case foodActivity
+    case proteinIntake
+    case carbIntake
+    case fatIntake
+    case proteinFoods
+    case carbFoods
+    case fatFoods
+    case focusCompletion
+    case waterIntake
 
     var id: String { rawValue }
 
@@ -51,6 +61,14 @@ enum ProgressWidgetKind: String, Identifiable, Equatable {
         case .muscleGroups: return "Muscle groups"
         case .personalRecords: return "Personal records"
         case .foodActivity: return "Food activity"
+        case .proteinIntake: return "Daily protein intake"
+        case .carbIntake: return "Daily carb intake"
+        case .fatIntake: return "Daily fat intake"
+        case .proteinFoods: return "Top protein foods"
+        case .carbFoods: return "Top carb foods"
+        case .fatFoods: return "Top fat foods"
+        case .focusCompletion: return "Focus goal completion"
+        case .waterIntake: return "Daily water intake"
         }
     }
 
@@ -64,6 +82,14 @@ enum ProgressWidgetKind: String, Identifiable, Equatable {
         case .muscleGroups: return "Completed set volume across muscle groups."
         case .personalRecords: return "Your most recently achieved best sets."
         case .foodActivity: return "Days tracked or within 200 calories of your goal."
+        case .proteinIntake: return "Protein logged each day compared with your daily goal."
+        case .carbIntake: return "Carbs logged each day compared with your daily goal."
+        case .fatIntake: return "Fat logged each day compared with your daily goal."
+        case .proteinFoods: return "Foods contributing the most protein in the selected range."
+        case .carbFoods: return "Foods contributing the most carbs in the selected range."
+        case .fatFoods: return "Foods contributing the most fat in the selected range."
+        case .focusCompletion: return "The share of your focus goals completed each tracked day."
+        case .waterIntake: return "Water logged each day compared with your daily goal."
         }
     }
 
@@ -76,6 +102,12 @@ enum ProgressWidgetKind: String, Identifiable, Equatable {
         case .frequency: return "chart.bar.fill"
         case .muscleGroups: return "figure.strengthtraining.traditional"
         case .personalRecords: return "trophy.fill"
+        case .proteinIntake: return "chart.bar.fill"
+        case .carbIntake: return "chart.bar.fill"
+        case .fatIntake: return "chart.bar.fill"
+        case .proteinFoods, .carbFoods, .fatFoods: return "fork.knife"
+        case .focusCompletion: return "scope"
+        case .waterIntake: return "drop.fill"
         }
     }
 }
@@ -107,8 +139,9 @@ struct ProgressCustomizationView: View {
     let mode: ProgressCustomizationMode
     @AppStorage("liftingProgressWidgetLayoutV1") private var liftingLayout =
         ProgressCustomizationMode.lifting.defaultStorageValue
-    @AppStorage("nutritionProgressWidgetLayoutV1") private var nutritionLayout =
+    @AppStorage("nutritionProgressWidgetLayoutV2") private var nutritionLayout =
         ProgressCustomizationMode.nutrition.defaultStorageValue
+    @AppStorage(WaterTracking.storageKey) private var trackWater = WaterTracking.defaultValue
 
     private var storedValue: String {
         mode == .lifting ? liftingLayout : nutritionLayout
@@ -116,6 +149,12 @@ struct ProgressCustomizationView: View {
 
     private var selectedWidgets: [ProgressWidgetKind] {
         ProgressWidgetLayout.widgets(from: storedValue, mode: mode)
+    }
+
+    // Water is a dashboard option only while its underlying tracker is enabled. It
+    // stays in the persisted layout so switching water back on restores the chart.
+    private var availableWidgets: [ProgressWidgetKind] {
+        mode.availableWidgets.filter { $0 != .waterIntake || trackWater }
     }
 
     var body: some View {
@@ -127,7 +166,7 @@ struct ProgressCustomizationView: View {
             }
 
             Section("Widget gallery") {
-                ForEach(mode.availableWidgets) { widget in
+                ForEach(availableWidgets) { widget in
                     widgetCard(widget)
                         .listRowInsets(EdgeInsets(top: 8, leading: 16,
                                                  bottom: 8, trailing: 16))
@@ -228,6 +267,22 @@ private struct ProgressWidgetPreview: View {
             musclePreview
         case .personalRecords:
             recordsPreview
+        case .proteinIntake:
+            dailyBarsPreview(color: MacroPalette.protein)
+        case .carbIntake:
+            dailyBarsPreview(color: MacroPalette.carbs)
+        case .fatIntake:
+            dailyBarsPreview(color: MacroPalette.fat)
+        case .proteinFoods:
+            foodContributorsPreview(color: MacroPalette.protein)
+        case .carbFoods:
+            foodContributorsPreview(color: MacroPalette.carbs)
+        case .fatFoods:
+            foodContributorsPreview(color: MacroPalette.fat)
+        case .focusCompletion:
+            dailyBarsPreview(color: accent)
+        case .waterIntake:
+            dailyBarsPreview(color: accent)
         }
     }
 
@@ -314,6 +369,45 @@ private struct ProgressWidgetPreview: View {
                     .fill(accent.opacity(0.82))
                     .frame(maxWidth: .infinity)
                     .frame(height: height)
+            }
+        }
+    }
+
+    private func dailyBarsPreview(color: Color) -> some View {
+        ZStack(alignment: .top) {
+            HStack(alignment: .bottom, spacing: 5) {
+                ForEach([0.42, 0.68, 0.53, 0.90, 0.75, 0.98, 0.61], id: \.self) { fraction in
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(color.gradient)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 54 * fraction)
+                }
+            }
+
+            Rectangle()
+                .fill(color.opacity(0.65))
+                .frame(height: 1)
+                .overlay {
+                    HStack(spacing: 3) {
+                        ForEach(0..<20, id: \.self) { _ in
+                            Rectangle().fill(color.opacity(0.75)).frame(width: 4, height: 1)
+                            Spacer(minLength: 0)
+                        }
+                    }
+                }
+                .offset(y: 12)
+        }
+    }
+
+    private func foodContributorsPreview(color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach([0.94, 0.76, 0.58, 0.41], id: \.self) { fraction in
+                GeometryReader { geometry in
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(color.gradient)
+                        .frame(width: geometry.size.width * fraction, height: 8)
+                }
+                .frame(height: 8)
             }
         }
     }

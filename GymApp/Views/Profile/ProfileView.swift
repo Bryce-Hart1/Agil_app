@@ -40,6 +40,15 @@ struct ProfileView: View {
                             catalog: store.achievementCatalog
                         )
                         .frame(height: max(380, geo.size.height - 32))
+                        // CLAUDE  Date 09/05/2026
+                        // The card here is the front only. Tapping it opens the
+                        // fullscreen showcase (CardInspectOverlay), and inspect mode in
+                        // there is where it turns over — a card in a scrolling list is
+                        // the wrong place for a gesture that fights the scroll.
+                        .contentShape(RoundedRectangle(cornerRadius: 28))
+                        .onTapGesture { store.showsCardInspect = true }
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityHint("Opens your card fullscreen")
                         // Claude  Date 07/14/2026
                         // Spotlight-tour anchor: the one in-content target, reported
                         // via the real preference plumbing (chrome targets use
@@ -408,33 +417,12 @@ struct ProfileShowcaseCard: View {
     // (a fully blank card).
     private var hasFeatured: Bool { !featuredBadges.isEmpty }
 
-    // Claude  Date 06/12/2026 last changed: 06/16/2026 by: Claude
-    // A representative color for the drop shadow: the card color, the animated
-    // card's accent, or black for image cards.
-    private var shadowColor: Color {
-        switch style.background {
-        case .color(let hex):       return Color(hex: hex)
-        case .gradient(let from, _): return Color(hex: from)
-        case .animated(let kind):   return kind.accent
-        case .image:                return .black
-        // Claude  Date 09/02/2026
-        // Outline cards glow in their border colour — the fill is black, which
-        // would give no shadow at all.
-        case .outlined(_, let stroke): return Color(hex: stroke)
-        }
-    }
-
+    // Claude  Date 06/12/2026 last changed: 09/05/2026 by: CLAUDE
+    // (09/05) The padding/background/hairline/shadow moved to CardFaceChrome, and
+    // shadowColor onto CardStyle, so the new back face is the SAME shell rather than a
+    // copy of it that can drift. No visual change.
     var body: some View {
-        content
-            .padding(24)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(CardBackgroundView(background: style.background, cornerRadius: 28))
-            .clipShape(RoundedRectangle(cornerRadius: 28))
-            // Claude  Date 09/02/2026: outline cards draw their own border, so the
-            // generic white hairline is dropped for them (it read as a double edge).
-            .overlay(RoundedRectangle(cornerRadius: 28)
-                .stroke(.white.opacity(style.isOutlined ? 0 : 0.18), lineWidth: 1))
-            .shadow(color: shadowColor.opacity(0.4), radius: 12, y: 6)
+        content.cardFaceChrome(style: style)
     }
 
     // Claude  Date 07/09/2026 last changed: 08/07/2026 by: Claude
@@ -530,19 +518,10 @@ struct ProfileShowcaseCard: View {
         if let action {
             Button(action: action) { content() }
                 .buttonStyle(.plain)
-                .overlay(alignment: alignment) { editChip.padding(-4) }
+                .overlay(alignment: alignment) { CardEditChip().padding(-4) }
         } else {
             content()
         }
-    }
-
-    private var editChip: some View {
-        Image(systemName: "pencil")
-            .font(.system(size: 10, weight: .bold))
-            .foregroundStyle(.white)
-            .padding(5)
-            .background(.black.opacity(0.35), in: Circle())
-            .overlay(Circle().stroke(.white.opacity(0.6), lineWidth: 1))
     }
 
     // Claude  Date 07/22/2026
@@ -600,28 +579,13 @@ struct ProfileShowcaseCard: View {
         .frame(maxWidth: .infinity)
     }
 
+    // Claude  Date 07/22/2026 last changed: 09/05/2026 by: CLAUDE
+    // In edit mode the background has no single element to tap, so the header carries a
+    // palette chip for it (a whole-card tap would fight the inner elements' gestures).
+    // Hidden entirely on read-only cards. (09/05: header markup shared with the back.)
     private var header: some View {
-        HStack(spacing: 8) {
-            AgilLogoMark(assetName: logoAsset, size: 28, cornerRadius: 7)
-            Text("AGIL")
-                .font(.caption.bold()).tracking(3)
-                .foregroundStyle(.white.opacity(0.85))
-            Spacer()
-            // Claude  Date 07/22/2026
-            // In edit mode the background has no single element to tap, so the header
-            // carries a palette chip for it (a whole-card tap would fight the inner
-            // elements' gestures). Hidden entirely on read-only cards.
-            if let edit {
-                Button(action: edit.background) {
-                    Image(systemName: "paintpalette.fill")
-                        .font(.system(size: 20, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .padding(12)
-                        .background(.white.opacity(0.22), in: Circle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Change card style")
-            }
+        CardBrandHeader(logoAsset: logoAsset) {
+            if let edit { CardPaletteChip(action: edit.background) }
         }
     }
 

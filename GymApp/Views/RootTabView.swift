@@ -130,6 +130,18 @@ struct RootTabView: View {
         // Claude  Date 06/15/2026
         // Badge celebrations come first; once they drain, any Strategist rank
         // promotion plays — so you watch the badges pop, then get crowned.
+        // CLAUDE  Date 09/05/2026
+        // The fullscreen card showcase + inspect mode (tap the Profile tab's card). Its
+        // own layer, kept apart from the celebration chain below so neither can hide the
+        // other, and above it so a card being inspected is never covered.
+        .overlay {
+            if store.showsCardInspect {
+                CardInspectOverlay(onDismiss: { store.showsCardInspect = false })
+                    .transition(.opacity)
+                    .zIndex(3)
+            }
+        }
+        .animation(.easeInOut(duration: 0.22), value: store.showsCardInspect)
         .overlay {
             // Claude  Date 06/16/2026
             // On finishing a workout the performance card shows first; once dismissed,
@@ -415,12 +427,6 @@ struct RootTabView: View {
                 // Icon: custom template asset "chart-scatter" (was chart.bar.xaxis).
                 ProgressDashboardView()
                     .agilTab(.progress)
-
-                // Claude  Date 07/13/2026
-                // Icon: custom template asset "user-circle-dashed" (was
-                // person.crop.circle). Shared by both worlds' Profile tab.
-                ProfileView()
-                    .agilTab(.liftingProfile)
             } else {
                 // Claude  Date 06/16/2026 Edited 6/16/26 Bryce Hart last changed: 07/21/2026 by: Claude
                 // Nutrition world: per-day food Journal, the food library, food
@@ -439,13 +445,18 @@ struct RootTabView: View {
                 // nutrition-specific tracking can grow without mixing workout charts.
                 NutritionProgressDashboardView()
                     .agilTab(.progress)
-
-                // Claude  Date 07/13/2026
-                // Icon: custom template asset "user-circle-dashed" (was
-                // person.crop.circle). Shared by both worlds' Profile tab.
-                ProfileView()
-                    .agilTab(.nutritionProfile)
             }
+
+            // CLAUDE  Date 09/05/2026
+            // Profile lives OUTSIDE the world conditional, and is the reason the whole
+            // TabView no longer carries an .id(mode). It used to be listed in both
+            // branches at the same tag, so a mode switch asked SwiftUI to reconcile a
+            // ProfileView into a different ProfileView in the same tab slot — which is
+            // what lost the navigation bar on the way back to lifting. Mounted once, it
+            // is never torn down: switching worlds no longer restarts the animated card
+            // background or re-lays out the bottom bars.
+            ProfileView()
+                .agilTab(.profile)
         }
     }
 

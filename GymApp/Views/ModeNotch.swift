@@ -17,7 +17,7 @@ import SwiftUI
 //   2. Transient MESSAGES briefly replace the pill's standard content: a
 //      once-per-launch "Tap to flip" hint, and after every flip a banner naming
 //      the side you landed on with its headline stat in bold ("243 cal
-//      remaining" / "4 workouts this week").
+//      remaining" / "4 this wk").
 //   3. The daily check-in award moved IN here from the floating
 //      DailyCheckInToast overlay (now deleted): +coins and the week dots play as
 //      a message inside the pill, so the reward reads as part of the app's
@@ -469,6 +469,10 @@ struct ModeNotch: View {
     // two strings set the face region's width for every face, so each character
     // here is one the resting stat and the check-in row pay for too. "wk" is not a
     // new abbreviation — the resting stat has read "3-wk streak" since July.
+    //
+    // (09/06) The side label already says Lifting, so repeating "workouts" made the
+    // smallest toolbar slot truncate without adding meaning. "3 this wk" preserves
+    // the number and timeframe and now fits beside the standing coin balance.
     private func bannerStat(for mode: AppMode) -> String {
         switch mode {
         case .nutrition:
@@ -488,7 +492,7 @@ struct ModeNotch: View {
             } else {
                 count = 0
             }
-            return "\(count) workout\(count == 1 ? "" : "s") this wk"
+            return "\(count) this wk"
         }
     }
 }

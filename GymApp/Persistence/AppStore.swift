@@ -334,6 +334,11 @@ final class AppStore: ObservableObject {
     // (RootTabView.syncRewardCards). Shown one at a time by CardUnlockOverlay; the
     // grant itself lives in ThemeManager, this only drives the reveal.
     @Published var pendingCardUnlock: [CardStyle] = []
+    // CLAUDE  Date 09/05/2026
+    // Whether the fullscreen card showcase / inspect overlay is up. Set by tapping the
+    // Profile tab's card; hosted from RootTabView so it draws over the tab bar. Not
+    // persisted — it is presentation state, not a preference.
+    @Published var showsCardInspect = false
     // Claude  Date 07/14/2026
     // Whether the spotlight tour overlay is running (transient). Auto-started once
     // after onboarding (RootTabView) and replayable from Settings; the persistent
@@ -373,6 +378,8 @@ final class AppStore: ObservableObject {
     private var previewCelebrationIDs: Set<String> = []
 
     private static let exercisesFile = "exercises.json"
+    // Claude  Date 09/06/2026 — which seedExercises revision this install has merged.
+    private static let seedVersionFile = "seed_library_version.json"
     private static let workoutsFile = "workouts.json"
     private static let presetsFile = "presets.json"
     private static let profileFile = "profile.json"
@@ -462,9 +469,37 @@ final class AppStore: ObservableObject {
         self.clearedSupplementDays = persistence.load(Self.supplementClearedFile,
                                                       default: Set<Date>())
 
+        // Claude  Date 09/06/2026
+        // Version-gated seed sync: seedExercises only loads on a first launch (above), so
+        // library changes never reached existing installs. Renames run first and IN PLACE
+        // (the row keeps its id, so history/PRs/presets follow), then missing seed lifts
+        // are appended. Side effect: a bump re-adds a seed lift the user had deleted.
+        // Must precede the backfill below, which matches seeds by their CURRENT name.
+        let storedSeedVersion = persistence.load(Self.seedVersionFile, default: 0)
+        let seedSyncNeeded = storedSeedVersion < AppStore.seedLibraryVersion
+        var syncedSeeds = false
+        if !loadedExercises.isEmpty && seedSyncNeeded {
+            for index in self.exercises.indices {
+                let key = self.exercises[index].name.lowercased()
+                if let renamed = AppStore.seedRenames[key] {
+                    self.exercises[index].name = renamed
+                    syncedSeeds = true
+                }
+            }
+            // Appending the seed value whole avoids a fourth hand-copy site (resolveExerciseID
+            // silently dropped `note` and `equipmentType` that way). Reusing its id is safe:
+            // seedExercises is a static let, so its UUIDs are minted once per process.
+            var known = Set(self.exercises.map { $0.name.lowercased() })
+            for seed in AppStore.seedExercises where !known.contains(seed.name.lowercased()) {
+                self.exercises.append(seed)
+                known.insert(seed.name.lowercased())
+                syncedSeeds = true
+            }
+        }
+
         // Claude  Date 08/18/2026
         // One-time equipment backfill. seedExercises only loads on a first launch (above),
-        // so every existing install sits at equipmentType == nil for all 48 curated lifts
+        // so every existing install sits at equipmentType == nil for all 55 curated lifts
         // and would never get the nameplate. Match by name against the seed table and fill
         // ONLY nils: that makes this idempotent (a no-op on every later launch) and keeps
         // it from stomping a type the user set by hand. A renamed or custom lift simply
@@ -485,8 +520,12 @@ final class AppStore: ObservableObject {
             }
         }
 
-        if loadedExercises.isEmpty || backfilledEquipment {
+        if loadedExercises.isEmpty || backfilledEquipment || syncedSeeds {
             persistence.save(self.exercises, to: Self.exercisesFile)
+        }
+        // Stamp the version on a fresh install too, so the sync never runs on one.
+        if seedSyncNeeded {
+            persistence.save(AppStore.seedLibraryVersion, to: Self.seedVersionFile)
         }
         // One-time cleanup: if we stripped any leftover seed foods above, persist it.
         if self.foods.count != loadedFoods.count {
@@ -951,6 +990,75 @@ final class AppStore: ObservableObject {
         var ids = profile.showcasedAchievementIDs
         ids.move(fromOffsets: fromOffsets, toOffset: toOffset)
         profile.showcasedAchievementIDs = ids
+    }
+
+    // MARK: - Profile card back
+
+    // CLAUDE  Date 09/05/2026
+    // The back's style, falling back to the front when the user hasn't picked one
+    // ("Match front"). One place so the card and the style picker cannot disagree.
+    var resolvedBackCardStyle: CardStyle {
+        CardStyle.style(for: profile.cardBackStyleID ?? profile.cardStyleID)
+    }
+
+    var cardBackHeroStat: CardStat? {
+        profile.cardBackHeroStat.flatMap(CardStat.init(rawValue:))
+    }
+
+    var cardBackTileStats: [CardStat] {
+        CardStatLayout.stats(from: profile.cardBackStatIDs)
+    }
+
+    // CLAUDE  Date 09/05/2026
+    // The expensive half of the card back (two ProfileStats passes plus the PR scan).
+    // Callers hold the RESULT in @State and refresh on data changes rather than
+    // touching this per render — the same guard ProgressDashboardView puts on recap.
+    var cardBackStatInputs: CardStatInputs {
+        CardStatInputs(workouts: workouts, exercises: exercises, activityLog: activityLog,
+                       foodLog: foodLog, nutritionGoals: nutritionGoals)
+    }
+
+    var cardBackStats: CardBackStats {
+        CardStatResolver.backStats(hero: cardBackHeroStat, tiles: cardBackTileStats,
+                                   inputs: cardBackStatInputs)
+    }
+
+    // CLAUDE  Date 09/05/2026
+    // Add/remove a stat tile on the card back. Returns false (changing nothing) past the
+    // cap, matching toggleShowcased. Hero and tiles are kept disjoint, so promoting a
+    // tile to hero elsewhere never leaves it showing twice.
+    @discardableResult
+    func toggleBackStat(_ stat: CardStat) -> Bool {
+        var ids = profile.cardBackStatIDs
+        if let index = ids.firstIndex(of: stat.rawValue) {
+            ids.remove(at: index)
+        } else {
+            guard ids.count < CardStat.maxTiles else { return false }
+            if profile.cardBackHeroStat == stat.rawValue { profile.cardBackHeroStat = nil }
+            ids.append(stat.rawValue)
+        }
+        profile.cardBackStatIDs = ids
+        return true
+    }
+
+    // Reorder the back's tiles (their reading order in the grid). Driven by the stat
+    // picker's drag-to-reorder; persists via profile's didSet.
+    func moveBackStat(fromOffsets: IndexSet, toOffset: Int) {
+        var ids = profile.cardBackStatIDs
+        ids.move(fromOffsets: fromOffsets, toOffset: toOffset)
+        profile.cardBackStatIDs = ids
+    }
+
+    // Set (or clear, with nil) the big highlighted stat. Tapping the current hero again
+    // clears it; promoting a stat that was a tile removes the tile so it isn't doubled.
+    func setCardBackHeroStat(_ stat: CardStat?) {
+        guard let stat else { profile.cardBackHeroStat = nil; return }
+        if profile.cardBackHeroStat == stat.rawValue {
+            profile.cardBackHeroStat = nil
+            return
+        }
+        profile.cardBackStatIDs.removeAll { $0 == stat.rawValue }
+        profile.cardBackHeroStat = stat.rawValue
     }
 
     // MARK: - Exercises
@@ -2165,11 +2273,27 @@ final class AppStore: ObservableObject {
 // MARK: - Seed data
 
 extension AppStore {
-    // Curated, science-based lift library (from lift-list-condensed.md) pre-loaded
-    // on first launch. `category` is the training sub-group (drives the muscle-group
-    // chart / top-muscle stat); `primaryMover` names the muscle the lift drives;
-    // `quality` is the Optimal/Classic tag. Only the true powerlifting big-3 carry a
-    // `liftType` (squat/bench/deadlift) so the lift achievements stay exact.
+    // Curated, science-based lift library (55 lifts) pre-loaded on first launch, and
+    // merged into existing libraries by the version-gated sync in init. `category` is the
+    // training sub-group (drives the muscle-group chart / top-muscle stat); `primaryMover`
+    // names the muscle the lift drives; `quality` is the Optimal/Classic tag. Only the true
+    // powerlifting big-3 carry a `liftType` (squat/bench/deadlift) so the lift achievements
+    // stay exact. Editing this list means bumping `seedLibraryVersion` below; renaming a
+    // row means adding its old name to `seedRenames` AND updating PremadeWorkout.swift,
+    // which resolves its lifts by name and will otherwise mint a duplicate.
+    // Claude  Date 09/06/2026
+    // Bump this whenever the list below changes — AppStore.init merges the delta into
+    // existing libraries once per bump. 1 = the original 48; 2 = +7 lifts, 3 renames.
+    static let seedLibraryVersion = 2
+
+    // Old lowercased name -> current name, for seeds renamed after they shipped. Applied
+    // in place by that merge, so the lift keeps its id and all of its history.
+    static let seedRenames: [String: String] = [
+        "flat barbell bench press": "Barbell Bench Press",
+        "deep stretch cable fly":   "Cable Fly",
+        "weighted cable crunch":    "Cable Crunch",
+    ]
+
     static let seedExercises: [Exercise] = [
         // MARK: Legs — Quads
         Exercise(name: "Hack Squat", region: .legs, category: "Quads", primaryMover: "Quadriceps", quality: .optimal, equipmentType: .machine),
@@ -2189,23 +2313,36 @@ extension AppStore {
         Exercise(name: "Walking Lunge", region: .legs, category: "Glutes", isUnilateral: true, primaryMover: "Gluteus Maximus", quality: .optimal, equipmentType: .freeWeight),
         Exercise(name: "Cable Kickback", region: .legs, category: "Glutes", isUnilateral: true, primaryMover: "Gluteus Maximus", quality: .optimal, equipmentType: .cable),
 
+        // Claude  Date 09/06/2026
+        // Two new sub-groups. "Adductors"/"Abductors" were already canonical primary
+        // movers in Exercise.commonPrimaryMovers but had no lift using them; the two
+        // machines fill that gap. `category` is free text, so no enum change is needed.
+        // MARK: Legs — Adductors
+        Exercise(name: "Hip Adductor", region: .legs, category: "Adductors", primaryMover: "Adductors", quality: .optimal, equipmentType: .machine),
+
+        // MARK: Legs — Abductors
+        Exercise(name: "Hip Abductor", region: .legs, category: "Abductors", primaryMover: "Abductors", quality: .optimal, equipmentType: .machine),
+
         // MARK: Legs — Calves
         Exercise(name: "Standing Calf Raise", region: .legs, category: "Calves", primaryMover: "Gastrocnemius", quality: .optimal, equipmentType: .machine),
         Exercise(name: "Seated Calf Raise", region: .legs, category: "Calves", primaryMover: "Soleus", quality: .optimal, equipmentType: .machine),
 
         // MARK: Chest
         Exercise(name: "Incline Barbell Press", region: .chest, category: "Chest", primaryMover: "Pectorals (Upper)", quality: .optimal, equipmentType: .freeWeight),
-        Exercise(name: "Flat Barbell Bench Press", region: .chest, category: "Chest", liftType: .bench, primaryMover: "Pectorals", quality: .classic, equipmentType: .freeWeight),
-        Exercise(name: "Deep Stretch Cable Fly", region: .chest, category: "Chest", primaryMover: "Pectorals", quality: .optimal, equipmentType: .cable),
+        Exercise(name: "Barbell Bench Press", region: .chest, category: "Chest", liftType: .bench, primaryMover: "Pectorals", quality: .classic, equipmentType: .freeWeight),
+        Exercise(name: "Cable Fly", region: .chest, category: "Chest", primaryMover: "Pectorals", quality: .optimal, equipmentType: .cable),
         Exercise(name: "Weighted Dip", region: .chest, category: "Chest", primaryMover: "Pectorals (Lower)", quality: .classic, equipmentType: .bodyweight),
 
         // MARK: Back — Lats
         Exercise(name: "Pull-Up", region: .back, category: "Lats", primaryMover: "Latissimus Dorsi", quality: .classic, equipmentType: .bodyweight),
+        Exercise(name: "Wide-Grip Lat Pulldown", region: .back, category: "Lats", primaryMover: "Latissimus Dorsi", quality: .classic, equipmentType: .cable),
+        Exercise(name: "Lat Pulldown", region: .back, category: "Lats", primaryMover: "Latissimus Dorsi", quality: .optimal, equipmentType: .cable),
         Exercise(name: "Close-Grip Lat Pulldown", region: .back, category: "Lats", primaryMover: "Latissimus Dorsi", quality: .optimal, equipmentType: .cable),
         Exercise(name: "Single-Arm Cable Pullover", region: .back, category: "Lats", isUnilateral: true, primaryMover: "Latissimus Dorsi", quality: .optimal, equipmentType: .cable),
 
         // MARK: Back — Mid-Back / Traps
         Exercise(name: "Chest-Supported Row", region: .back, category: "Mid-Back", primaryMover: "Rhomboids / Mid Traps", quality: .optimal, equipmentType: .machine),
+        Exercise(name: "Kelso Shrug", region: .back, category: "Mid-Back", primaryMover: "Rhomboids / Mid Traps", quality: .optimal, equipmentType: .freeWeight),
         Exercise(name: "T-Bar Row", region: .back, category: "Mid-Back", primaryMover: "Mid-Back", quality: .classic, equipmentType: .machine),
         Exercise(name: "Seated Cable Row", region: .back, category: "Mid-Back", primaryMover: "Mid-Back", quality: .classic, equipmentType: .cable),
         Exercise(name: "Barbell Shrug", region: .back, category: "Traps", primaryMover: "Upper Trapezius", quality: .optimal, equipmentType: .freeWeight),
@@ -2238,6 +2375,7 @@ extension AppStore {
         Exercise(name: "Overhead Cable Extension", region: .arms, category: "Triceps", primaryMover: "Triceps (Long Head)", quality: .optimal, equipmentType: .cable),
         Exercise(name: "Close-Grip Bench Press", region: .arms, category: "Triceps", primaryMover: "Triceps", quality: .classic, equipmentType: .freeWeight),
         Exercise(name: "Triceps Pushdown", region: .arms, category: "Triceps", primaryMover: "Triceps (Lateral Head)", quality: .classic, equipmentType: .cable),
+        Exercise(name: "Single-Arm Triceps Pushdown", region: .arms, category: "Triceps", isUnilateral: true, primaryMover: "Triceps (Lateral Head)", quality: .optimal, equipmentType: .cable),
         Exercise(name: "Skull Crusher", region: .arms, category: "Triceps", primaryMover: "Triceps (Long Head)", quality: .optimal, equipmentType: .freeWeight),
 
         // MARK: Arms — Forearms
@@ -2246,9 +2384,16 @@ extension AppStore {
         Exercise(name: "Farmer's Carry", region: .arms, category: "Forearms", primaryMover: "Grip / Forearms", quality: .classic, equipmentType: .freeWeight),
 
         // MARK: Core
-        Exercise(name: "Weighted Cable Crunch", region: .core, category: "Core", primaryMover: "Rectus Abdominis", quality: .optimal, equipmentType: .cable),
+        Exercise(name: "Cable Crunch", region: .core, category: "Core", primaryMover: "Rectus Abdominis", quality: .optimal, equipmentType: .cable),
         Exercise(name: "Hanging Leg Raise", region: .core, category: "Core", primaryMover: "Rectus Abdominis (Lower)", quality: .optimal, equipmentType: .bodyweight),
         Exercise(name: "Pallof Press", region: .core, category: "Core", isUnilateral: true, primaryMover: "Obliques", quality: .optimal, equipmentType: .cable),
         Exercise(name: "Plank", region: .core, category: "Core", primaryMover: "Transverse Abdominis", quality: .classic, equipmentType: .bodyweight),
+
+        // Claude  Date 09/06/2026
+        // First lift in the `.other` region: serratus anterior is a rib/scapula muscle,
+        // not a delt head or a lat, so it fits no existing region. isBodyweight stays
+        // false like every other seed — PersonalRecord.bests skips bodyweight lifts.
+        // MARK: Other — Serratus
+        Exercise(name: "Scapular Push-Up", region: .other, category: "Serratus", primaryMover: "Serratus Anterior", quality: .classic, equipmentType: .bodyweight),
     ]
 }
