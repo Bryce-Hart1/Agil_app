@@ -357,6 +357,27 @@ final class ThemeManager: ObservableObject {
     }
     #endif
 
+    // Claude  Date 09/06/2026
+    // "Delete Account": themes, purchases and wallet back to first-install state, as
+    // one atomic write. Only AccountDeletion calls this.
+    //
+    // Clears isSafeMode first ON PURPOSE — safe mode exists to stop us overwriting a
+    // file we couldn't parse, but a deliberate account deletion is exactly the case
+    // where destroying that file is the goal. Side effect: this wipes PURCHASED coins
+    // and everything bought with them, and the save() it triggers pushes the emptied
+    // wallet to iCloud through onWalletChanged (AccountDeletion also removes the
+    // iCloud copy outright).
+    func eraseAllData() {
+        isSafeMode = false
+        batched {
+            customThemes = []
+            selectedID = AppTheme.classic.id
+            unlockedThemeIDs = []
+            unlockedCardStyleIDs = []
+            wallet = Wallet()
+        }
+    }
+
     // Claude  Date 08/03/2026
     // Called after every successful save. CloudWalletSync hooks in here to push the
     // wallet to iCloud; kept as a closure so ThemeManager doesn't have to know that

@@ -46,6 +46,11 @@ struct NewExerciseView: View {
     // The machine's manufacturer, e.g. "Hammer Strength". Blank = the generic lift.
     // Normalized against the library on save, so casing can't split one brand in two.
     @State private var brand: String
+    // Claude  Date 09/07/2026
+    // Which cardio machine this is, offered only when Region is Cardio and cleared when it
+    // isn't — this sheet is the one place both fields can be set, so keeping them agreed
+    // here is what stops a "cardio" lift that logs reps or a leg press that logs miles.
+    @State private var cardioMachine: CardioMachine?
     @State private var showingMoverHelp = false
 
     // Claude  Date 07/09/2026
@@ -73,6 +78,7 @@ struct NewExerciseView: View {
         _isBodyweight = State(initialValue: editing?.isBodyweight ?? false)
         _equipmentType = State(initialValue: editing?.equipmentType)
         _brand = State(initialValue: editing?.brand ?? "")
+        _cardioMachine = State(initialValue: editing?.cardioMachine)
     }
 
     private var trimmedName: String { name.trimmingCharacters(in: .whitespaces) }
@@ -191,9 +197,23 @@ struct NewExerciseView: View {
                             Text(region.title).tag(region)
                         }
                     }
+                    // Claude  Date 09/07/2026
+                    // Cardio replaces the muscle-group cascade with the machine picker: the
+                    // machine is what decides how this lift LOGS (duration + distance rather
+                    // than reps x weight), and no cardio machine drives one muscle group
+                    // worth graphing. Region Cardio without a machine would be the worst of
+                    // both — filed under Cardio but still logging reps — so the picker always
+                    // has a value and `resolvedCardioMachine` defaults it to Treadmill.
+                    if region == .cardio {
+                        Picker("Machine", selection: cardioMachineSelection) {
+                            ForEach(CardioMachine.allCases, id: \.self) { machine in
+                                Text(machine.title).tag(machine)
+                            }
+                        }
+                    }
                     // Region = Other: free-text group (the sole "uncategorized" path).
                     // Any real region: a picker of that region's sub-groups + Custom…
-                    if region == .other {
+                    else if region == .other {
                         TextField("Muscle group (e.g. Quads, Chest, Biceps)", text: $category)
                     } else {
                         Picker("Muscle group", selection: categorySelection) {
@@ -206,7 +226,9 @@ struct NewExerciseView: View {
                     }
                 }
 
-                moverSection
+                if region != .cardio {
+                    moverSection
+                }
 
                 // Claude  Date 08/18/2026
                 // Equipment drives the nameplate chip beside the lift's name and gates the
@@ -229,19 +251,25 @@ struct NewExerciseView: View {
                     brandSection
                 }
 
-                Section {
-                    Toggle("Unilateral", isOn: $isUnilateral)
-                } footer: {
-                    Text("Turn on for movements done one side at a time (e.g. single-arm row, lunges) so they can be tracked separately on graphs. Leave off for two-sided lifts like bench press.")
+                // Claude  Date 09/07/2026 — neither flag means anything for a bout: cardio
+                // is never logged per-side, and its "weight" field doesn't exist at all.
+                if region != .cardio {
+                    Section {
+                        Toggle("Unilateral", isOn: $isUnilateral)
+                    } footer: {
+                        Text("Turn on for movements done one side at a time (e.g. single-arm row, lunges) so they can be tracked separately on graphs. Leave off for two-sided lifts like bench press.")
+                    }
                 }
 
                 // Claude  Date 07/20/2026
                 // Bodyweight lift toggle: when on, a set's weight is treated as ADDED load
                 // on top of bodyweight, shown as "+N lb" in the workout editor.
-                Section {
-                    Toggle("Bodyweight", isOn: $isBodyweight)
-                } footer: {
-                    Text("Turn on for movements loaded by your own bodyweight (e.g. pull-up, dip, chin-up). Weights you log then count as added weight — shown with a “+”, like +25 lb — with just “+” for no added weight.")
+                if region != .cardio {
+                    Section {
+                        Toggle("Bodyweight", isOn: $isBodyweight)
+                    } footer: {
+                        Text("Turn on for movements loaded by your own bodyweight (e.g. pull-up, dip, chin-up). Weights you log then count as added weight — shown with a “+”, like +25 lb — with just “+” for no added weight.")
+                    }
                 }
 
                 // Claude  Date 07/13/2026
@@ -431,7 +459,19 @@ struct NewExerciseView: View {
     // sub-group (custom-but-blank falls back to a known one), never "Other". Free-typed
     // movers get snapped to canonical spelling; picked/auto ones are already canonical.
     // (07/13) Factored out of the old save() so "Save" and "Save as New Lift" share it.
+    // Claude  Date 09/07/2026
+    // Always offers a machine (Treadmill by default) so the picker can't sit empty, and
+    // writes straight back to the state the save paths read.
+    private var cardioMachineSelection: Binding<CardioMachine> {
+        Binding(get: { cardioMachine ?? .treadmill },
+                set: { cardioMachine = $0 })
+    }
+
     private func resolvedFields() -> (category: String, mover: String) {
+        // Claude  Date 09/07/2026 — cardio files under one flat "Cardio" group with no
+        // primary mover, matching the seed machines, so it can never land a bar in the
+        // sets-per-muscle-group chart under a stale group the user had picked before.
+        if region == .cardio { return ("Cardio", "") }
         let resolvedCategory: String
         if region == .other {
             let t = category.trimmingCharacters(in: .whitespaces)
@@ -457,6 +497,14 @@ struct NewExerciseView: View {
     // (Exercise.note) is now editable from the workout and preset editors — i.e. from
     // the screen sitting directly behind this sheet. Writing back the stale snapshot
     // would silently revert a note typed there.
+    // Claude  Date 09/07/2026
+    // The machine to save: only when the region is Cardio, and defaulting to Treadmill if
+    // the user picked the region but never touched the machine picker. A cardio-region lift
+    // with no machine would render as cardio in the library but still log reps x weight.
+    private var resolvedCardioMachine: CardioMachine? {
+        region == .cardio ? (cardioMachine ?? .treadmill) : nil
+    }
+
     private func saveInPlace() {
         guard let target = editing else { return saveAsNew() }
         var existing = store.exercise(for: target.id) ?? target
@@ -471,6 +519,9 @@ struct NewExerciseView: View {
         // Cleared when the equipment can't be branded, so a lift switched from Machine to
         // Free Weight doesn't keep a stale manufacturer no field is showing any more.
         existing.brand = canBeBranded ? brand : ""
+        // Claude  Date 09/07/2026 — resolvedCardioMachine, not the raw state: switching a
+        // lift's region away from Cardio has to drop the machine, or it keeps logging bouts.
+        existing.cardioMachine = resolvedCardioMachine
         store.updateExercise(existing)
         onCreate(existing)
         dismiss()
@@ -497,7 +548,8 @@ struct NewExerciseView: View {
             isBodyweight: isBodyweight,
             note: editing?.note,
             brand: canBeBranded ? brand : "",
-            equipmentType: equipmentType
+            equipmentType: equipmentType,
+            cardioMachine: resolvedCardioMachine
         )
         onCreate(created)
         dismiss()

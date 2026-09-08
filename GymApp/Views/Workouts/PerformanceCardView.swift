@@ -106,17 +106,53 @@ struct PerformanceCardView: View {
     // volume figure is abbreviated past 10k so nothing has to shrink to stay on one line.
     private var statsRow: some View {
         HStack(spacing: 0) {
-            statCell("Duration", summary.durationText)
-            statDivider
-            statCell("Sets", "\(summary.completedSets)")
-            statDivider
-            statCell("Volume", volumeText)
-            statDivider
-            statCell("Exercises", "\(summary.exerciseCount)")
+            // Claude  Date 09/07/2026
+            // A cardio-only session swaps the two lifting columns for its own: Sets and
+            // Volume are both structurally 0 for bouts, so showing them would read as a
+            // failed workout. Still four columns — the strip's widths depend on it. A MIXED
+            // session keeps the lifting four; its cardio shows in the History row's label.
+            if isCardioOnly {
+                statCell("Duration", summary.durationText)
+                statDivider
+                statCell("Bouts", "\(summary.cardioBouts)")
+                statDivider
+                statCell("Distance", cardioDistanceText)
+                statDivider
+                statCell("Calories", cardioCaloriesText)
+            } else {
+                statCell("Duration", summary.durationText)
+                statDivider
+                statCell("Sets", "\(summary.completedSets)")
+                statDivider
+                statCell("Volume", volumeText)
+                statDivider
+                statCell("Exercises", "\(summary.exerciseCount)")
+            }
         }
         .padding(.vertical, 12)
         .background(.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
     }
+
+    /// Nothing was lifted and something was ridden/run/rowed.
+    private var isCardioOnly: Bool {
+        summary.cardioSeconds > 0 && summary.completedSets == 0
+    }
+
+    /// "3.10 mi", or an em dash for a machine with no honest distance (stair climber).
+    private var cardioDistanceText: String {
+        CardioFormat.distance(meters: summary.cardioDistanceMeters, unit: distanceUnit) ?? "—"
+    }
+
+    // Claude  Date 09/07/2026
+    // An em dash, never a zero, when there's no honest figure: no bodyweight on file, or
+    // every bout fell outside CardioPolicy's plausibility band. "0" would read as a fact.
+    private var cardioCaloriesText: String {
+        summary.cardioCalories.map { "~\(Int($0.rounded()))" } ?? "—"
+    }
+
+    // Claude  Date 09/07/2026 — display unit only; the summary carries canonical meters.
+    @AppStorage(DistanceUnit.storageKey) private var distanceUnitRaw = DistanceUnit.miles.rawValue
+    private var distanceUnit: DistanceUnit { DistanceUnit(rawValue: distanceUnitRaw) ?? .miles }
 
     private func statCell(_ title: String, _ value: String) -> some View {
         VStack(spacing: 3) {

@@ -71,6 +71,24 @@ struct PersistenceService {
         return try decoder.decode(DataFile<T>.self, from: raw).data
     }
 
+    // Claude  Date 09/06/2026
+    // Delete every JSON file this service owns. Only "Delete Account" calls this —
+    // it's the final sweep after each store has reset its own in-memory state, so
+    // nothing is left on disk that a store forgot to name. Deliberately blunt: it
+    // removes *.json in the directory rather than a hand-maintained list, because a
+    // list that drifts is how a factory reset quietly leaves data behind. Side
+    // effect: an absent file reads as its default, so the next launch looks like a
+    // first launch.
+    func removeAll() {
+        let fm = FileManager.default
+        guard let files = try? fm.contentsOfDirectory(at: directory,
+                                                      includingPropertiesForKeys: nil) else { return }
+        for file in files where file.pathExtension == "json" {
+            do { try fm.removeItem(at: file) }
+            catch { print("⚠️ Failed to delete \(file.lastPathComponent): \(error)") }
+        }
+    }
+
     /// Save a value as JSON using an atomic write (so a crash mid-write can't
     /// leave a half-written file).
     func save<T: Codable>(_ value: T, to filename: String) {

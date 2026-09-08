@@ -356,6 +356,8 @@ struct WorkoutsListView: View {
 // the active session is obvious, with a count of checked-off sets.
 private struct ActiveWorkoutRow: View {
     @EnvironmentObject private var theme: ThemeManager
+    // Claude  Date 09/07/2026 — the library, to derive the session's kind (see store.kind).
+    @EnvironmentObject private var store: AppStore
     let workout: Workout
 
     var body: some View {
@@ -379,15 +381,18 @@ private struct ActiveWorkoutRow: View {
     }
 
     private var summary: String {
+        let kind = store.kind(of: workout)
         let exerciseCount = workout.exercises.count
         let done = workout.completedSets
         let exercisePart = "\(exerciseCount) exercise\(exerciseCount == 1 ? "" : "s")"
-        let setPart = "\(done) set\(done == 1 ? "" : "s") done"
-        return "\(exercisePart) • \(setPart)"
+        // Claude  Date 09/07/2026 — "bouts", not "sets", for a cardio session.
+        let noun = kind?.entryNoun(done) ?? (done == 1 ? "set" : "sets")
+        return "\(exercisePart) • \(done) \(noun) done"
     }
 }
 
 private struct WorkoutRow: View {
+    @EnvironmentObject private var store: AppStore
     let workout: Workout
 
     var body: some View {
@@ -408,11 +413,15 @@ private struct WorkoutRow: View {
     // entirely when the workout has no honest span (see Workout.elapsed): a legacy
     // workout with no stamps and no checked sets would otherwise claim "<1 min".
     private var summary: String {
+        let kind = store.kind(of: workout)
         let exerciseCount = workout.exercises.count
         let setCount = workout.totalSets
-        let exercisePart = "\(exerciseCount) exercise\(exerciseCount == 1 ? "" : "s")"
-        let setPart = "\(setCount) set\(setCount == 1 ? "" : "s")"
-        var parts = [exercisePart, setPart]
+        var parts: [String] = []
+        // Claude  Date 09/07/2026 — the kind leads, but only when it isn't the default:
+        // labelling every lifting session "Lifting" is noise in a list that's mostly those.
+        if let kind, kind != .lifting { parts.append(kind.title) }
+        parts.append("\(exerciseCount) exercise\(exerciseCount == 1 ? "" : "s")")
+        parts.append("\(setCount) \(kind?.entryNoun(setCount) ?? (setCount == 1 ? "set" : "sets"))")
         if let elapsed = workout.elapsedText { parts.append(elapsed) }
         return parts.joined(separator: " • ")
     }

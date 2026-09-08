@@ -65,6 +65,13 @@ struct ExerciseSectionHeader: View {
                     if exercise?.isUnilateral == true {
                         NeutralChip(text: "Unilateral", style: .detail)
                     }
+                    // Claude  Date 09/07/2026 — names the cardio machine ("Treadmill"),
+                    // which is what decides how this exercise logs. Reuses NeutralChip
+                    // rather than adding a component; the rep-range label to the right
+                    // self-hides, since a bout has no target range.
+                    if let machine = exercise?.cardioMachine {
+                        NeutralChip(text: machine.title, style: .detail)
+                    }
                 }
             }
         }
@@ -73,6 +80,7 @@ struct ExerciseSectionHeader: View {
 
     private var hasMetadata: Bool {
         guard let exercise else { return false }
-        return exercise.equipmentType != nil || exercise.brandLabel != nil || exercise.isUnilateral
+        return exercise.equipmentType != nil || exercise.brandLabel != nil
+            || exercise.isUnilateral || exercise.cardioMachine != nil
     }
 }

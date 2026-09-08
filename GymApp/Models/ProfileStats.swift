@@ -182,7 +182,10 @@ struct ProfileStats: Codable, Hashable {
          clearedSupplementDays: Set<Date> = []) {
         let calendar = Calendar.current
         totalWorkouts = 0
-        totalSets = events.count
+        // Claude  Date 09/07/2026
+        // Cardio bouts are excluded — a bout is not a set, and this number feeds the
+        // "Sets Logged" card stat. Days/streak below still count them: cardio IS training.
+        totalSets = events.filter { !$0.isCardio }.count
         // Days/streak count every day a set was completed (real-time gated in
         // Phase 1); plausibility filtering below only affects lift/volume credit.
         daysLogged = Set(events.map { calendar.startOfDay(for: $0.loggedAt) }).count

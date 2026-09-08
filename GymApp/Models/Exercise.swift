@@ -38,7 +38,11 @@ enum LiftQuality: String, Codable, CaseIterable, Hashable {
 // Hamstrings / Glutes / Calves sub-groups. `allCases` order defines section order;
 // `.other` catches custom exercises with no region assigned.
 enum MuscleRegion: String, Codable, CaseIterable, Hashable {
-    case legs, chest, back, shoulders, arms, core, other
+    // Claude  Date 09/07/2026 — `cardio` groups the cardio machines into their own
+    // browse/picker section, and is frozen into ActivityEvent.muscleRegion so a cardio
+    // event self-identifies in the ledger without a library lookup. Sits before `.other`
+    // so section order stays Legs…Core, Cardio, Other.
+    case legs, chest, back, shoulders, arms, core, cardio, other
 
     var title: String {
         switch self {
@@ -48,6 +52,7 @@ enum MuscleRegion: String, Codable, CaseIterable, Hashable {
         case .shoulders: return "Shoulders"
         case .arms:      return "Arms"
         case .core:      return "Core"
+        case .cardio:    return "Cardio"
         case .other:     return "Other"
         }
     }
@@ -133,12 +138,21 @@ struct Exercise: Identifiable, Codable, Hashable {
     // name and gates `canBeBranded`. Optional because existing installs genuinely don't
     // know it until AppStore's backfill matches them against the seed library.
     var equipmentType: EquipmentType?
+    // Claude  Date 09/07/2026
+    // Which cardio machine this is, and the sole gate on cardio behavior: non-nil swaps the
+    // editor's set rows for bout rows (duration + distance) and routes the entry through
+    // CardioPolicy. nil on every strength lift, which is all of them before this shipped.
+    var cardioMachine: CardioMachine?
+
+    /// The one read site for "log this as cardio, not as reps x weight".
+    var isCardio: Bool { cardioMachine != nil }
 
     init(id: UUID = UUID(), name: String, region: MuscleRegion = .other, category: String,
          isUnilateral: Bool = false, liftType: LiftType? = nil,
          primaryMover: String = "", quality: LiftQuality? = nil,
          isBodyweight: Bool = false, note: String? = nil,
-         brand: String = "", equipmentType: EquipmentType? = nil) {
+         brand: String = "", equipmentType: EquipmentType? = nil,
+         cardioMachine: CardioMachine? = nil) {
         self.id = id
         self.name = name
         self.region = region
@@ -151,6 +165,7 @@ struct Exercise: Identifiable, Codable, Hashable {
         self.note = note
         self.brand = brand
         self.equipmentType = equipmentType
+        self.cardioMachine = cardioMachine
     }
 
     // Claude  Date 08/18/2026
@@ -220,11 +235,12 @@ struct Exercise: Identifiable, Codable, Hashable {
     // (07/20) Added isBodyweight — absent on older exercises, so defaults false.
     // (08/04) Added note (the perma note) — absent on older exercises, so nil.
     // (08/18) Added brand + equipmentType — absent on older exercises, so "" / nil.
+    // (09/07) Added cardioMachine — absent on older exercises, so nil = a strength lift.
     // NOTE: encode(to:) is synthesized off CodingKeys, so a field left out of the enum
     // below is silently dropped on every save. Add new fields to BOTH lists.
     enum CodingKeys: String, CodingKey {
         case id, name, region, category, isUnilateral, liftType, primaryMover, quality, isBodyweight,
-             note, brand, equipmentType
+             note, brand, equipmentType, cardioMachine
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -240,6 +256,9 @@ struct Exercise: Identifiable, Codable, Hashable {
         note = try c.decodeIfPresent(String.self, forKey: .note)
         brand = try c.decodeIfPresent(String.self, forKey: .brand) ?? ""
         equipmentType = try c.decodeIfPresent(EquipmentType.self, forKey: .equipmentType)
+        // Claude  Date 09/07/2026 — absent on every exercise saved before cardio existed,
+        // so nil, which means "a strength lift" and preserves the old logging behavior.
+        cardioMachine = try c.decodeIfPresent(CardioMachine.self, forKey: .cardioMachine)
     }
 }
 

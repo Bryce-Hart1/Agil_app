@@ -291,6 +291,10 @@ struct RootTabView: View {
             // Close out any session left running since the last launch, before anything
             // else reads activeWorkout.
             store.autoFinishStaleWorkouts()
+            // Claude  Date 09/06/2026
+            // Fire any Ghost-Mode opt-out whose 24h undo window has elapsed, before
+            // the sync below (which no-ops in Ghost Mode anyway).
+            cardSync.processScheduledDeletion(store: store)
             cardSync.sync(from: store)
             // Claude  Date 07/23/2026
             // Silently backfill gemstone-card grants for any tier already earned — no
@@ -315,6 +319,7 @@ struct RootTabView: View {
         .onChange(of: scenePhase) { phase in
             switch phase {
             case .active:
+                cardSync.processScheduledDeletion(store: store)
                 cardSync.sync(from: store)
                 // CLAUDE  Date 09/03/2026
                 // Catch the icon up to the equipped theme. No-ops when it already matches,

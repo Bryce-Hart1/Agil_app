@@ -73,4 +73,12 @@ struct WidgetSnapshot: Codable {
             defaults?.set(data, forKey: storageKey)
         }
     }
+
+    // Claude  Date 09/06/2026
+    // "Delete Account": clear the shared snapshot so the home-screen widget stops
+    // showing a deleted account's calories and theme. Reads as `.empty` afterwards,
+    // which is what the widget shows before the app has ever written here.
+    static func erase() {
+        defaults?.removeObject(forKey: storageKey)
+    }
 }

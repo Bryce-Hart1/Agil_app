@@ -98,6 +98,21 @@ final class CloudWalletSync {
         }
     }
 
+    // Claude  Date 09/06/2026
+    // "Delete Account": drop the iCloud copy of the wallet. Static because the live
+    // instance is owned by GymAppApp and never reaches Settings — and it doesn't need
+    // to, since the key is fixed and the store is a singleton.
+    //
+    // Without this, wiping locally would be undone on the next pull: the merge is
+    // max/union (money only ever grows), so iCloud would hand the balance straight
+    // back. KNOWN LIMIT: another signed-in device that hasn't been deleted will push
+    // its own copy back — same as any iCloud KVS wipe, and out of this app's reach.
+    static func eraseCloudCopy() {
+        let store = NSUbiquitousKeyValueStore.default
+        store.removeObject(forKey: key)
+        store.synchronize()
+    }
+
     // MARK: - Push
 
     private func push(_ theme: ThemeManager) {

@@ -67,6 +67,13 @@ struct UserProfile: Codable, Hashable {
     var cardBackStyleID: String?
     var cardBackHeroStat: String?
     var cardBackStatIDs: [String]
+    // Claude  Date 09/07/2026
+    // Bodyweight in pounds, asked for once when cardio is first logged and skippable.
+    // ON-DEVICE ONLY, like `gender`: it feeds exactly one thing — the MET calorie estimate
+    // in CardioPolicy — and is absent from SharedCard/CardSyncService per the privacy
+    // contract in SharedCard.swift, which already names future bodyweight fields. nil means
+    // "not given", and every calorie surface shows nothing rather than guessing.
+    var bodyweightLb: Double?
 
     init(displayName: String = "", hasOnboarded: Bool = false,
          cardStyleID: String = CardStyle.defaultStyle.id,
@@ -76,7 +83,7 @@ struct UserProfile: Codable, Hashable {
          nutritionSetup: NutritionSetup = NutritionSetup(),
          tookFirstStep: Bool = false,
          cardBackStyleID: String? = nil, cardBackHeroStat: String? = nil,
-         cardBackStatIDs: [String] = []) {
+         cardBackStatIDs: [String] = [], bodyweightLb: Double? = nil) {
         self.displayName = displayName
         self.hasOnboarded = hasOnboarded
         self.cardStyleID = cardStyleID
@@ -89,6 +96,7 @@ struct UserProfile: Codable, Hashable {
         self.cardBackStyleID = cardBackStyleID
         self.cardBackHeroStat = cardBackHeroStat
         self.cardBackStatIDs = cardBackStatIDs
+        self.bodyweightLb = bodyweightLb
     }
 
     // Claude  Date 06/12/2026 last changed: 06/13/2026 by: Claude
@@ -102,7 +110,7 @@ struct UserProfile: Codable, Hashable {
     enum CodingKeys: String, CodingKey {
         case displayName, hasOnboarded, cardStyleID, dataMode, showcasedAchievementIDs,
              gender, hasSeenTour, nutritionSetup, tookFirstStep,
-             cardBackStyleID, cardBackHeroStat, cardBackStatIDs
+             cardBackStyleID, cardBackHeroStat, cardBackStatIDs, bodyweightLb
     }
     private enum LegacyKeys: String, CodingKey { case cardColorHex }
     init(from decoder: Decoder) throws {
@@ -126,6 +134,9 @@ struct UserProfile: Codable, Hashable {
         cardBackStyleID = try c.decodeIfPresent(String.self, forKey: .cardBackStyleID)
         cardBackHeroStat = try c.decodeIfPresent(String.self, forKey: .cardBackHeroStat)
         cardBackStatIDs = try c.decodeIfPresent([String].self, forKey: .cardBackStatIDs) ?? []
+        // Claude  Date 09/07/2026 — new field; a profile saved before cardio existed has no
+        // bodyweight, so calorie estimates stay hidden until it's given.
+        bodyweightLb = try c.decodeIfPresent(Double.self, forKey: .bodyweightLb)
         if let id = try c.decodeIfPresent(String.self, forKey: .cardStyleID) {
             cardStyleID = id
         } else {

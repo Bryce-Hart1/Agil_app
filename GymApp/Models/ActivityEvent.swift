@@ -32,13 +32,26 @@ struct ActivityEvent: Identifiable, Codable, Hashable {
     // this frozen value so later library edits cannot rewrite earned progress.
     // Optional keeps activity logs from older app versions decodable.
     let muscleRegion: MuscleRegion?
+    // Claude  Date 09/07/2026
+    // A CARDIO BOUT's frozen numbers: `durationSeconds != nil` marks the event as cardio,
+    // and such an event carries reps = 0 / weight = 0 so ProfileStats' plausibility filter
+    // drops it from volume and lift credit on its own. Both are Optional because this type
+    // uses SYNTHESIZED Codable — a non-optional would fail to decode every existing ledger.
+    // Calories are deliberately NOT frozen here: they derive from an editable bodyweight, so
+    // a stored value would go stale. If calories ever gate a badge, freeze them then.
+    let durationSeconds: Int?
+    let distanceMeters: Double?
 
     // Convenience: was this a big-3 lift at all.
     var countsAsBig3: Bool { liftType != nil }
 
+    /// Whether this event came from a cardio bout rather than a loaded set.
+    var isCardio: Bool { durationSeconds != nil }
+
     init(id: UUID = UUID(), setId: UUID, exerciseId: UUID,
          reps: Int, weight: Double, loggedAt: Date = Date(), liftType: LiftType? = nil,
-         muscleRegion: MuscleRegion? = nil) {
+         muscleRegion: MuscleRegion? = nil,
+         durationSeconds: Int? = nil, distanceMeters: Double? = nil) {
         self.id = id
         self.setId = setId
         self.exerciseId = exerciseId
@@ -47,5 +60,7 @@ struct ActivityEvent: Identifiable, Codable, Hashable {
         self.loggedAt = loggedAt
         self.liftType = liftType
         self.muscleRegion = muscleRegion
+        self.durationSeconds = durationSeconds
+        self.distanceMeters = distanceMeters
     }
 }

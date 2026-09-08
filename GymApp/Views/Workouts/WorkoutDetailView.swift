@@ -43,9 +43,18 @@ private struct WorkoutEditor: View {
     // is in its editing shape. `notesFocused` drives the collapse — losing focus
     // (Done, tapping away, the toolbar's global dismiss) puts notes back to display.
     @State private var showingDatePicker = false
+    // Claude  Date 09/07/2026
+    // The user's distance unit — needed here only so the keyboard bar's distance stepper
+    // moves the value the user can actually see. Storage stays canonical meters.
+    @AppStorage(DistanceUnit.storageKey) private var distanceUnitRaw = DistanceUnit.miles.rawValue
+    private var distanceUnit: DistanceUnit { DistanceUnit(rawValue: distanceUnitRaw) ?? .miles }
     @State private var isEditingNotes = false
     @FocusState private var notesFocused: Bool
     @State private var showingExercisePicker = false
+    // Claude  Date 09/07/2026
+    // The one-time "what do you weigh?" sheet, raised from a cardio bout that has no
+    // calorie figure to show. Skippable — cardio works fine without it.
+    @State private var showingBodyweightPrompt = false
     // Claude  Date 06/18/2026
     // The library exercise being edited from a section's pencil (nil = none).
     @State private var editingExercise: Exercise?
@@ -254,7 +263,8 @@ private struct WorkoutEditor: View {
                     ExerciseLogSection(logged: $logged, accent: theme.current.accent,
                                        isPresetBacked: workout.presetID != nil,
                                        isFirst: workout.exercises.first?.id == logged.id,
-                                       focusedField: $focusedField) { exercise in
+                                       focusedField: $focusedField,
+                                       onNeedsBodyweight: { showingBodyweightPrompt = true }) { exercise in
                         logged.exerciseId = exercise.id
                         logged.targetRepRange = store.defaultRepRange(for: exercise.id)
                         logged.sets.removeAll()
@@ -282,6 +292,16 @@ private struct WorkoutEditor: View {
                                           accent: theme.current.accent,
                                           onEdit: { editingExercise = $0 })
                         .textCase(nil)
+                } footer: {
+                    // Claude  Date 09/07/2026
+                    // The soft guardrail. Naming the derived speed is the whole point — a
+                    // bare "implausible" wouldn't say which of the two fields was
+                    // fat-fingered. The bout still saves; it just earns no calories and no
+                    // ledger event. Same Section-footer idiom as NewExerciseView.brandFooter.
+                    if let warning = cardioWarning(for: logged) {
+                        Text(warning)
+                            .foregroundStyle(.orange)
+                    }
                 }
             }
 
@@ -451,6 +471,12 @@ private struct WorkoutEditor: View {
                     onDone: dismissKeyboardBar)
             }
         }
+        // Claude  Date 09/07/2026
+        // Hung on the editor, not on a bout row, so it survives that row being reordered or
+        // deleted out from under the presentation (same reasoning as the reorder sheet).
+        .sheet(isPresented: $showingBodyweightPrompt) {
+            BodyweightPromptView()
+        }
         .sheet(isPresented: $showingExercisePicker) {
             ExercisePickerView { exercise in
                 // Claude  Date 06/18/2026
@@ -588,9 +614,45 @@ private struct WorkoutEditor: View {
                 let updated = workout.exercises[exerciseIndex].sets[setIndex].weight + delta
                 workout.exercises[exerciseIndex].sets[setIndex].weight =
                     max(0, (updated * 100).rounded() / 100)
+            // Claude  Date 09/07/2026
+            // Both halves of a bout's time fold into the one durationSeconds, so a seconds
+            // step past 60 carries into the minute for free. Clamped to CardioPolicy's hard
+            // ceiling for the same reason reps and weight clamp at 0: there is no Save
+            // button on a set, so refusing an impossible value means bounding it.
+            case .durationMinutes:
+                adjustDuration(exerciseIndex, setIndex, bySeconds: Int(delta) * 60)
+            case .durationSeconds:
+                adjustDuration(exerciseIndex, setIndex, bySeconds: Int(delta))
+            case .distance:
+                // The step is in the user's DISPLAY unit; storage is canonical meters.
+                let current = workout.exercises[exerciseIndex].sets[setIndex].distanceMeters ?? 0
+                let updated = max(0, ((distanceUnit.fromMeters(current) + delta) * 100).rounded() / 100)
+                let meters = distanceUnit.toMeters(updated)
+                workout.exercises[exerciseIndex].sets[setIndex].distanceMeters = meters > 0 ? meters : nil
             }
             return
         }
+    }
+
+    // Claude  Date 09/07/2026
+    // The first implausible bout in this exercise, phrased for the user. nil for a lift, and
+    // nil when everything logged sits inside CardioPolicy's band.
+    private func cardioWarning(for logged: LoggedExercise) -> String? {
+        guard let machine = store.exercise(for: logged.exerciseId)?.cardioMachine else { return nil }
+        for set in logged.sets {
+            guard let seconds = set.durationSeconds else { continue }
+            if let warning = CardioPolicy.warning(machine: machine, seconds: seconds,
+                                                  meters: set.distanceMeters, unit: distanceUnit) {
+                return warning
+            }
+        }
+        return nil
+    }
+
+    private func adjustDuration(_ exerciseIndex: Int, _ setIndex: Int, bySeconds delta: Int) {
+        let current = workout.exercises[exerciseIndex].sets[setIndex].durationSeconds ?? 0
+        workout.exercises[exerciseIndex].sets[setIndex].durationSeconds =
+            min(max(0, current + delta), CardioPolicy.hardMaxSeconds)
     }
 }
 
@@ -617,8 +679,17 @@ private struct ExerciseLogSection: View {
     // The editor's set-field focus, passed straight through to each SetRow so the
     // keyboard accessory bar knows which value it's stepping.
     @FocusState.Binding var focusedField: SetEntryField?
+    // Claude  Date 09/07/2026
+    // Raised when a bout can't show calories because no bodyweight is on file.
+    let onNeedsBodyweight: () -> Void
     let onSwap: (Exercise) -> Void
     let onRemove: () -> Void
+
+    // Claude  Date 09/07/2026
+    // The user's distance unit. Storage is canonical meters; this converts at the edge only,
+    // so flipping the setting never rewrites a logged bout.
+    @AppStorage(DistanceUnit.storageKey) private var distanceUnitRaw = DistanceUnit.miles.rawValue
+    private var distanceUnit: DistanceUnit { DistanceUnit(rawValue: distanceUnitRaw) ?? .miles }
 
     // Claude  Date 07/19/2026
     // Drives the exercise picker opened by the row's "Swap" button.
@@ -634,7 +705,10 @@ private struct ExerciseLogSection: View {
     @AppStorage("hasSeenSetSwipeHint") private var hasSeenSetSwipeHint = false
 
     var body: some View {
-        RepRangeRow(targetRepRange: $logged.targetRepRange)
+        // Claude  Date 09/07/2026 — a bout has no reps, so no range to aim at.
+        if !isCardio {
+            RepRangeRow(targetRepRange: $logged.targetRepRange)
+        }
 
         // Claude  Date 08/04/2026 last changed: 08/11/2026 by: Claude
         // Two note tiers: the perma note on the lift itself and the session note — a
@@ -672,7 +746,10 @@ private struct ExerciseLogSection: View {
         // Claude  Date 07/01/2026
         // Adaptive-preset weight suggestion for this session (from AppStore.workout(from:)).
         // Purely informational + seeds the first added set; the value stays fully editable.
-        if let adaptive = logged.adaptive {
+        // Claude  Date 09/07/2026 — `!isCardio` guards a stale suggestion on a workout
+        // whose lift was later swapped to cardio; AppStore.adaptiveSuggestion already
+        // refuses to make a new one, since a bout has no working weight to progress.
+        if let adaptive = logged.adaptive, !isCardio {
             AdaptiveHintRow(suggestion: adaptive, accent: accent)
         }
 
@@ -680,13 +757,7 @@ private struct ExerciseLogSection: View {
         // Keyed by the set's own id, not its position: a reorder has to animate as a row
         // MOVING, and index identity animates it as two rows swapping their contents.
         ForEach(Array(logged.sets.enumerated()), id: \.element.id) { index, _ in
-            SetRow(number: setNumber(at: index),
-                   sideLabel: logged.sets[index].side?.title,
-                   lagsBehind: lagsBehind(at: index),
-                   isBodyweight: isBodyweight,
-                   set: $logged.sets[index],
-                   targetRange: logged.targetRepRange, accent: accent,
-                   focusedField: $focusedField)
+            entryRow(at: index)
                 // Claude  Date 09/01/2026
                 // Swipe RIGHT to check a set off — full swipe finishes it in one flick,
                 // swiping again undoes it. This replaced the ~17pt checkmark button that
@@ -753,14 +824,21 @@ private struct ExerciseLogSection: View {
         Button {
             addSet()
         } label: {
-            Label("Add Set", systemImage: "plus.circle")
+            Label(isCardio ? "Add Bout" : "Add Set", systemImage: "plus.circle")
         }
         // Claude  Date 09/01/2026
         // Hung here rather than on a set row so it survives that row being reordered out
         // from under the presentation (and so only one sheet exists per exercise).
         .sheet(isPresented: $showingReorderSets) {
-            ReorderExercisesSheet(title: "Reorder Sets", items: setGroups) { group in
+            ReorderExercisesSheet(title: isCardio ? "Reorder Bouts" : "Reorder Sets",
+                                  items: setGroups) { group in
                 let first = group.sets[0]
+                // Claude  Date 09/07/2026 — a bout has no reps or load; without this branch
+                // every cardio row in the sheet would read "0 reps × 0 lb".
+                if let seconds = first.durationSeconds {
+                    return CardioFormat.summary(seconds: seconds, meters: first.distanceMeters,
+                                                unit: distanceUnit)
+                }
                 let sides = group.sets.count > 1 ? " · L/R" : ""
                 return "\(first.reps) reps × \(SetFormat.weight(first.weight)) lb\(sides)"
             }
@@ -797,10 +875,54 @@ private struct ExerciseLogSection: View {
         store.exercise(for: logged.exerciseId)?.isBodyweight ?? false
     }
 
+    // Claude  Date 09/07/2026
+    // The cardio machine behind this entry, and the one gate on cardio behavior: non-nil
+    // means log duration + distance instead of reps x weight.
+    private var cardioMachine: CardioMachine? {
+        store.exercise(for: logged.exerciseId)?.cardioMachine
+    }
+    private var isCardio: Bool { cardioMachine != nil }
+
+    // Claude  Date 09/07/2026
+    // One logged entry: a bout row for cardio, a set row otherwise. Split out so the
+    // swipe-to-complete, swipe-to-delete and long-press-to-reorder modifiers in the
+    // ForEach above apply identically to both — all three act on `logged.sets` either way.
+    @ViewBuilder
+    private func entryRow(at index: Int) -> some View {
+        if let machine = cardioMachine {
+            CardioBoutRow(number: setNumber(at: index),
+                          machine: machine,
+                          showsNumber: logged.sets.count > 1,
+                          set: $logged.sets[index],
+                          accent: accent,
+                          unit: distanceUnit,
+                          bodyweightLb: store.profile.bodyweightLb,
+                          focusedField: $focusedField,
+                          onMissingBodyweight: onNeedsBodyweight)
+        } else {
+            SetRow(number: setNumber(at: index),
+                   sideLabel: logged.sets[index].side?.title,
+                   lagsBehind: lagsBehind(at: index),
+                   isBodyweight: isBodyweight,
+                   set: $logged.sets[index],
+                   targetRange: logged.targetRepRange, accent: accent,
+                   focusedField: $focusedField)
+        }
+    }
+
     /// Adds a set, defaulting to the previous set's reps/weight (or the low end of
     /// the target rep range) for fast entry. Unilateral exercises add a matched
     /// Left+Right pair so each logical set covers both sides.
     private func addSet() {
+        // Claude  Date 09/07/2026
+        // A bout carries reps 0 / weight 0 — that is precisely what keeps it out of every
+        // volume, PR and 1RM sum without those sites needing a cardio branch of their own.
+        // Duration seeds from the previous bout, or 20 minutes for the first.
+        if isCardio {
+            let seconds = logged.sets.last?.durationSeconds ?? 20 * 60
+            logged.sets.append(ExerciseSet(reps: 0, weight: 0, durationSeconds: seconds))
+            return
+        }
         let last = logged.sets.last
         let defaultReps = last?.reps
             ?? logged.targetRepRange.map { Swift.min($0.min, $0.max) }
@@ -884,6 +1006,18 @@ private struct ExerciseLogSection: View {
     private func toggleComplete(at index: Int) {
         guard logged.sets.indices.contains(index) else { return }
         let completing = !isCompleted(at: index)
+        // Claude  Date 09/07/2026
+        // The hard tier's last line of defence: a bout past the physically-possible ceiling
+        // cannot be checked off at all, so it can never reach finishWorkout's ledger mint.
+        // This catches the one order the input clamp can't — distance typed BEFORE the time,
+        // where there was no duration to clamp the distance against yet.
+        if completing, let machine = cardioMachine,
+           let seconds = logged.sets[index].durationSeconds,
+           !CardioPolicy.isWithinHardLimits(machine: machine, seconds: seconds,
+                                            meters: logged.sets[index].distanceMeters) {
+            Haptics.soften()
+            return
+        }
         // Three textures, so the gesture tells you WHICH thing happened without looking:
         // the last open set of the lift celebrates, any other set succeeds, undo is soft.
         if !completing {
@@ -1063,34 +1197,9 @@ private struct SetRow: View {
     // keyword (the binding is named `set`).
     private var isCompleted: Bool { self.set.completedAt != nil }
 
-    // Claude  Date 09/01/2026
-    // Transient overshoot on the completion mark: snap up, spring back. Purely visual —
-    // it is driven off isCompleted below and never persists.
-    @State private var pop: CGFloat = 1
-
     var body: some View {
         HStack {
-            // Claude  Date 06/14/2026 last changed: 09/01/2026 by: Claude
-            // One indicator slot, two meanings: the rep-range mark while the set is open,
-            // a filled check once it's done. Pure STATE — nothing here is tappable now
-            // that completion is a leading swipe (wired up in ExerciseLogSection). The
-            // range signal survives completion via the reps field's own tint below.
-            ZStack {
-                if isCompleted {
-                    Image(systemName: "checkmark.circle.fill")
-                        .imageScale(.small)
-                        .foregroundStyle(accent)
-                        // Grows in from a dot, so it reads as the mark BECOMING a check.
-                        .transition(.scale(scale: 0.3).combined(with: .opacity))
-                } else {
-                    Circle()
-                        .fill(markColor ?? .clear)
-                        .frame(width: 8, height: 8)
-                        .transition(.scale.combined(with: .opacity))
-                }
-            }
-            .frame(width: 18)
-            .scaleEffect(pop)
+            CompletionMark(isCompleted: isCompleted, markColor: markColor, accent: accent)
 
             // Claude  Date 06/14/2026
             // Set number, with the Left/Right side beneath it for unilateral sets.
@@ -1147,30 +1256,11 @@ private struct SetRow: View {
             Text("lb")
                 .foregroundStyle(.secondary)
         }
-        // Claude  Date 09/01/2026
-        // A finished set needs to read as finished at a glance now that no glyph toggles:
-        // an accent wash behind the row plus a lighter dim than the old 0.6. Drawn INSIDE
-        // the cell (not .listRowBackground) so the theme's own row fill is left alone, and
-        // as an opacity change so it cross-fades instead of popping.
-        .opacity(isCompleted ? 0.75 : 1)
-        .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(accent.opacity(isCompleted ? 0.12 : 0))
-                .padding(.horizontal, -6)
-                .padding(.vertical, -4)
-                // Claude  Date 09/01/2026 — deliberately NOT the row's spring: the wash
-                // settles calmly underneath while the check overshoots on top of it.
-                .animation(.easeOut(duration: 0.3), value: isCompleted)
-        )
+        .completedSetStyling(isCompleted: isCompleted, accent: accent)
         // Swipe actions reach VoiceOver through the Actions rotor on their own, but the
         // row still has to say which state it is in.
         .accessibilityElement(children: .contain)
         .accessibilityValue(isCompleted ? "Completed" : "Not completed")
-        .onChange(of: isCompleted) { done in
-            guard done else { return }
-            pop = 1.45
-            withAnimation(.spring(response: 0.45, dampingFraction: 0.5)) { pop = 1 }
-        }
     }
 
     // Claude  Date 06/09/2026
@@ -1183,6 +1273,216 @@ private struct SetRow: View {
         if set.reps < low { return .red }
         if set.reps > high { return .yellow }
         return .green
+    }
+}
+
+// Claude  Date 09/07/2026
+// The completion indicator, lifted out of SetRow so a cardio bout shows the identical
+// mark. One slot, two meanings: the rep-range dot while the entry is open, a filled check
+// once it's done, with the overshoot that makes finishing feel physical. Nothing here is
+// tappable — completion is a leading swipe, wired up in ExerciseLogSection.
+private struct CompletionMark: View {
+    let isCompleted: Bool
+    var markColor: Color? = nil
+    let accent: Color
+
+    @State private var pop: CGFloat = 1
+
+    var body: some View {
+        ZStack {
+            if isCompleted {
+                Image(systemName: "checkmark.circle.fill")
+                    .imageScale(.small)
+                    .foregroundStyle(accent)
+                    // Grows in from a dot, so it reads as the mark BECOMING a check.
+                    .transition(.scale(scale: 0.3).combined(with: .opacity))
+            } else {
+                Circle()
+                    .fill(markColor ?? .clear)
+                    .frame(width: 8, height: 8)
+                    .transition(.scale.combined(with: .opacity))
+            }
+        }
+        .frame(width: 18)
+        .scaleEffect(pop)
+        .onChange(of: isCompleted) { done in
+            guard done else { return }
+            pop = 1.45
+            withAnimation(.spring(response: 0.45, dampingFraction: 0.5)) { pop = 1 }
+        }
+    }
+}
+
+// Claude  Date 09/07/2026
+// The "this row is finished" treatment, lifted out of SetRow for the same reason: an accent
+// wash drawn INSIDE the cell (not .listRowBackground, which would replace the theme's own
+// row fill) plus a light dim, animated so it cross-fades instead of popping.
+private extension View {
+    func completedSetStyling(isCompleted: Bool, accent: Color) -> some View {
+        self
+            .opacity(isCompleted ? 0.75 : 1)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(accent.opacity(isCompleted ? 0.12 : 0))
+                    .padding(.horizontal, -6)
+                    .padding(.vertical, -4)
+                    // Deliberately NOT the row's spring: the wash settles calmly underneath
+                    // while the check overshoots on top of it.
+                    .animation(.easeOut(duration: 0.3), value: isCompleted)
+            )
+    }
+}
+
+// Claude  Date 09/07/2026
+// One editable cardio bout — the cardio sibling of SetRow, not a variant of it: SetRow's
+// 18/54/48/64pt columns were sized for exactly two fields and cannot absorb time, distance,
+// pace and calories. Two lines instead:
+//
+//     [mark]  Bout 1          [ 25 ] min  [ 30 ] sec
+//             [ 3.10 ] mi  ·  8:03 /mi  ·  ~310 kcal (est.)
+//
+// Minutes and seconds both write the one durationSeconds, so typing 90 into seconds carries
+// into the minute by itself. Distance is edited in the user's unit and stored in meters.
+// Calories are an ESTIMATE and always say so; with no bodyweight on file they are replaced
+// by the prompt to add one, never by a guessed number.
+private struct CardioBoutRow: View {
+    let number: Int
+    let machine: CardioMachine
+    /// False when the exercise has a single bout, where "Bout 1" is just noise.
+    let showsNumber: Bool
+    @Binding var set: ExerciseSet
+    let accent: Color
+    let unit: DistanceUnit
+    let bodyweightLb: Double?
+    @FocusState.Binding var focusedField: SetEntryField?
+    let onMissingBodyweight: () -> Void
+
+    // `self.` is required throughout: a leading `set` in an accessor body reads as the
+    // setter keyword, since the binding is named `set` (same note as SetRow).
+    private var isCompleted: Bool { self.set.completedAt != nil }
+    private var seconds: Int { self.set.durationSeconds ?? 0 }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 4) {
+                CompletionMark(isCompleted: isCompleted, accent: accent)
+
+                Text(showsNumber ? "Bout \(number)" : "")
+                    .foregroundStyle(.secondary)
+                    .contentTransition(.numericText())
+                    .animation(.easeInOut(duration: 0.25), value: number)
+                    .lineLimit(1)
+                    .frame(width: 54, alignment: .leading)
+
+                Spacer(minLength: 0)
+
+                TextField("0", value: minutesBinding, format: .number)
+                    .keyboardType(.numberPad)
+                    .multilineTextAlignment(.trailing)
+                    .frame(width: 40)
+                    .focused($focusedField, equals: .durationMinutes(self.set.id))
+                Text("min").foregroundStyle(.secondary)
+
+                TextField("0", value: secondsBinding, format: .number)
+                    .keyboardType(.numberPad)
+                    .multilineTextAlignment(.trailing)
+                    .frame(width: 34)
+                    .focused($focusedField, equals: .durationSeconds(self.set.id))
+                Text("sec").foregroundStyle(.secondary)
+            }
+
+            HStack(spacing: 6) {
+                if machine.supportsDistance {
+                    TextField("0", value: distanceBinding, format: .number)
+                        .keyboardType(.decimalPad)
+                        .multilineTextAlignment(.trailing)
+                        .frame(width: 56)
+                        .focused($focusedField, equals: .distance(self.set.id))
+                    Text(unit.abbreviation).foregroundStyle(.secondary)
+                }
+                if let pace = CardioFormat.pace(machine: machine, seconds: seconds,
+                                                meters: self.set.distanceMeters, unit: unit) {
+                    Text("·").foregroundStyle(.tertiary)
+                    Text(pace).foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+                caloriesLabel
+            }
+            .font(.footnote)
+            // Line up under the first line's content rather than under its mark.
+            .padding(.leading, 22)
+        }
+        .completedSetStyling(isCompleted: isCompleted, accent: accent)
+        .accessibilityElement(children: .contain)
+        .accessibilityValue(isCompleted ? "Completed" : "Not completed")
+        // Claude  Date 09/07/2026
+        // Re-clamp on BLUR, not on every keystroke. Clamping distance while the duration is
+        // half-typed ("3" of "30") would eat a legitimate distance, and typing the distance
+        // first and the time second is the order the in-setter clamp below can't catch.
+        .onChange(of: focusedField) { field in
+            guard field?.setID != self.set.id else { return }
+            clampDistance()
+        }
+    }
+
+    // Claude  Date 09/07/2026
+    // The calorie slot, which is never allowed to show a number it can't stand behind:
+    // an estimate when there's a bodyweight and the bout is plausible (CardioPolicy.calories
+    // returns nil otherwise), and the one-tap prompt to add a weight when that's what's
+    // missing. An implausible bout shows neither — its Section footer explains why.
+    @ViewBuilder
+    private var caloriesLabel: some View {
+        if let kcal = CardioPolicy.calories(machine: machine, seconds: seconds,
+                                            meters: self.set.distanceMeters,
+                                            bodyweightLb: bodyweightLb) {
+            Text(CardioFormat.calories(kcal))
+                .foregroundStyle(.secondary)
+        } else if bodyweightLb == nil, seconds > 0 {
+            Button(action: onMissingBodyweight) {
+                Text("Add your weight for calories")
+                    .foregroundStyle(accent)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    // MARK: - Bindings
+
+    private var minutesBinding: Binding<Int> {
+        Binding(get: { seconds / 60 },
+                set: { setDuration($0 * 60 + seconds % 60) })
+    }
+
+    /// Not clamped to 0–59 on purpose: typing 90 here reads back as +1 min 30 sec, which is
+    /// what someone entering "1:90" from a machine display means.
+    private var secondsBinding: Binding<Int> {
+        Binding(get: { seconds % 60 },
+                set: { setDuration((seconds / 60) * 60 + $0) })
+    }
+
+    /// Edited in the user's unit, stored in meters. 0 reads back as "no distance logged".
+    private var distanceBinding: Binding<Double> {
+        Binding(get: { unit.fromMeters(self.set.distanceMeters ?? 0) },
+                set: { newValue in
+                    let meters = unit.toMeters(Swift.max(0, newValue))
+                    self.set.distanceMeters = meters > 0 ? meters : nil
+                    clampDistance()
+                })
+    }
+
+    private func setDuration(_ value: Int) {
+        self.set.durationSeconds = Swift.min(Swift.max(0, value), CardioPolicy.hardMaxSeconds)
+    }
+
+    // Claude  Date 09/07/2026
+    // The hard ceiling, applied as a clamp. A bout has no Save button — every keystroke
+    // persists straight through the workout binding — so refusing an impossible distance
+    // means bounding it, the same idiom adjustFocusedField uses to clamp reps at 0.
+    private func clampDistance() {
+        guard let meters = self.set.distanceMeters, meters > 0,
+              let ceiling = CardioPolicy.maxAllowedMeters(machine: machine, seconds: seconds),
+              meters > ceiling else { return }
+        self.set.distanceMeters = ceiling
     }
 }
 

@@ -10,10 +10,26 @@ import UIKit
 enum SetEntryField: Hashable {
     case reps(UUID)
     case weight(UUID)
+    // Claude  Date 09/07/2026
+    // The three cardio-bout fields. A bout is entered as minutes + seconds rather than one
+    // number, so each half focuses separately and gets its own steppers below.
+    case durationMinutes(UUID)
+    case durationSeconds(UUID)
+    case distance(UUID)
 
     var setID: UUID {
         switch self {
-        case .reps(let id), .weight(let id): return id
+        case .reps(let id), .weight(let id),
+             .durationMinutes(let id), .durationSeconds(let id), .distance(let id):
+            return id
+        }
+    }
+
+    /// Whether this field belongs to a cardio bout (so the bar steps time/distance).
+    var isCardio: Bool {
+        switch self {
+        case .durationMinutes, .durationSeconds, .distance: return true
+        case .reps, .weight:                                return false
         }
     }
 }
@@ -42,6 +58,13 @@ enum SetEntryField: Hashable {
 struct SetEntryAccessoryBar: View {
     let field: SetEntryField?
     let accent: Color
+    // Claude  Date 09/07/2026
+    // Read here rather than passed in, matching how the water views resolve their unit:
+    // only the distance steppers' VoiceOver labels need it.
+    @AppStorage(DistanceUnit.storageKey) private var distanceUnitRaw = DistanceUnit.miles.rawValue
+    private var distanceUnit: DistanceUnit {
+        DistanceUnit(rawValue: distanceUnitRaw) ?? .miles
+    }
     let onAdjust: (Double) -> Void
     let onDone: () -> Void
 
@@ -49,11 +72,18 @@ struct SetEntryAccessoryBar: View {
     // Plate-friendly jumps for weight (a pair of 1.25s is the smallest change most racks
     // allow) and single reps for the rep field. Ordered negative → positive so the row
     // reads like a number line.
+    // Claude  Date 09/07/2026
+    // Cardio jumps: 5- and 1-minute blocks, quarter- and twelfth-of-a-minute seconds, and
+    // tenths/halves of the user's distance unit. All four keys wide, like the weight row —
+    // the bar's fixed width already assumes four is the maximum.
     private var steps: [Double] {
         switch field {
-        case .reps:   return [-1, 1]
-        case .weight: return [-5, -2.5, 2.5, 5]
-        case nil:     return []
+        case .reps:            return [-1, 1]
+        case .weight:          return [-5, -2.5, 2.5, 5]
+        case .durationMinutes: return [-5, -1, 1, 5]
+        case .durationSeconds: return [-15, -5, 5, 15]
+        case .distance:        return [-0.5, -0.1, 0.1, 0.5]
+        case nil:              return []
         }
     }
 
@@ -164,9 +194,14 @@ struct SetEntryAccessoryBar: View {
     private func accessibilityLabel(for step: Double) -> String {
         let unit: String
         switch field {
-        case .reps:   unit = abs(step) == 1 ? "rep" : "reps"
-        case .weight: unit = "pounds"
-        case nil:     unit = ""
+        case .reps:            unit = abs(step) == 1 ? "rep" : "reps"
+        case .weight:          unit = "pounds"
+        case .durationMinutes: unit = abs(step) == 1 ? "minute" : "minutes"
+        case .durationSeconds: unit = "seconds"
+        // Claude  Date 09/07/2026 — the distance stepper works in whatever unit the user
+        // picked, so VoiceOver has to name that unit rather than assume miles.
+        case .distance:        unit = distanceUnit.abbreviation
+        case nil:              unit = ""
         }
         let verb = step < 0 ? "Decrease" : "Increase"
         return "\(verb) by \(label(for: step).dropFirst()) \(unit)"

@@ -24,6 +24,11 @@ struct SettingsView: View {
     // conversion only — everything stays stored in ml.
     @AppStorage(WaterUnit.storageKey) private var waterUnitRaw = WaterUnit.milliliters.rawValue
     @AppStorage(WaterTracking.storageKey) private var trackWater = WaterTracking.defaultValue
+    // Claude  Date 09/07/2026
+    // Cardio display settings. The distance unit is a plain @AppStorage like the water one;
+    // the bodyweight lives on UserProfile instead, because it's personal data covered by the
+    // privacy contract rather than a display preference.
+    @AppStorage(DistanceUnit.storageKey) private var distanceUnitRaw = DistanceUnit.miles.rawValue
     // Claude  Date 07/14/2026
     // For "Replay app tour": Settings is pushed on the Profile stack, so pop back
     // first — the tour spotlights root-level chrome (ModeNotch, tab bar) that a
@@ -34,6 +39,25 @@ struct SettingsView: View {
     // have no trigger of their own yet, so this is the only way to look at them.
     @State private var showReviewAsk = false
     @State private var showNotificationAsk = false
+    // Claude  Date 09/06/2026
+    // Gates the "are you sure" alert before Friends → Ghost, which schedules a
+    // permanent server-side wipe of the shared card + friends graph.
+    @State private var showGhostModeConfirm = false
+    // Claude  Date 09/06/2026
+    // Delete Account is a two-step gate: a warning alert, then a second alert that
+    // only proceeds if the user literally types DELETE (mismatch → the third alert).
+    // `isDeleting` blocks a second tap while the teardown is in flight.
+    @State private var showDeleteAccountWarning = false
+    @State private var showDeleteAccountConfirm = false
+    @State private var showDeleteMismatch = false
+    @State private var deleteConfirmText = ""
+    @State private var isDeleting = false
+
+    // Claude  Date 09/06/2026
+    // The Danger section's colour. Deliberately the system red rather than
+    // theme.current.accent — a destructive zone must look destructive in every theme,
+    // including the ones whose accent IS red-ish or whose accent is a soft pastel.
+    private static let danger = Color.red
 
     var body: some View {
         List {
@@ -100,15 +124,12 @@ struct SettingsView: View {
                 Text("Shows the full-screen rest timer as an analog stopwatch face instead of the progress ring.")
             }
 
-            // Claude  Date 06/18/2026 last changed: 07/23/2026 by: Claude
-            // Ghost Mode: the single switch for where data lives. ON keeps everything
-            // on-device; OFF opts into Friends (share just the profile card, get a
-            // friend code, look up a friend's card). The footer states the privacy
-            // contract. (Reframed from the old "Friends mode" toggle so the control
-            // name matches the Ghost Mode feature used everywhere else.)
+            // Claude  Date 06/18/2026 last changed: 09/06/2026 by: Claude
+            // Friends: the non-destructive half of the old Ghost Mode section — your
+            // shareable code and the friends manager. The switch itself moved to the
+            // Danger section at the bottom (09/06), because flipping it schedules a
+            // permanent server-side wipe and doesn't belong next to a copy button.
             Section {
-                Toggle("Ghost Mode", isOn: ghostModeBinding)
-
                 if store.profile.dataMode == .friends, let code = cardSync.myFriendCode {
                     HStack(spacing: 12) {
                         VStack(alignment: .leading, spacing: 2) {
@@ -138,9 +159,11 @@ struct SettingsView: View {
                     Label("Manage friends", systemImage: "person.2")
                 }
             } header: {
-                Text("Ghost Mode")
+                Text("Friends")
             } footer: {
-                Text("Ghost Mode keeps everything on this device — no friends, no sharing. Turn it off to enable Friends, which shares only your profile card: display name, card style, equipped rank, and featured badges. Your workouts, nutrition, water, and everything else still never leave this device. Turning Ghost Mode back on deletes your shared card.")
+                Text(store.profile.dataMode == .friends
+                     ? "Friends shares only your profile card: display name, card style, equipped rank, and featured badges. Your workouts, nutrition, water, and everything else never leave this device. The Ghost Mode switch is in Danger, at the bottom of this screen."
+                     : "Ghost Mode is on, so nothing is shared and you can't add friends. The switch to turn it off is in Danger, at the bottom of this screen.")
             }
 
             // Claude  Date 06/18/2026 last changed: 07/23/2026 by: Claude
@@ -179,6 +202,32 @@ struct SettingsView: View {
                 Text(trackWater
                      ? "Used wherever water amounts appear — the diary tracker and your daily goal. Logged water is stored in milliliters, so switching units never changes your history."
                      : "The water tracker is hidden from your journal. Anything you've already logged is kept, and turning this back on brings it right back.")
+            }
+
+            // Claude  Date 09/07/2026
+            // Cardio: the bodyweight the MET calorie estimate needs, and the display unit
+            // for distance. Both are display/estimate inputs only — logged bouts are stored
+            // as seconds and canonical meters, so flipping the unit never rewrites history.
+            Section {
+                HStack {
+                    Text("Bodyweight")
+                    Spacer()
+                    TextField("Optional", text: bodyweightText)
+                        .keyboardType(.decimalPad)
+                        .multilineTextAlignment(.trailing)
+                        .frame(width: 80)
+                    Text("lb").foregroundStyle(.secondary)
+                }
+                Picker("Distance", selection: $distanceUnitRaw) {
+                    ForEach(DistanceUnit.allCases) { unit in
+                        Text(unit.label).tag(unit.rawValue)
+                    }
+                }
+                .retintOnThemeChange(theme.current, salt: "distanceUnits")
+            } header: {
+                Text("Cardio")
+            } footer: {
+                Text("Your weight is only used to estimate calories burned on cardio machines. It stays on this device — it is never synced, shared, or sent with your profile card. Leave it blank and cardio still tracks time and distance; you just won't see a calorie estimate.")
             }
 
             // Claude  Date 07/14/2026
@@ -357,6 +406,8 @@ struct SettingsView: View {
                 Text("Previews the two full-screen ask pages. These fire the real actions: \"Leave a review\" calls Apple's review prompt (which is rate-limited and usually shows nothing), and \"Turn on notifications\" triggers the iOS permission dialog — which iOS only ever shows once per install, so after the first time the notification page will show its already-granted or denied state instead.")
             }
             #endif
+
+            dangerSection
         }
         .navigationTitle("Settings")
         .themed(theme.current)
@@ -366,6 +417,124 @@ struct SettingsView: View {
         // conditional means the release build still compiles the ask pages.
         .reviewAsk(isPresented: $showReviewAsk)
         .notificationAsk(isPresented: $showNotificationAsk)
+        // Claude  Date 09/06/2026
+        // Confirm before Friends → Ghost. The switch doesn't flip until "Turn on
+        // Ghost Mode" is tapped (see ghostModeBinding); the actual server wipe is
+        // still deferred 24h by CardSyncService so this is undoable even after.
+        .alert("Turn on Ghost Mode?", isPresented: $showGhostModeConfirm) {
+            Button("Turn on Ghost Mode", role: .destructive) {
+                store.profile.dataMode = .ghost
+                cardSync.handleModeChange(to: .ghost, store: store)
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("This permanently deletes your shared card, friend code, and friends list from the server. Nothing on this device is touched.\n\nYou have 24 hours to undo it: turn Ghost Mode back off within a day and everything is restored. After that it's gone for good and can't be recovered.")
+        }
+        // Claude  Date 09/06/2026
+        // Delete Account, step 1: spell out the blast radius. "Continue" only opens
+        // the typing gate below — nothing is destroyed until DELETE is typed.
+        .alert("Delete Account?", isPresented: $showDeleteAccountWarning) {
+            Button("Cancel", role: .cancel) { }
+            Button("Continue", role: .destructive) {
+                deleteConfirmText = ""
+                showDeleteAccountConfirm = true
+            }
+        } message: {
+            Text("This erases everything, immediately and permanently:\n\n• Your account, shared card, friend code, and friends list on the server\n• Every workout, exercise, meal, water and supplement log on this device\n• Every badge, rank and theme you've unlocked\n• Your entire coin balance, including coins you purchased\n\nThere is no undo and no grace period. Agil will restart at the welcome screen.")
+        }
+        // Claude  Date 09/06/2026
+        // Step 2: the typing gate. Alert buttons can't be reactively disabled from a
+        // TextField's contents, so the button always fires and checks the text itself
+        // — a mismatch falls through to the retry alert rather than deleting anything.
+        .alert("Type DELETE to confirm", isPresented: $showDeleteAccountConfirm) {
+            TextField("DELETE", text: $deleteConfirmText)
+                .textInputAutocapitalization(.characters)
+                .autocorrectionDisabled()
+            Button("Cancel", role: .cancel) { deleteConfirmText = "" }
+            Button("Delete Everything", role: .destructive) {
+                let matched = deleteConfirmText
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .uppercased() == "DELETE"
+                deleteConfirmText = ""
+                if matched { runAccountDeletion() } else { showDeleteMismatch = true }
+            }
+        } message: {
+            Text("Last step. Type DELETE in the field above to erase your account and all of your data.")
+        }
+        // Claude  Date 09/06/2026
+        // Step 2 failed the text check. Nothing was deleted; offer another go.
+        .alert("That didn't match", isPresented: $showDeleteMismatch) {
+            Button("Cancel", role: .cancel) { }
+            Button("Try again") { showDeleteAccountConfirm = true }
+        } message: {
+            Text("Nothing has been deleted. You have to type DELETE exactly to confirm.")
+        }
+    }
+
+    // Claude  Date 09/06/2026
+    // The Danger zone, pinned to the very bottom of Settings: the two controls that
+    // destroy data the user can't get back. Tinted with a fixed red (see `danger`)
+    // and given a red leading edge on every row so it reads as a hazard band in any
+    // theme, over the theme's own surface colour rather than instead of it.
+    private var dangerSection: some View {
+        Section {
+            Toggle("Ghost Mode", isOn: ghostModeBinding)
+
+            // The 24h undo window is open: the server copy hasn't been deleted yet.
+            // Spell out the deadline and how to reverse it.
+            if let due = cardSync.pendingCardDeletionDate {
+                VStack(alignment: .leading, spacing: 4) {
+                    Label("Server data deletion scheduled", systemImage: "clock.badge.exclamationmark")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Self.danger)
+                    Text("Your shared card, friend code, and friends list will be permanently deleted on \(due.formatted(date: .abbreviated, time: .shortened)). Turn Ghost Mode off before then to cancel and keep everything.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Button {
+                showDeleteAccountWarning = true
+            } label: {
+                HStack {
+                    Label("Delete Account", systemImage: "trash")
+                        .foregroundStyle(Self.danger)
+                    if isDeleting {
+                        Spacer()
+                        ProgressView()
+                    }
+                }
+            }
+            .disabled(isDeleting)
+        } header: {
+            Text("Danger")
+                .foregroundStyle(Self.danger)
+        } footer: {
+            Text("Ghost Mode keeps everything on this device — no friends, no sharing. Turning it on deletes your shared card and friends list from the server, with 24 hours to undo it.\n\nDelete Account erases everything, everywhere, straight away: your account on the server, every workout, meal and badge on this device, and every coin — including coins you paid for. It cannot be undone.")
+        }
+        // Fixed red regardless of the equipped theme: tints the switch and the
+        // ProgressView, and paints the hazard band over the theme's surface.
+        .tint(Self.danger)
+        .listRowBackground(
+            theme.current.surface
+                .overlay(Self.danger.opacity(0.10))
+                .overlay(alignment: .leading) {
+                    Rectangle().fill(Self.danger).frame(width: 3)
+                }
+        )
+    }
+
+    // Claude  Date 09/06/2026
+    // Step 3 of Delete Account (the typed DELETE matched). Runs the full teardown,
+    // then pops Settings — RootTabView re-presents onboarding on its own once
+    // profile.hasOnboarded goes false.
+    private func runAccountDeletion() {
+        isDeleting = true
+        Task { @MainActor in
+            await AccountDeletion.eraseEverything(store: store, theme: theme, cardSync: cardSync)
+            isDeleting = false
+            dismiss()
+        }
     }
 
     // Claude  Date 06/18/2026
@@ -379,9 +548,19 @@ struct SettingsView: View {
         Binding(
             get: { store.profile.dataMode == .ghost },
             set: { isOn in
-                let mode: DataMode = isOn ? .ghost : .friends
-                store.profile.dataMode = mode
-                cardSync.handleModeChange(to: mode, store: store)
+                if isOn {
+                    // Friends → Ghost is destructive (schedules a server-side wipe).
+                    // Route through the confirm alert and leave the mode untouched
+                    // until they agree — the toggle snaps back on its own meanwhile.
+                    if store.profile.dataMode == .friends {
+                        showGhostModeConfirm = true
+                    }
+                } else {
+                    // Ghost → Friends (incl. cancelling a pending deletion): safe,
+                    // apply immediately.
+                    store.profile.dataMode = .friends
+                    cardSync.handleModeChange(to: .friends, store: store)
+                }
             }
         )
     }
@@ -391,6 +570,26 @@ struct SettingsView: View {
     // re-evaluates achievements against the newly selected catalog (announce: false —
     // flipping a picker shouldn't fire a celebration wall). Unlocks are sticky, so
     // switching identities never removes an earned badge.
+    // Claude  Date 09/07/2026
+    // Drives the Cardio bodyweight field. A String binding rather than a numeric one so the
+    // field can be genuinely EMPTY — this value is optional, and an empty box is the honest
+    // rendering of "not given", where a numeric binding would sit at 0. Blank writes back
+    // nil, which is what hides every calorie estimate instead of showing a 0 kcal one.
+    // Clamped at 1500 lb: past the heaviest human on record, so it rejects a fat-fingered
+    // extra digit without ever standing in a real user's way.
+    private var bodyweightText: Binding<String> {
+        Binding(
+            get: {
+                guard let lb = store.profile.bodyweightLb, lb > 0 else { return "" }
+                return lb.truncatingRemainder(dividingBy: 1) == 0 ? String(Int(lb)) : String(lb)
+            },
+            set: { text in
+                let value = Double(text.filter { $0.isNumber || $0 == "." }) ?? 0
+                store.profile.bodyweightLb = value > 0 ? Swift.min(value, 1_500) : nil
+            }
+        )
+    }
+
     private var identityBinding: Binding<Gender> {
         Binding(
             get: { store.profile.gender },

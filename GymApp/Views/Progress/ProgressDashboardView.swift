@@ -476,8 +476,11 @@ struct ProgressDashboardView: View {
         var counts: [String: Int] = [:]
         for workout in filteredWorkouts {
             for logged in workout.exercises {
-                let category = store.exercise(for: logged.exerciseId)?.category ?? "Other"
-                counts[category, default: 0] += logged.sets.count
+                let exercise = store.exercise(for: logged.exerciseId)
+                // Claude  Date 09/07/2026 — cardio carries category "Cardio", which would
+                // sit in "Sets per muscle group" as a bar that isn't a muscle group.
+                guard exercise?.isCardio != true else { continue }
+                counts[exercise?.category ?? "Other", default: 0] += logged.sets.count
             }
         }
         return counts

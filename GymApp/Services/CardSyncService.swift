@@ -10,7 +10,10 @@ import Security
 //  - Nothing is ever sent unless the user chose Friends mode (UserProfile.dataMode).
 //  - Only a SharedCard (card cosmetics + featured badges) is sent — built from
 //    AppStore in `snapshot(from:)`; no other data is reachable from this type.
-//  - Switching back to Ghost Mode deletes the server copy, so opting out really removes it.
+//  - Switching back to Ghost Mode deletes the server copy, so opting out really
+//    removes it — but the DELETE is deferred `deletionGracePeriod` (see
+//    scheduleCardDeletion) so an accidental opt-out can be undone by re-enabling
+//    Friends within a day.
 //
 // It deliberately does NOT hold a reference to AppStore (which would couple two app-wide
 // objects); callers pass `store` into the sync methods. Pushes are debounced + deduped
@@ -26,6 +29,13 @@ final class CardSyncService: ObservableObject {
     // Populated from our own card after the first successful push (the server assigns
     // it), persisted, and shown wherever the user needs to hand it out.
     @Published private(set) var friendCode: String?
+    // Claude  Date 09/06/2026
+    // A scheduled — not yet executed — server-side wipe of the shared card + friends
+    // graph. Set when the user turns Ghost Mode on from Friends; the real DELETE
+    // waits until this date so the opt-out stays undoable (turn Friends back on and
+    // it's cancelled). nil = nothing pending. Persisted so the delay survives
+    // relaunches; runs via processScheduledDeletion on launch/foreground.
+    @Published private(set) var pendingCardDeletionDate: Date?
 
     private let backend: CardBackend
     private let persistence: PersistenceService
@@ -40,8 +50,15 @@ final class CardSyncService: ObservableObject {
     private static let identityFile = "identity.json"
     private static let lastPushedFile = "last_pushed_card.json"
     private static let friendCodeFile = "friend_code.json"
+    private static let pendingDeletionFile = "pending_card_deletion.json"
     private static let keychainKey = "agil.cardKey"
     private static let pushDebounce: UInt64 = 800_000_000   // 0.8s
+    // Claude  Date 09/06/2026
+    // How long a Ghost-Mode opt-out stays reversible before the server data is
+    // actually deleted. One day: long enough to undo a misclick, short enough that
+    // "opting out deletes your data" stays true. Also the anti-spam floor — no
+    // DELETE request fires until it elapses no matter how often the toggle flips.
+    static let deletionGracePeriod: TimeInterval = 24 * 60 * 60
 
     /// The user's shareable friend code, once Friends mode has synced at least once.
     var myFriendCode: String? { friendCode }
@@ -55,6 +72,7 @@ final class CardSyncService: ObservableObject {
         self.identity = persistence.load(Self.identityFile, default: DeviceIdentity?.none)
         self.lastPushed = persistence.load(Self.lastPushedFile, default: SharedCard?.none)
         self.friendCode = persistence.load(Self.friendCodeFile, default: String?.none)
+        self.pendingCardDeletionDate = persistence.load(Self.pendingDeletionFile, default: Date?.none)
     }
 
     // MARK: - Identity
@@ -80,13 +98,59 @@ final class CardSyncService: ObservableObject {
 
     // MARK: - Mode changes
 
-    // React to the user toggling where their data lives. Friends → push the current
-    // card; Ghost → tear the server copy down.
+    // React to the user toggling where their data lives. Friends → cancel any
+    // pending wipe and push the current card; Ghost → schedule the server copy for
+    // deletion after the grace period (not immediately — see scheduleCardDeletion).
     func handleModeChange(to mode: DataMode, store: AppStore) {
         switch mode {
-        case .friends: sync(from: store)
-        case .ghost: deleteMyCard()
+        case .friends:
+            cancelScheduledDeletion()
+            sync(from: store)
+        case .ghost:
+            scheduleCardDeletion()
         }
+    }
+
+    // MARK: - Deferred deletion
+
+    // Claude  Date 09/06/2026
+    // Opting out of Friends. Stop syncing right now, but DON'T delete the server
+    // copy yet — record a deadline `deletionGracePeriod` out and let
+    // processScheduledDeletion do the real DELETE once it passes. Idempotent: an
+    // existing schedule keeps its original deadline, so toggling the switch
+    // repeatedly can neither push the delete off forever nor spam the network (no
+    // request is made here at all). No-ops if Friends was never synced.
+    private func scheduleCardDeletion() {
+        pushTask?.cancel()
+        lastPushed = nil
+        persistence.save(SharedCard?.none, to: Self.lastPushedFile)
+        guard pendingCardDeletionDate == nil, identity?.userID != nil else { return }
+        let due = Date().addingTimeInterval(Self.deletionGracePeriod)
+        pendingCardDeletionDate = due
+        persistence.save(due as Date?, to: Self.pendingDeletionFile)
+    }
+
+    // Claude  Date 09/06/2026
+    // The reversal: Friends was turned back on before the grace period elapsed, so
+    // drop the scheduled wipe. The card is still on the server, so a normal sync
+    // refreshes it from here.
+    private func cancelScheduledDeletion() {
+        guard pendingCardDeletionDate != nil else { return }
+        pendingCardDeletionDate = nil
+        persistence.save(Date?.none, to: Self.pendingDeletionFile)
+    }
+
+    // Claude  Date 09/06/2026
+    // Runs the deferred wipe if its deadline has passed. Call on launch and every
+    // foreground. No-ops unless a deletion is actually due; a stale schedule found
+    // while somehow back in Friends mode is just cleared.
+    func processScheduledDeletion(store: AppStore) {
+        guard let due = pendingCardDeletionDate else { return }
+        guard store.profile.dataMode == .ghost else { cancelScheduledDeletion(); return }
+        guard Date() >= due else { return }
+        pendingCardDeletionDate = nil
+        persistence.save(Date?.none, to: Self.pendingDeletionFile)
+        deleteMyCard()
     }
 
     // MARK: - Push
@@ -231,6 +295,32 @@ final class CardSyncService: ObservableObject {
             do { try await backend.deleteCard(id: id, key: key) }
             catch { print("⚠️ card delete failed: \(error)") }
         }
+    }
+
+    // Claude  Date 09/06/2026
+    // "Delete Account", the hard version of Ghost Mode: delete the server copy NOW
+    // (no grace period — the user typed DELETE) and then destroy the identity itself,
+    // secret and all. Awaited, unlike deleteMyCard's fire-and-forget, so the caller
+    // can finish wiping local data only after the network call has actually gone out.
+    //
+    // Failure is deliberately not fatal: the local teardown runs either way, because
+    // leaving a half-deleted account behind is worse than an orphaned server row that
+    // nothing on this device can ever authenticate to again.
+    func eraseAccount() async {
+        pushTask?.cancel()
+        if let id = identity?.userID, let key = keychain.get(Self.keychainKey) {
+            do { try await backend.deleteCard(id: id, key: key) }
+            catch { print("⚠️ account delete failed: \(error)") }
+        }
+        keychain.delete(Self.keychainKey)
+        identity = nil
+        friendCode = nil
+        lastPushed = nil
+        pendingCardDeletionDate = nil
+        persistence.save(DeviceIdentity?.none, to: Self.identityFile)
+        persistence.save(String?.none, to: Self.friendCodeFile)
+        persistence.save(SharedCard?.none, to: Self.lastPushedFile)
+        persistence.save(Date?.none, to: Self.pendingDeletionFile)
     }
 
     // MARK: - Friends plumbing

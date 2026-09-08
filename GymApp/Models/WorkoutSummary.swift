@@ -21,6 +21,16 @@ struct WorkoutSummary: Identifiable, Hashable {
     let totalVolume: Double      // Σ reps × weight, in lb
     let exerciseCount: Int       // exercises with at least one checked set
     let bestSet: BestSet?
+    // Claude  Date 09/07/2026
+    // Cardio totals for the session, from checked-off BOUTS only. Kept separate from
+    // completedSets/totalVolume because a bout is not a set and contributes no volume —
+    // the card shows a cardio tile instead when cardioSeconds > 0.
+    let cardioBouts: Int
+    let cardioSeconds: Int
+    let cardioDistanceMeters: Double
+    // Estimated, and nil whenever it can't be honest: no bodyweight given, or every bout
+    // failed CardioPolicy's plausibility band. Never fabricated. See CardioPolicy.calories.
+    let cardioCalories: Double?
 
     // Claude  Date 06/16/2026 last changed: 07/21/2026 by: Claude
     // The standout set of the session. e1RM is Epley: weight × (1 + reps/30).
@@ -92,7 +102,10 @@ struct WorkoutSummary: Identifiable, Hashable {
     // yardstick every set is scored against. It defaults to empty so previews and any
     // history-less caller still work; with no history the best-set pick simply falls
     // back to the session's highest estimated 1RM (the pre-07/21 behavior).
-    init(workout: Workout, exercises: [Exercise], history: [ActivityEvent] = []) {
+    // (09/07) `bodyweightLb` is the user's on-device weight, needed for the MET calorie
+    // estimate. nil (the default) simply means no calorie figure — never a guessed one.
+    init(workout: Workout, exercises: [Exercise], history: [ActivityEvent] = [],
+         bodyweightLb: Double? = nil) {
         id = workout.id
         date = workout.date
 
@@ -106,6 +119,10 @@ struct WorkoutSummary: Identifiable, Hashable {
         var sets = 0
         var exercisesWithSets = Set<UUID>()
         var candidates: [BestSet] = []
+        var bouts = 0
+        var cardioTime = 0
+        var cardioDistance = 0.0
+        var cardioKcal: Double? = nil
 
         for logged in workout.exercises {
             let ex = exercise(logged.exerciseId)
@@ -113,9 +130,28 @@ struct WorkoutSummary: Identifiable, Hashable {
             let past = histories[logged.exerciseId]
 
             for set in logged.sets where set.completedAt != nil {
+                exercisesWithSets.insert(logged.exerciseId)
+
+                // Claude  Date 09/07/2026
+                // A cardio bout is counted as cardio and nothing else. It must never reach
+                // `candidates`: it carries reps = 0 / weight = 0 and is not bodyweight, so it
+                // would enter pickBest's `loaded` pool and WIN the Best Set tile in a
+                // cardio-only session, rendering "0 lb × 0". It adds no volume and is not a set.
+                if let seconds = set.durationSeconds {
+                    bouts += 1
+                    cardioTime += seconds
+                    cardioDistance += set.distanceMeters ?? 0
+                    if let machine = ex?.cardioMachine,
+                       let kcal = CardioPolicy.calories(machine: machine, seconds: seconds,
+                                                        meters: set.distanceMeters,
+                                                        bodyweightLb: bodyweightLb) {
+                        cardioKcal = (cardioKcal ?? 0) + kcal
+                    }
+                    continue
+                }
+
                 sets += 1
                 volume += Double(set.reps) * set.weight
-                exercisesWithSets.insert(logged.exerciseId)
 
                 let score = BestSetScoring.score(weight: set.weight, reps: set.reps,
                                                  isBodyweight: isBodyweight)
@@ -141,6 +177,10 @@ struct WorkoutSummary: Identifiable, Hashable {
         totalVolume = volume
         exerciseCount = exercisesWithSets.count
         bestSet = Self.pickBest(from: candidates)
+        cardioBouts = bouts
+        cardioSeconds = cardioTime
+        cardioDistanceMeters = cardioDistance
+        cardioCalories = cardioKcal
 
         // Claude  Date 06/16/2026 last changed: 08/21/2026 by: Claude
         // The real session span, with its fallback ladder — see Workout.elapsed, which

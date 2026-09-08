@@ -26,20 +26,41 @@ struct ExerciseSet: Identifiable, Codable, Hashable {
     // resistant ActivityEvent to the ledger (see AppStore.completeSet), so editing
     // numbers without completing earns no badge credit.
     var completedAt: Date?
+    // Claude  Date 09/07/2026
+    // A CARDIO BOUT is an ExerciseSet with a duration: `durationSeconds != nil` is the
+    // discriminator, and such a set carries reps = 0 / weight = 0 so it stays invisible to
+    // every volume, PR and 1RM site (they all guard `reps > 0 && weight > 0`) with no edit.
+    // Same move as `isBodyweight`: one logging mode more, not one data shape more.
+    var durationSeconds: Int?
+    /// Canonical METERS, like `weight` is canonical pounds. nil when the machine reports no
+    /// honest distance (stair climber) or the user just didn't log one. Convert for display.
+    var distanceMeters: Double?
+
+    /// Whether this set is a cardio bout rather than a loaded set.
+    var isCardioBout: Bool { durationSeconds != nil }
 
     init(id: UUID = UUID(), reps: Int, weight: Double,
-         side: ExerciseSide? = nil, completedAt: Date? = nil) {
+         side: ExerciseSide? = nil, completedAt: Date? = nil,
+         durationSeconds: Int? = nil, distanceMeters: Double? = nil) {
         self.id = id
         self.reps = reps
         self.weight = weight
         self.side = side
         self.completedAt = completedAt
+        self.durationSeconds = durationSeconds
+        self.distanceMeters = distanceMeters
     }
 
-    // Claude  Date 06/14/2026
+    // Claude  Date 06/14/2026 last changed: 09/07/2026 by: Claude
     // Custom decode so sets saved before `completedAt` / `side` existed still load
     // (missing keys default to nil). encode(to:) is synthesized.
-    enum CodingKeys: String, CodingKey { case id, reps, weight, side, completedAt }
+    // (09/07) Added durationSeconds + distanceMeters — absent on every set saved before
+    // cardio existed, so nil, which means "a normal loaded set".
+    // NOTE: encode(to:) is synthesized off CodingKeys, so a field left out of the enum below
+    // is silently dropped on every save. Add new fields to BOTH lists (same trap as Exercise).
+    enum CodingKeys: String, CodingKey {
+        case id, reps, weight, side, completedAt, durationSeconds, distanceMeters
+    }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id)
@@ -47,6 +68,8 @@ struct ExerciseSet: Identifiable, Codable, Hashable {
         weight = try c.decode(Double.self, forKey: .weight)
         side = try c.decodeIfPresent(ExerciseSide.self, forKey: .side)
         completedAt = try c.decodeIfPresent(Date.self, forKey: .completedAt)
+        durationSeconds = try c.decodeIfPresent(Int.self, forKey: .durationSeconds)
+        distanceMeters = try c.decodeIfPresent(Double.self, forKey: .distanceMeters)
     }
 }
 
@@ -264,5 +287,49 @@ struct Workout: Identifiable, Codable, Hashable {
         // Claude  Date 07/13/2026
         // Source preset link: absent on older workouts (they weren't tagged), so nil.
         presetID = try c.decodeIfPresent(UUID.self, forKey: .presetID)
+    }
+}
+
+// Claude  Date 09/07/2026
+// What KIND of session this was. DERIVED from the exercises in it, never stored: there is
+// no field to migrate, no stored value that can drift out of agreement with the contents,
+// and every workout ever logged classifies correctly the moment this ships.
+enum WorkoutKind {
+    case lifting, cardio, mixed
+
+    var title: String {
+        switch self {
+        case .lifting: return "Lifting"
+        case .cardio:  return "Cardio"
+        case .mixed:   return "Mixed"
+        }
+    }
+
+    /// What this session's entries are called — a treadmill bout is not a "set".
+    func entryNoun(_ count: Int) -> String {
+        switch self {
+        case .lifting: return count == 1 ? "set"   : "sets"
+        case .cardio:  return count == 1 ? "bout"  : "bouts"
+        case .mixed:   return count == 1 ? "entry" : "entries"
+        }
+    }
+}
+
+extension Workout {
+    // Claude  Date 09/07/2026
+    // Pure function over the library, like WorkoutSummary(workout:exercises:) and
+    // PersonalRecord.bests(from:exercises:) — Models never reaches into Persistence.
+    // nil when the session has no exercises: an empty workout has no honest kind to
+    // report, the same stance `elapsed` takes on a session with no measurable span.
+    func kind(using library: [Exercise]) -> WorkoutKind? {
+        guard !exercises.isEmpty else { return nil }
+        let cardioIDs = Set(library.lazy.filter(\.isCardio).map(\.id))
+        var sawCardio = false
+        var sawLifting = false
+        for logged in exercises {
+            if cardioIDs.contains(logged.exerciseId) { sawCardio = true } else { sawLifting = true }
+            if sawCardio && sawLifting { return .mixed }
+        }
+        return sawCardio ? .cardio : .lifting
     }
 }

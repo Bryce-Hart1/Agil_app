@@ -187,8 +187,10 @@ struct MonthlyRecap {
             }
         }
 
-        totalSets = current.count
-        previousSets = previous.count
+        // Claude  Date 09/07/2026 — bouts aren't sets (see ProfileStats.totalSets).
+        // Volume below needs no filter: a bout is reps 0 x weight 0, so it adds nothing.
+        totalSets = current.filter { !$0.isCardio }.count
+        previousSets = previous.filter { !$0.isCardio }.count
         totalVolume = current.reduce(0) { $0 + Double($1.reps) * $1.weight }
         previousVolume = previous.reduce(0) { $0 + Double($1.reps) * $1.weight }
 
@@ -207,10 +209,16 @@ struct MonthlyRecap {
             .max { ($0.1, $1.0) < ($1.1, $0.0) }?.0
 
         // Body-part frequency, by region. `.other` catches custom lifts with no region.
+        // Claude  Date 09/07/2026 — cardio is skipped: this chart answers "which body parts
+        // did I train", and a Cardio bar alongside Chest and Back doesn't answer it.
         var currentRegions: [MuscleRegion: Int] = [:]
         var previousRegions: [MuscleRegion: Int] = [:]
-        for event in current { currentRegions[byID[event.exerciseId]?.region ?? .other, default: 0] += 1 }
-        for event in previous { previousRegions[byID[event.exerciseId]?.region ?? .other, default: 0] += 1 }
+        for event in current where !event.isCardio {
+            currentRegions[byID[event.exerciseId]?.region ?? .other, default: 0] += 1
+        }
+        for event in previous where !event.isCardio {
+            previousRegions[byID[event.exerciseId]?.region ?? .other, default: 0] += 1
+        }
         regionShifts = currentRegions
             .map { RegionShift(region: $0.key, sets: $0.value,
                                previousSets: previousRegions[$0.key] ?? 0) }

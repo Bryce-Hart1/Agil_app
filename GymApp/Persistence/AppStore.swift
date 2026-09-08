@@ -891,6 +891,71 @@ final class AppStore: ObservableObject {
         evaluateAchievements(announce: true)
     }
 
+    // Claude  Date 09/06/2026
+    // "Delete Account": put every piece of on-device state back to what a fresh
+    // install holds. Only AccountDeletion calls this, and only after the server copy
+    // is gone. Sets the live @Published values rather than just deleting files, so
+    // the running UI empties out immediately instead of showing stale data until the
+    // next launch — the didSets rewrite defaults to disk, and AccountDeletion's final
+    // PersistenceService.removeAll() sweeps those away too.
+    //
+    // Side effect: profile goes back to a default UserProfile, so hasOnboarded flips
+    // false and RootTabView re-presents onboarding on its own.
+    func eraseAllData() {
+        // Transient/presentation state first, so nothing is left pointing at data
+        // that's about to disappear.
+        pendingCelebrations = []
+        pendingPromotions = []
+        pendingWorkoutSummary = nil
+        pendingFoundersUnlock = []
+        pendingCardUnlock = []
+        pendingCheckIn = nil
+        showsCardInspect = false
+        tourActive = false
+        previewCelebrationIDs = []
+        celebratedRank = .initiate
+
+        // Training.
+        workouts = []
+        presets = []
+        activityLog = []
+        exercises = AppStore.seedExercises
+
+        // Nutrition, water, supplements.
+        foods = []
+        recipes = []
+        foodLog = []
+        waterLog = []
+        waterPresets = WaterPreset.defaults
+        nutritionGoals = NutritionGoals()
+        focusGoals = []
+        lastMeasurements = [:]
+        addedAt = [:]
+        microUnits = [:]
+        barcodeCache = BarcodeCache()
+        supplementSlots = SupplementSlot.defaults
+        supplements = []
+        supplementLog = []
+        clearedSupplementDays = []
+
+        // Progression + economy.
+        unlockedAchievementIDs = []
+        openedAchievementIDs = []
+        devBonusCoins = 0
+        checkInDays = []
+
+        // Identity last: flipping hasOnboarded is what re-presents onboarding, and it
+        // should only happen once everything behind it is already empty.
+        profile = UserProfile()
+
+        // These two have no didSet of their own (they're written by hand elsewhere).
+        persistence.save(unlockedAchievementIDs, to: Self.achievementsFile)
+        persistence.save(openedAchievementIDs, to: Self.openedFile)
+        persistence.save(celebratedRank, to: Self.rankFile)
+        persistence.save(AppStore.seedLibraryVersion, to: Self.seedVersionFile)
+        syncWidgetSnapshot()
+    }
+
     // Claude  Date 06/13/2026 last changed: 08/23/2026 by: Claude
     // Lifetime coins earned = weekly-consistency coins + achievement rewards + daily
     // check-in bonuses (+ any alpha dev grant). This is the "earned" side of the wallet
@@ -1074,13 +1139,14 @@ final class AppStore: ObservableObject {
                      isUnilateral: Bool = false, liftType: LiftType? = nil,
                      primaryMover: String = "", quality: LiftQuality? = nil,
                      isBodyweight: Bool = false, note: String? = nil,
-                     brand: String = "", equipmentType: EquipmentType? = nil) -> Exercise {
+                     brand: String = "", equipmentType: EquipmentType? = nil,
+                     cardioMachine: CardioMachine? = nil) -> Exercise {
         let exercise = Exercise(name: name, region: region, category: category,
                                 isUnilateral: isUnilateral, liftType: liftType,
                                 primaryMover: primaryMover, quality: quality,
                                 isBodyweight: isBodyweight, note: note,
                                 brand: Exercise.normalizedBrand(brand, in: exercises),
-                                equipmentType: equipmentType)
+                                equipmentType: equipmentType, cardioMachine: cardioMachine)
         exercises.append(exercise)
         return exercise
     }
@@ -1117,7 +1183,8 @@ final class AppStore: ObservableObject {
                                liftType: source.liftType, primaryMover: source.primaryMover,
                                quality: source.quality, isBodyweight: source.isBodyweight,
                                note: source.note, brand: canonical,
-                               equipmentType: source.equipmentType)
+                               equipmentType: source.equipmentType,
+                               cardioMachine: source.cardioMachine)
         exercises.append(variant)
         return variant
     }
@@ -1280,6 +1347,11 @@ final class AppStore: ObservableObject {
     // performance card; both exist for autoFinishStaleWorkouts below, which closes a
     // forgotten session at the time it really stopped, silently. Manual completion —
     // the Complete Workout button — still uses the defaults.
+    // Claude  Date 09/07/2026
+    // Lifting / Cardio / Mixed for a session, resolved against the library. Derived, never
+    // stored — see Workout.kind(using:). nil for a session with no exercises yet.
+    func kind(of workout: Workout) -> WorkoutKind? { workout.kind(using: exercises) }
+
     func finishWorkout(id: UUID, at finishDate: Date? = nil, showSummary: Bool = true) {
         guard let index = workouts.firstIndex(where: { $0.id == id }),
               !workouts[index].isFinished else { return }
@@ -1294,11 +1366,23 @@ final class AppStore: ObservableObject {
             let liftType = exercise?.effectiveLiftType
             for set in logged.sets where set.completedAt != nil {
                 guard !activityLog.contains(where: { $0.setId == set.id }) else { continue }
+                // Claude  Date 09/07/2026
+                // A cardio bout only reaches the ledger when it is long enough to be real
+                // training AND inside the plausibility band (CardioPolicy.earnsCredit), so a
+                // 30-second tap or a 100-mph "run" buys no streak day. It still saves and
+                // still shows in history — it just earns nothing. Lifting sets are untouched.
+                if let seconds = set.durationSeconds {
+                    guard let machine = exercise?.cardioMachine,
+                          CardioPolicy.earnsCredit(machine: machine, seconds: seconds,
+                                                   meters: set.distanceMeters) else { continue }
+                }
                 newEvents.append(ActivityEvent(
                     setId: set.id, exerciseId: logged.exerciseId,
                     reps: set.reps, weight: set.weight,
                     loggedAt: set.completedAt ?? Date(), liftType: liftType,
-                    muscleRegion: exercise?.region))
+                    muscleRegion: exercise?.region,
+                    durationSeconds: set.durationSeconds,
+                    distanceMeters: set.distanceMeters))
             }
         }
         if !newEvents.isEmpty { activityLog.append(contentsOf: newEvents) }
@@ -1320,7 +1404,10 @@ final class AppStore: ObservableObject {
         pendingWorkoutSummary = WorkoutSummary(
             workout: workouts[index],
             exercises: exercises,
-            history: activityLog.filter { !ownSetIds.contains($0.setId) })
+            history: activityLog.filter { !ownSetIds.contains($0.setId) },
+            // Claude  Date 09/07/2026 — on-device only, and nil is fine: no weight simply
+            // means the card shows no calorie figure rather than a guessed one.
+            bodyweightLb: profile.bodyweightLb)
     }
 
     // Claude  Date 09/02/2026
@@ -2033,7 +2120,8 @@ final class AppStore: ObservableObject {
                                 liftType: template.liftType, primaryMover: template.primaryMover,
                                 quality: template.quality, isBodyweight: template.isBodyweight,
                                 note: template.note, brand: template.brand,
-                                equipmentType: template.equipmentType)
+                                equipmentType: template.equipmentType,
+                                cardioMachine: template.cardioMachine)
         created.append(exercise)
         return exercise.id
     }
@@ -2080,6 +2168,10 @@ final class AppStore: ObservableObject {
     // Returns nil when there's no completed history yet (nothing to base a suggestion on).
     func adaptiveSuggestion(for exerciseId: UUID, range: RepRange,
                             increment: Double) -> AdaptiveSuggestion? {
+        // Claude  Date 09/07/2026
+        // Cardio has no working weight to progress — its bouts carry weight = 0, so the scan
+        // below would happily "suggest" 0 lb for a treadmill in an adaptive preset.
+        guard exercise(for: exerciseId)?.isCardio != true else { return nil }
         let low = Swift.min(range.min, range.max)
         let high = Swift.max(range.min, range.max)
 
@@ -2283,8 +2375,9 @@ extension AppStore {
     // which resolves its lifts by name and will otherwise mint a duplicate.
     // Claude  Date 09/06/2026
     // Bump this whenever the list below changes — AppStore.init merges the delta into
-    // existing libraries once per bump. 1 = the original 48; 2 = +7 lifts, 3 renames.
-    static let seedLibraryVersion = 2
+    // existing libraries once per bump. 1 = the original 48; 2 = +7 lifts, 3 renames;
+    // 3 = +5 cardio machines.
+    static let seedLibraryVersion = 3
 
     // Old lowercased name -> current name, for seeds renamed after they shipped. Applied
     // in place by that merge, so the lift keeps its id and all of its history.
@@ -2395,5 +2488,21 @@ extension AppStore {
         // false like every other seed — PersonalRecord.bests skips bodyweight lifts.
         // MARK: Other — Serratus
         Exercise(name: "Scapular Push-Up", region: .other, category: "Serratus", primaryMover: "Serratus Anterior", quality: .classic, equipmentType: .bodyweight),
+
+        // Claude  Date 09/07/2026
+        // Cardio machines. `region: .cardio` earns them their own picker/library section;
+        // `cardioMachine` is what actually switches logging to duration + distance.
+        // equipmentType stays .machine — a treadmill genuinely is one — which keeps the
+        // nameplate chip and brand variants (a Woodway is not a Precor) working unchanged.
+        // primaryMover is deliberately blank: cardio drives no single muscle.
+        // NOTE: a user who already hand-made their own "Treadmill" keeps it. The merge in
+        // init() matches seeds by lowercased name, so theirs wins and never becomes cardio —
+        // correct (we never stomp user data), and a two-tap fix in the exercise editor.
+        // MARK: Cardio
+        Exercise(name: "Treadmill", region: .cardio, category: "Cardio", equipmentType: .machine, cardioMachine: .treadmill),
+        Exercise(name: "Stationary Bike", region: .cardio, category: "Cardio", equipmentType: .machine, cardioMachine: .stationaryBike),
+        Exercise(name: "Elliptical", region: .cardio, category: "Cardio", equipmentType: .machine, cardioMachine: .elliptical),
+        Exercise(name: "Rowing Machine", region: .cardio, category: "Cardio", equipmentType: .machine, cardioMachine: .rower),
+        Exercise(name: "Stair Climber", region: .cardio, category: "Cardio", equipmentType: .machine, cardioMachine: .stairClimber),
     ]
 }
