@@ -267,7 +267,8 @@ private struct WorkoutEditor: View {
                                        onNeedsBodyweight: { showingBodyweightPrompt = true }) { exercise in
                         logged.exerciseId = exercise.id
                         logged.targetRepRange = store.defaultRepRange(for: exercise.id)
-                        logged.sets.removeAll()
+                        // Claude  Date 09/14/2026 — swapping TO cardio seeds its single entry.
+                        logged.sets = exercise.cardioMachine != nil ? [.cardioEntry()] : []
                         logged.note = nil
                         // (08/11) Clear the provenance flag with the note it describes,
                         // or the next note typed here would inherit "expiring".
@@ -487,7 +488,10 @@ private struct WorkoutEditor: View {
                 withAnimation(.easeInOut(duration: 0.25)) {
                     workout.exercises.append(
                         LoggedExercise(exerciseId: exercise.id,
-                                       targetRepRange: store.defaultRepRange(for: exercise.id)))
+                                       targetRepRange: store.defaultRepRange(for: exercise.id),
+                                       // Claude  Date 09/14/2026 — cardio arrives with its one
+                                       // time/distance entry ready to fill in.
+                                       sets: exercise.cardioMachine != nil ? [.cardioEntry()] : []))
                 }
             }
         }
@@ -728,19 +732,23 @@ private struct ExerciseLogSection: View {
         // the preset editor's picker). Pick a duration and the live countdown appears.
         // (retintOnThemeChange: rebuild on theme swap so the value label — which is
         // UIKit-backed and resolves its tint only at creation — picks up the new accent.)
-        Picker(selection: $logged.restSeconds) {
-            Text("None").tag(Int?.none)
-            ForEach(RestDuration.options, id: \.self) { seconds in
-                Text(RestDuration.label(seconds)).tag(Int?.some(seconds))
+        // Claude  Date 09/14/2026 — hidden for cardio: it's done once, so there's no
+        // between-sets rest to time.
+        if !isCardio {
+            Picker(selection: $logged.restSeconds) {
+                Text("None").tag(Int?.none)
+                ForEach(RestDuration.options, id: \.self) { seconds in
+                    Text(RestDuration.label(seconds)).tag(Int?.some(seconds))
+                }
+            } label: {
+                Label("Rest timer", systemImage: "timer")
             }
-        } label: {
-            Label("Rest timer", systemImage: "timer")
-        }
-        .retintOnThemeChange(theme.current, salt: "rest-\(logged.id)")
+            .retintOnThemeChange(theme.current, salt: "rest-\(logged.id)")
 
-        // Live countdown (drives the shared session timer + mini-bar), once set.
-        if let rest = logged.restSeconds {
-            RestTimerView(duration: rest, accent: accent)
+            // Live countdown (drives the shared session timer + mini-bar), once set.
+            if let rest = logged.restSeconds {
+                RestTimerView(duration: rest, accent: accent)
+            }
         }
 
         // Claude  Date 07/01/2026
@@ -756,91 +764,99 @@ private struct ExerciseLogSection: View {
         // Claude  Date 09/01/2026
         // Keyed by the set's own id, not its position: a reorder has to animate as a row
         // MOVING, and index identity animates it as two rows swapping their contents.
-        ForEach(Array(logged.sets.enumerated()), id: \.element.id) { index, _ in
-            entryRow(at: index)
-                // Claude  Date 09/01/2026
-                // Swipe RIGHT to check a set off — full swipe finishes it in one flick,
-                // swiping again undoes it. This replaced the ~17pt checkmark button that
-                // used to sit at the row's leading edge.
-                .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                    Button {
-                        toggleComplete(at: index)
-                    } label: {
-                        Label(isCompleted(at: index) ? "Undo" : "Done",
-                              systemImage: isCompleted(at: index)
-                                  ? "arrow.uturn.backward" : "checkmark")
+        // Claude  Date 09/14/2026
+        // Cardio: one time/distance card, done once. Only the swipe-to-finish survives —
+        // no delete, reorder or Add, since there's nothing to have more than one of.
+        // (Older workouts logged with several entries still list each one.)
+        if isCardio {
+            ForEach(Array(logged.sets.enumerated()), id: \.element.id) { index, _ in
+                entryRow(at: index)
+                    .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                        completeSwipeButton(at: index)
                     }
-                    .tint(isCompleted(at: index) ? .gray : accent)
-                }
-                // Explicit trailing delete replaces the ForEach's old .onDelete so both
-                // edges are declared here; deleteSets still drops a unilateral pair whole.
-                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                    Button(role: .destructive) {
-                        deleteSets(at: IndexSet(integer: index))
-                    } label: {
-                        Label("Delete", systemImage: "trash")
+            }
+        } else {
+            ForEach(Array(logged.sets.enumerated()), id: \.element.id) { index, _ in
+                entryRow(at: index)
+                    // Claude  Date 09/01/2026
+                    // Swipe RIGHT to check a set off — full swipe finishes it in one flick,
+                    // swiping again undoes it. This replaced the ~17pt checkmark button that
+                    // used to sit at the row's leading edge.
+                    .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                        completeSwipeButton(at: index)
                     }
-                }
-                // Claude  Date 09/01/2026
-                // Long-press to reorder: deliberate enough that it can't fire by accident,
-                // and it avoids edit mode, which would disable the reps/weight fields.
-                // Moves act on LOGICAL sets, so a unilateral L/R pair travels as one.
-                .contextMenu {
-                    Button {
-                        moveSet(at: index, by: -1)
-                    } label: {
-                        Label("Move Up", systemImage: "arrow.up")
+                    // Explicit trailing delete replaces the ForEach's old .onDelete so both
+                    // edges are declared here; deleteSets still drops a unilateral pair whole.
+                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                        Button(role: .destructive) {
+                            deleteSets(at: IndexSet(integer: index))
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
                     }
-                    .disabled(!canMove(at: index, by: -1))
+                    // Claude  Date 09/01/2026
+                    // Long-press to reorder: deliberate enough that it can't fire by accident,
+                    // and it avoids edit mode, which would disable the reps/weight fields.
+                    // Moves act on LOGICAL sets, so a unilateral L/R pair travels as one.
+                    .contextMenu {
+                        Button {
+                            moveSet(at: index, by: -1)
+                        } label: {
+                            Label("Move Up", systemImage: "arrow.up")
+                        }
+                        .disabled(!canMove(at: index, by: -1))
 
-                    Button {
-                        moveSet(at: index, by: 1)
-                    } label: {
-                        Label("Move Down", systemImage: "arrow.down")
-                    }
-                    .disabled(!canMove(at: index, by: 1))
+                        Button {
+                            moveSet(at: index, by: 1)
+                        } label: {
+                            Label("Move Down", systemImage: "arrow.down")
+                        }
+                        .disabled(!canMove(at: index, by: 1))
 
-                    Divider()
+                        Divider()
 
-                    Button {
-                        showingReorderSets = true
-                    } label: {
-                        Label("Reorder Sets…", systemImage: "arrow.up.arrow.down")
+                        Button {
+                            showingReorderSets = true
+                        } label: {
+                            Label("Reorder Sets…", systemImage: "arrow.up.arrow.down")
+                        }
+                        .disabled(setGroups.wrappedValue.count < 2)
                     }
-                    .disabled(setGroups.wrappedValue.count < 2)
-                }
+            }
         }
 
         // Claude  Date 09/01/2026
         // One-time teaching row for the gestures that replaced the check button. Shown
         // only on the first exercise, and only until the first set is checked off.
         if isFirst && !hasSeenSetSwipeHint && !logged.sets.isEmpty {
-            Label("Swipe a set right to finish it. Long-press to reorder.",
+            Label(isCardio ? "Swipe right to mark it done."
+                           : "Swipe a set right to finish it. Long-press to reorder.",
                   systemImage: "hand.draw")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
 
-        Button {
-            addSet()
-        } label: {
-            Label(isCardio ? "Add Bout" : "Add Set", systemImage: "plus.circle")
-        }
-        // Claude  Date 09/01/2026
-        // Hung here rather than on a set row so it survives that row being reordered out
-        // from under the presentation (and so only one sheet exists per exercise).
-        .sheet(isPresented: $showingReorderSets) {
-            ReorderExercisesSheet(title: isCardio ? "Reorder Bouts" : "Reorder Sets",
-                                  items: setGroups) { group in
-                let first = group.sets[0]
-                // Claude  Date 09/07/2026 — a bout has no reps or load; without this branch
-                // every cardio row in the sheet would read "0 reps × 0 lb".
-                if let seconds = first.durationSeconds {
-                    return CardioFormat.summary(seconds: seconds, meters: first.distanceMeters,
-                                                unit: distanceUnit)
+        if !isCardio {
+            Button {
+                addSet()
+            } label: {
+                Label("Add Set", systemImage: "plus.circle")
+            }
+            // Claude  Date 09/01/2026
+            // Hung here rather than on a set row so it survives that row being reordered out
+            // from under the presentation (and so only one sheet exists per exercise).
+            .sheet(isPresented: $showingReorderSets) {
+                ReorderExercisesSheet(title: "Reorder Sets", items: setGroups) { group in
+                    let first = group.sets[0]
+                    // Claude  Date 09/07/2026 — a legacy cardio entry has no reps or load;
+                    // without this branch it would read "0 reps × 0 lb".
+                    if let seconds = first.durationSeconds {
+                        return CardioFormat.summary(seconds: seconds, meters: first.distanceMeters,
+                                                    unit: distanceUnit)
+                    }
+                    let sides = group.sets.count > 1 ? " · L/R" : ""
+                    return "\(first.reps) reps × \(SetFormat.weight(first.weight)) lb\(sides)"
                 }
-                let sides = group.sets.count > 1 ? " · L/R" : ""
-                return "\(first.reps) reps × \(SetFormat.weight(first.weight)) lb\(sides)"
             }
         }
 
@@ -852,7 +868,12 @@ private struct ExerciseLogSection: View {
             // Claude  Date 09/01/2026
             // Warm the Taptic Engine as the lift scrolls in, so the FIRST swipe of the
             // session lands with the animation instead of a beat behind it.
-            .onAppear { Haptics.prepare() }
+            .onAppear {
+                Haptics.prepare()
+                // Claude  Date 09/14/2026 — fallback for cardio that arrived empty (e.g. an
+                // older in-progress workout): give it its single time/distance entry.
+                if isCardio && logged.sets.isEmpty { logged.sets = [.cardioEntry()] }
+            }
             .sheet(isPresented: $showingSwapPicker) {
                 // Claude  Date 08/16/2026
                 // Hand the picker the lift being swapped out so plausible substitutes
@@ -890,15 +911,13 @@ private struct ExerciseLogSection: View {
     @ViewBuilder
     private func entryRow(at index: Int) -> some View {
         if let machine = cardioMachine {
-            CardioBoutRow(number: setNumber(at: index),
-                          machine: machine,
-                          showsNumber: logged.sets.count > 1,
-                          set: $logged.sets[index],
-                          accent: accent,
-                          unit: distanceUnit,
-                          bodyweightLb: store.profile.bodyweightLb,
-                          focusedField: $focusedField,
-                          onMissingBodyweight: onNeedsBodyweight)
+            CardioEntryRow(machine: machine,
+                           set: $logged.sets[index],
+                           accent: accent,
+                           unit: distanceUnit,
+                           bodyweightLb: store.profile.bodyweightLb,
+                           focusedField: $focusedField,
+                           onMissingBodyweight: onNeedsBodyweight)
         } else {
             SetRow(number: setNumber(at: index),
                    sideLabel: logged.sets[index].side?.title,
@@ -910,6 +929,20 @@ private struct ExerciseLogSection: View {
         }
     }
 
+    // Claude  Date 09/14/2026
+    // The leading-swipe Done/Undo button, shared by the lift ForEach and the cardio card so
+    // both finish the same way. Only toggles completedAt; credit still lands at finishWorkout.
+    private func completeSwipeButton(at index: Int) -> some View {
+        Button {
+            toggleComplete(at: index)
+        } label: {
+            Label(isCompleted(at: index) ? "Undo" : "Done",
+                  systemImage: isCompleted(at: index)
+                      ? "arrow.uturn.backward" : "checkmark")
+        }
+        .tint(isCompleted(at: index) ? .gray : accent)
+    }
+
     /// Adds a set, defaulting to the previous set's reps/weight (or the low end of
     /// the target rep range) for fast entry. Unilateral exercises add a matched
     /// Left+Right pair so each logical set covers both sides.
@@ -918,11 +951,8 @@ private struct ExerciseLogSection: View {
         // A bout carries reps 0 / weight 0 — that is precisely what keeps it out of every
         // volume, PR and 1RM sum without those sites needing a cardio branch of their own.
         // Duration seeds from the previous bout, or 20 minutes for the first.
-        if isCardio {
-            let seconds = logged.sets.last?.durationSeconds ?? 20 * 60
-            logged.sets.append(ExerciseSet(reps: 0, weight: 0, durationSeconds: seconds))
-            return
-        }
+        // (09/14) Cardio no longer adds entries — it holds exactly one (.cardioEntry()).
+        if isCardio { return }
         let last = logged.sets.last
         let defaultReps = last?.reps
             ?? logged.targetRepRange.map { Swift.min($0.min, $0.max) }
@@ -1333,23 +1363,15 @@ private extension View {
     }
 }
 
-// Claude  Date 09/07/2026
-// One editable cardio bout — the cardio sibling of SetRow, not a variant of it: SetRow's
-// 18/54/48/64pt columns were sized for exactly two fields and cannot absorb time, distance,
-// pace and calories. Two lines instead:
-//
-//     [mark]  Bout 1          [ 25 ] min  [ 30 ] sec
-//             [ 3.10 ] mi  ·  8:03 /mi  ·  ~310 kcal (est.)
-//
-// Minutes and seconds both write the one durationSeconds, so typing 90 into seconds carries
-// into the minute by itself. Distance is edited in the user's unit and stored in meters.
-// Calories are an ESTIMATE and always say so; with no bodyweight on file they are replaced
-// by the prompt to add one, never by a guessed number.
-private struct CardioBoutRow: View {
-    let number: Int
+// Claude  Date 09/07/2026 last changed: 09/14/2026 by: Claude
+// The cardio entry: one thing done once per workout, laid out as labeled lines, not a set:
+//     [mark] Time        [ 25 ] min  [ 30 ] sec
+//            Distance              [ 3.10 ] mi
+//            8:03 /mi                ~310 kcal (est.)
+// Min/sec both write durationSeconds (90 sec carries into the minute); distance is stored in
+// meters. Calories are an estimate, or the add-your-weight prompt — never a guessed number.
+private struct CardioEntryRow: View {
     let machine: CardioMachine
-    /// False when the exercise has a single bout, where "Bout 1" is just noise.
-    let showsNumber: Bool
     @Binding var set: ExerciseSet
     let accent: Color
     let unit: DistanceUnit
@@ -1363,23 +1385,18 @@ private struct CardioBoutRow: View {
     private var seconds: Int { self.set.durationSeconds ?? 0 }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 4) {
                 CompletionMark(isCompleted: isCompleted, accent: accent)
 
-                Text(showsNumber ? "Bout \(number)" : "")
-                    .foregroundStyle(.secondary)
-                    .contentTransition(.numericText())
-                    .animation(.easeInOut(duration: 0.25), value: number)
-                    .lineLimit(1)
-                    .frame(width: 54, alignment: .leading)
+                Text("Time")
 
                 Spacer(minLength: 0)
 
                 TextField("0", value: minutesBinding, format: .number)
                     .keyboardType(.numberPad)
                     .multilineTextAlignment(.trailing)
-                    .frame(width: 40)
+                    .frame(width: 44)
                     .focused($focusedField, equals: .durationMinutes(self.set.id))
                 Text("min").foregroundStyle(.secondary)
 
@@ -1391,25 +1408,30 @@ private struct CardioBoutRow: View {
                 Text("sec").foregroundStyle(.secondary)
             }
 
-            HStack(spacing: 6) {
-                if machine.supportsDistance {
+            if machine.supportsDistance {
+                HStack(spacing: 4) {
+                    Text("Distance")
+                    Spacer(minLength: 0)
                     TextField("0", value: distanceBinding, format: .number)
                         .keyboardType(.decimalPad)
                         .multilineTextAlignment(.trailing)
-                        .frame(width: 56)
+                        .frame(width: 64)
                         .focused($focusedField, equals: .distance(self.set.id))
                     Text(unit.abbreviation).foregroundStyle(.secondary)
                 }
+                .padding(.leading, 22)
+            }
+
+            HStack(spacing: 6) {
                 if let pace = CardioFormat.pace(machine: machine, seconds: seconds,
                                                 meters: self.set.distanceMeters, unit: unit) {
-                    Text("·").foregroundStyle(.tertiary)
                     Text(pace).foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 0)
                 caloriesLabel
             }
             .font(.footnote)
-            // Line up under the first line's content rather than under its mark.
+            // Line up under the first line's label rather than under its mark.
             .padding(.leading, 22)
         }
         .completedSetStyling(isCompleted: isCompleted, accent: accent)

@@ -85,9 +85,9 @@ enum ProgressWidgetKind: String, Identifiable, Equatable {
         case .proteinIntake: return "Protein logged each day compared with your daily goal."
         case .carbIntake: return "Carbs logged each day compared with your daily goal."
         case .fatIntake: return "Fat logged each day compared with your daily goal."
-        case .proteinFoods: return "Foods contributing the most protein in the selected range."
-        case .carbFoods: return "Foods contributing the most carbs in the selected range."
-        case .fatFoods: return "Foods contributing the most fat in the selected range."
+        case .proteinFoods: return "The share of your protein that came from each food."
+        case .carbFoods: return "The share of your carbs that came from each food."
+        case .fatFoods: return "The share of your fat that came from each food."
         case .focusCompletion: return "The share of your focus goals completed each tracked day."
         case .waterIntake: return "Water logged each day compared with your daily goal."
         }
@@ -399,9 +399,13 @@ private struct ProgressWidgetPreview: View {
         }
     }
 
+    // CLAUDE  Date 09/12/2026
+    // Share-of-total fractions plus a dimmed remainder, matching what the real card
+    // draws now — the old 0.94/0.76/... staircase was the top-relative scale that the
+    // card no longer uses, so the thumbnail promised the wrong chart.
     private func foodContributorsPreview(color: Color) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            ForEach([0.94, 0.76, 0.58, 0.41], id: \.self) { fraction in
+            ForEach([0.30, 0.22, 0.15, 0.09], id: \.self) { fraction in
                 GeometryReader { geometry in
                     RoundedRectangle(cornerRadius: 3)
                         .fill(color.gradient)
@@ -409,6 +413,12 @@ private struct ProgressWidgetPreview: View {
                 }
                 .frame(height: 8)
             }
+            GeometryReader { geometry in
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(color.opacity(0.32))
+                    .frame(width: geometry.size.width * 0.24, height: 8)
+            }
+            .frame(height: 8)
         }
     }
 

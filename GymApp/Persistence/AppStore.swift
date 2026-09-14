@@ -2287,6 +2287,9 @@ final class AppStore: ObservableObject {
     // a matched Left+Right pair per logical set (mirroring ExerciseLogSection.addSet).
     private func initialSets(for item: PresetItem, range: RepRange,
                              adaptive: AdaptiveSuggestion?) -> [ExerciseSet] {
+        // Claude  Date 09/14/2026 — cardio is done once per workout, not in sets: always
+        // exactly one time/distance entry, whatever targetSets the preset carries.
+        if exercise(for: item.exerciseId)?.cardioMachine != nil { return [.cardioEntry()] }
         guard let count = item.targetSets, count > 0 else { return [] }
         let low = Swift.min(range.min, range.max)
         let reps = low > 0 ? low : 8

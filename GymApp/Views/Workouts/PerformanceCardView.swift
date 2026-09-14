@@ -114,7 +114,9 @@ struct PerformanceCardView: View {
             if isCardioOnly {
                 statCell("Duration", summary.durationText)
                 statDivider
-                statCell("Bouts", "\(summary.cardioBouts)")
+                // Claude  Date 09/14/2026 — total cardio time, not a "bout" count: cardio is
+                // logged once per exercise, so the count said nothing the time doesn't.
+                statCell("Cardio", CardioFormat.duration(seconds: summary.cardioSeconds))
                 statDivider
                 statCell("Distance", cardioDistanceText)
                 statDivider

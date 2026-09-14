@@ -305,11 +305,12 @@ enum WorkoutKind {
         }
     }
 
-    /// What this session's entries are called — a treadmill bout is not a "set".
+    /// What this session's entries are called — a treadmill run is not a "set".
+    // Claude  Date 09/14/2026 — cardio is now "cardio" ("1 cardio done"); "bout" retired.
     func entryNoun(_ count: Int) -> String {
         switch self {
         case .lifting: return count == 1 ? "set"   : "sets"
-        case .cardio:  return count == 1 ? "bout"  : "bouts"
+        case .cardio:  return "cardio"
         case .mixed:   return count == 1 ? "entry" : "entries"
         }
     }

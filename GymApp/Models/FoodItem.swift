@@ -131,7 +131,7 @@ struct FoodItem: Identifiable, Codable, Hashable {
     // display — anything PERSISTING a label wants `snapshotLabel` instead.
     var displayLabel: String {
         displayBrand.trimmingCharacters(in: .whitespaces).isEmpty
-            ? displayName : "\(displayName) · \(displayBrand)"
+            ? displayName : displayName + .foodLabelSeparator + displayBrand
     }
 
     // Claude  Date 08/22/2026
@@ -143,7 +143,8 @@ struct FoodItem: Identifiable, Codable, Hashable {
     // actually said, and FoodEntry.displayName / RecipeIngredient.displayName case it on
     // the way out like everything else.
     var snapshotLabel: String {
-        brand.trimmingCharacters(in: .whitespaces).isEmpty ? name : "\(name) · \(brand)"
+        brand.trimmingCharacters(in: .whitespaces).isEmpty
+            ? name : name + .foodLabelSeparator + brand
     }
 
     // Claude  Date 08/18/2026
@@ -283,4 +284,21 @@ struct FoodItem: Identifiable, Codable, Hashable {
 // is what makes this reversible once the DB side lands.
 extension String {
     var foodDisplayCased: String { lowercased() }
+}
+
+// CLAUDE  Date 09/12/2026
+// The " · " that displayLabel/snapshotLabel join a food's name and brand with, plus the
+// inverse split. The Progress top-foods rows need the halves back out of a frozen
+// FoodEntry.name so the brand can drop to its own line instead of eating the name's
+// width. Splits on the LAST separator, so a name containing " · " keeps it.
+extension String {
+    static let foodLabelSeparator = " · "
+
+    var foodLabelParts: (name: String, brand: String?) {
+        guard let range = range(of: Self.foodLabelSeparator, options: .backwards) else {
+            return (self, nil)
+        }
+        let brand = String(self[range.upperBound...])
+        return (String(self[..<range.lowerBound]), brand.isEmpty ? nil : brand)
+    }
 }

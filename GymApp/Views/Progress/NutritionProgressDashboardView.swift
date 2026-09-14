@@ -107,15 +107,15 @@ struct NutritionProgressDashboardView: View {
                                color: MacroPalette.fat)
         case .proteinFoods:
             topFoodsSection(title: widget.title,
-                            contributions: topFoodContributions { $0.protein },
+                            summary: topFoodContributions { $0.protein },
                             color: MacroPalette.protein)
         case .carbFoods:
             topFoodsSection(title: widget.title,
-                            contributions: topFoodContributions { $0.carbs },
+                            summary: topFoodContributions { $0.carbs },
                             color: MacroPalette.carbs)
         case .fatFoods:
             topFoodsSection(title: widget.title,
-                            contributions: topFoodContributions { $0.fat },
+                            summary: topFoodContributions { $0.fat },
                             color: MacroPalette.fat)
         case .focusCompletion:
             focusCompletionSection
@@ -202,15 +202,15 @@ struct NutritionProgressDashboardView: View {
 
     @ViewBuilder
     private func topFoodsSection(title: String,
-                                 contributions: [FoodContribution],
+                                 summary: FoodContributionSummary,
                                  color: Color) -> some View {
         Section(title) {
-            if contributions.isEmpty {
+            if summary.isEmpty {
                 Text("Not enough data for this time frame.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             } else {
-                FoodContributorsChart(contributions: contributions, color: color)
+                FoodContributorsChart(summary: summary, color: color)
             }
         }
     }
@@ -260,26 +260,41 @@ struct NutritionProgressDashboardView: View {
         .sorted { $0.date < $1.date }
     }
 
+    // CLAUDE  Date 09/12/2026
     // Aggregate the consumed amount across every serving of the same snapshotted food,
-    // then keep the five strongest contributors so labels remain readable on a phone.
+    // keeping the five strongest — but also the RANGE-WIDE total and each food's entry
+    // count, which is what lets the card show a real share and a remainder rather than
+    // five bars measured against each other. Bucket key is still the frozen label.
     private func topFoodContributions(
         nutrientValue: (Nutrients) -> Double
-    ) -> [FoodContribution] {
-        var totals: [String: Double] = [:]
+    ) -> FoodContributionSummary {
+        var totals: [String: (grams: Double, count: Int)] = [:]
+        var overall = 0.0
         for entry in visibleFoodEntries {
             let value = nutrientValue(entry.consumed)
             guard value > 0 else { continue }
-            totals[entry.displayName, default: 0] += value
+            overall += value
+            var bucket = totals[entry.displayName] ?? (grams: 0, count: 0)
+            bucket.grams += value
+            bucket.count += 1
+            totals[entry.displayName] = bucket
         }
+        guard overall > 0 else { return .empty }
 
-        let contributions = totals.map {
-            FoodContribution(name: $0.key, grams: $0.value)
+        let ranked = totals.sorted { left, right in
+            if left.value.grams == right.value.grams { return left.key < right.key }
+            return left.value.grams > right.value.grams
         }
-        let sorted = contributions.sorted { left, right in
-            if left.grams == right.grams { return left.name < right.name }
-            return left.grams > right.grams
+        let top = ranked.prefix(5).map { label, bucket -> FoodContribution in
+            let parts = label.foodLabelParts
+            return FoodContribution(label: label, name: parts.name, brand: parts.brand,
+                                    grams: bucket.grams, entryCount: bucket.count,
+                                    share: bucket.grams / overall)
         }
-        return Array(sorted.prefix(5))
+        let counted = top.reduce(0) { $0 + $1.grams }
+        return FoodContributionSummary(contributions: top,
+                                       totalGrams: overall,
+                                       remainderGrams: max(overall - counted, 0))
     }
 
     private var proteinPoints: [DailyIntakePoint] {
@@ -352,10 +367,49 @@ private struct FocusCompletionPoint: Identifiable {
     var percentage: Double { Double(metCount) / Double(goalCount) * 100 }
 }
 
+// CLAUDE  Date 09/12/2026
+// One food's pull on a single macro over the selected range. `label` is the frozen
+// "name · brand" diary snapshot and stays the identity; name/brand are split back out
+// only so the row can stack them instead of truncating one long string.
 private struct FoodContribution: Identifiable {
+    let label: String
     let name: String
+    let brand: String?
     let grams: Double
-    var id: String { name }
+    let entryCount: Int
+    /// Fraction of every gram of this macro logged in the range, 0...1.
+    let share: Double
+    var id: String { label }
+
+    var percent: Int { Int((share * 100).rounded()) }
+
+    /// Brand and how often it was logged — what separates a daily staple from one
+    /// enormous meal. nil for an unbranded food eaten exactly once.
+    var subtitle: String? {
+        var parts: [String] = []
+        if let brand { parts.append(brand) }
+        if entryCount > 1 { parts.append("×\(entryCount)") }
+        return parts.isEmpty ? nil : parts.joined(separator: String.foodLabelSeparator)
+    }
+}
+
+// CLAUDE  Date 09/12/2026
+// The five rows plus what they are a share OF, so the header and the "everything else"
+// row can frame them honestly. Percentages are taken from the already-rounded rows and
+// the remainder absorbs the rounding error, so the column always sums to 100.
+private struct FoodContributionSummary {
+    let contributions: [FoodContribution]
+    let totalGrams: Double
+    let remainderGrams: Double
+
+    static let empty = FoodContributionSummary(contributions: [], totalGrams: 0,
+                                               remainderGrams: 0)
+
+    var isEmpty: Bool { contributions.isEmpty }
+    var topPercent: Int { contributions.reduce(0) { $0 + $1.percent } }
+    var remainderPercent: Int { max(100 - topPercent, 0) }
+    var remainderShare: Double { totalGrams > 0 ? remainderGrams / totalGrams : 0 }
+    var showsRemainder: Bool { remainderGrams.rounded() >= 1 }
 }
 
 private struct DailyIntakeChart: View {
@@ -485,49 +539,120 @@ private struct FocusCompletionChart: View {
     }
 }
 
+// CLAUDE  Date 09/12/2026
+// The Top <macro> foods card. Each bar is the food's share of EVERY gram of that macro
+// in the range — not of the leader, which made row one always full and told you nothing
+// — so protein/carbs/fat now read differently by how concentrated their sources are.
+// Side effect: bars are visibly shorter than before, and the card is taller per row.
 private struct FoodContributorsChart: View {
-    let contributions: [FoodContribution]
+    let summary: FoodContributionSummary
     let color: Color
 
-    private var maximumGrams: Double {
-        max(contributions.map(\.grams).max() ?? 0, 1)
-    }
-
     var body: some View {
-        VStack(spacing: 14) {
-            ForEach(contributions) { contribution in
-                VStack(alignment: .leading, spacing: 5) {
-                    HStack(spacing: 8) {
-                        Text(contribution.name)
-                            .font(.caption)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+        VStack(alignment: .leading, spacing: 13) {
+            Text("top \(summary.contributions.count) · \(summary.topPercent)% of \(wholeNumber(summary.totalGrams)) g")
+                .font(.caption)
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
 
-                    Text("\(Int(contribution.grams.rounded())) g")
-                        .font(.caption.weight(.medium))
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
-                        .fixedSize()
-                        .layoutPriority(1)
-                    }
+            ForEach(Array(summary.contributions.enumerated()), id: \.element.id) {
+                index, contribution in
+                row(rank: index + 1,
+                    name: contribution.name,
+                    subtitle: contribution.subtitle,
+                    grams: contribution.grams,
+                    percent: contribution.percent,
+                    share: contribution.share)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel(contribution.brand.map {
+                        "\(contribution.name), \($0)"
+                    } ?? contribution.name)
+                    .accessibilityValue(
+                        "\(wholeNumber(contribution.grams)) grams, \(contribution.percent)% of the total, logged \(contribution.entryCount) times")
+            }
 
-                    GeometryReader { geometry in
-                        ZStack(alignment: .leading) {
-                            Capsule().fill(color.opacity(0.13))
-                            Capsule()
-                                .fill(color.gradient)
-                                .frame(width: geometry.size.width
-                                       * contribution.grams / maximumGrams)
-                        }
-                    }
-                    .frame(height: 10)
-                }
-                .accessibilityLabel(contribution.name)
-                .accessibilityValue("\(Int(contribution.grams.rounded())) grams")
+            // The anchor for the five short bars above: without it a card of 9% rows
+            // reads as missing data rather than as genuinely spread-out eating.
+            if summary.showsRemainder {
+                row(rank: nil,
+                    name: "everything else",
+                    subtitle: nil,
+                    grams: summary.remainderGrams,
+                    percent: summary.remainderPercent,
+                    share: summary.remainderShare,
+                    dimmed: true)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("Everything else")
+                    .accessibilityValue(
+                        "\(wholeNumber(summary.remainderGrams)) grams, \(summary.remainderPercent)% of the total")
             }
         }
         .padding(.vertical, 6)
+    }
+
+    // The name is the only flexible element and carries NO line limit, so a long
+    // "name · brand" wraps instead of losing its tail to a "…". It also drops the
+    // theme's monospaced face (see supportingTextFont) which fits far more per line;
+    // the numbers stay mono so the trailing column keeps its digits aligned.
+    private func row(rank: Int?, name: String, subtitle: String?,
+                     grams: Double, percent: Int, share: Double,
+                     dimmed: Bool = false) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Text(rank.map(String.init) ?? "")
+                .font(.caption2)
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+                .frame(width: 12, alignment: .trailing)
+
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(name)
+                            .font(.caption)
+                            .supportingTextFont()
+                            .foregroundStyle(dimmed ? .secondary : .primary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                        if let subtitle {
+                            Text(subtitle)
+                                .font(.caption2)
+                                .supportingTextFont()
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+
+                    VStack(alignment: .trailing, spacing: 1) {
+                        Text("\(wholeNumber(grams)) g")
+                            .font(.caption.weight(.medium))
+                            .monospacedDigit()
+                        Text("\(percent)%")
+                            .font(.caption2)
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                    }
+                    .fixedSize()
+                }
+
+                GeometryReader { geometry in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(color.opacity(0.13))
+                        Capsule()
+                            .fill(dimmed ? AnyShapeStyle(color.opacity(0.32))
+                                         : AnyShapeStyle(color.gradient))
+                            // A 1% contributor still gets a visible nub.
+                            .frame(width: max(geometry.size.width * min(share, 1), 3))
+                    }
+                }
+                .frame(height: 10)
+            }
+        }
+    }
+
+    private func wholeNumber(_ value: Double) -> String {
+        value.rounded().formatted(.number.precision(.fractionLength(0)))
     }
 }
 

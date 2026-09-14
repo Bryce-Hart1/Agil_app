@@ -76,6 +76,16 @@ enum DistanceUnit: String, CaseIterable, Identifiable {
     }
 }
 
+// Claude  Date 09/14/2026
+// The one entry a cardio exercise logs per workout: time + distance, done once (no sets,
+// no "bouts"). Shared by add-exercise, swap and preset start so every path seeds the same
+// 20-minute default. reps/weight stay 0 so volume/PR/1RM sums keep ignoring it.
+extension ExerciseSet {
+    static func cardioEntry(seconds: Int = 20 * 60) -> ExerciseSet {
+        ExerciseSet(reps: 0, weight: 0, durationSeconds: seconds)
+    }
+}
+
 // Claude  Date 09/07/2026
 // Display strings for a cardio bout, shared by the bout row, the reorder sheet and the
 // post-workout card so they can't drift. Pure formatting — the numbers and the rules that

@@ -192,8 +192,9 @@ enum CardioPolicy {
 
         if !softDurationRange.contains(seconds) {
             let low = seconds < softDurationRange.lowerBound
-            return (low ? "A bout under a minute is too short to score."
-                        : "A bout over 6 hours is longer than this can score.") + tail
+            // Claude  Date 09/14/2026 — "bout" wording retired from user-facing copy.
+            return (low ? "Cardio under a minute is too short to score."
+                        : "Cardio over 6 hours is longer than this can score.") + tail
         }
         guard let meters, meters > 0 else { return nil }
         let derived = machine == .rower
