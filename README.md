@@ -1,4 +1,4 @@
-<img src="assets/logo/agil_transparent.png" alt="Agil logo" width="72" align="right">
+<img src="public_docs/agil_logo.png" alt="Agil logo" width="72" align="right">
 
 # Agil
 
