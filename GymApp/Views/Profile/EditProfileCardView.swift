@@ -98,6 +98,15 @@ struct EditProfileCardView: View {
                         }
                         .frame(height: max(380, geo.size.height - 64))
 
+                        // Claude  Date 09/14/2026
+                        // Hides the titles under the featured badges, icons only. Front-only
+                        // since the back has no badges; syncs to friends via CardSyncService.
+                        if face == .front {
+                            Toggle("Show badge names", isOn: $store.profile.showsBadgeNamesOnCard)
+                                .tint(theme.current.accent)
+                                .padding(.horizontal, 4)
+                        }
+
                         Text(face == .front
                              ? "Tap any part of your card to edit it."
                              : "Tap the palette or the stats to edit the back.")
@@ -155,6 +164,7 @@ struct EditProfileCardView: View {
             rankProgress: store.strategistProgress,
             ringFillMode: .rankProgress,
             catalog: store.achievementCatalog,
+            showsBadgeNames: store.profile.showsBadgeNamesOnCard,
             edit: ProfileCardEditActions(
                 background: { target = .style },
                 badges: { target = .badges }

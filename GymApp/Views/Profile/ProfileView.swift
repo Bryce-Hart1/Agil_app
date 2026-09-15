@@ -37,7 +37,8 @@ struct ProfileView: View {
                             rank: store.strategistRank,
                             rankProgress: store.strategistProgress,
                             ringFillMode: .rankProgress,
-                            catalog: store.achievementCatalog
+                            catalog: store.achievementCatalog,
+                            showsBadgeNames: store.profile.showsBadgeNamesOnCard
                         )
                         .frame(height: max(380, geo.size.height - 32))
                         // CLAUDE  Date 09/05/2026
@@ -393,6 +394,10 @@ struct ProfileShowcaseCard: View {
     // a friend's identity is never shared (SharedCard privacy contract), and ids/tiers are
     // identical across variants so the badges themselves render the same.
     var catalog: [Achievement] = Achievement.all
+    // Claude  Date 09/14/2026
+    // Whether each featured badge prints its title underneath. Off leaves just the icons —
+    // set from the owner's Edit Profile Card switch, or from SharedCard for a friend's card.
+    var showsBadgeNames: Bool = true
 
     // Claude  Date 07/22/2026
     // Opt-in edit affordances. nil (the default, used by the Profile tab, Friends and
@@ -604,12 +609,15 @@ struct ProfileShowcaseCard: View {
     private func badgeCell(_ achievement: Achievement) -> some View {
         VStack(spacing: 6) {
             BadgeView(icon: achievement.icon, tier: achievement.tier, unlocked: true, size: 58, glimmer: true, ringed: false)
-            Text(achievement.title)
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.white)
-                .multilineTextAlignment(.center)
-                .lineLimit(2)
-                .minimumScaleFactor(0.7)
+            // Claude  Date 09/14/2026 — hidden when the "Badge names" switch is off.
+            if showsBadgeNames {
+                Text(achievement.title)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.7)
+            }
         }
         .frame(maxWidth: .infinity)
     }

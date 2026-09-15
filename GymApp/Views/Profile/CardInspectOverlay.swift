@@ -89,7 +89,8 @@ struct CardInspectOverlay: View {
                 rank: store.strategistRank,
                 rankProgress: store.strategistProgress,
                 ringFillMode: .rankProgress,
-                catalog: store.achievementCatalog
+                catalog: store.achievementCatalog,
+                showsBadgeNames: store.profile.showsBadgeNamesOnCard
             )
         } back: {
             ProfileShowcaseCardBack(

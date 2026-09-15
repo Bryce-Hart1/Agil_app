@@ -74,6 +74,11 @@ struct UserProfile: Codable, Hashable {
     // contract in SharedCard.swift, which already names future bodyweight fields. nil means
     // "not given", and every calorie surface shows nothing rather than guessing.
     var bodyweightLb: Double?
+    // Claude  Date 09/14/2026
+    // Whether the front's featured badges print their titles under the icons. Switched in
+    // Edit Profile Card and shared with friends (SharedCard.showsBadgeNames), so turning it
+    // off hides the names on YOUR card everywhere, including on friends' screens.
+    var showsBadgeNamesOnCard: Bool
 
     init(displayName: String = "", hasOnboarded: Bool = false,
          cardStyleID: String = CardStyle.defaultStyle.id,
@@ -83,7 +88,8 @@ struct UserProfile: Codable, Hashable {
          nutritionSetup: NutritionSetup = NutritionSetup(),
          tookFirstStep: Bool = false,
          cardBackStyleID: String? = nil, cardBackHeroStat: String? = nil,
-         cardBackStatIDs: [String] = [], bodyweightLb: Double? = nil) {
+         cardBackStatIDs: [String] = [], bodyweightLb: Double? = nil,
+         showsBadgeNamesOnCard: Bool = true) {
         self.displayName = displayName
         self.hasOnboarded = hasOnboarded
         self.cardStyleID = cardStyleID
@@ -97,6 +103,7 @@ struct UserProfile: Codable, Hashable {
         self.cardBackHeroStat = cardBackHeroStat
         self.cardBackStatIDs = cardBackStatIDs
         self.bodyweightLb = bodyweightLb
+        self.showsBadgeNamesOnCard = showsBadgeNamesOnCard
     }
 
     // Claude  Date 06/12/2026 last changed: 06/13/2026 by: Claude
@@ -110,7 +117,8 @@ struct UserProfile: Codable, Hashable {
     enum CodingKeys: String, CodingKey {
         case displayName, hasOnboarded, cardStyleID, dataMode, showcasedAchievementIDs,
              gender, hasSeenTour, nutritionSetup, tookFirstStep,
-             cardBackStyleID, cardBackHeroStat, cardBackStatIDs, bodyweightLb
+             cardBackStyleID, cardBackHeroStat, cardBackStatIDs, bodyweightLb,
+             showsBadgeNamesOnCard
     }
     private enum LegacyKeys: String, CodingKey { case cardColorHex }
     init(from decoder: Decoder) throws {
@@ -137,6 +145,8 @@ struct UserProfile: Codable, Hashable {
         // Claude  Date 09/07/2026 — new field; a profile saved before cardio existed has no
         // bodyweight, so calorie estimates stay hidden until it's given.
         bodyweightLb = try c.decodeIfPresent(Double.self, forKey: .bodyweightLb)
+        // Claude  Date 09/14/2026 — new field; older profiles keep showing badge names.
+        showsBadgeNamesOnCard = try c.decodeIfPresent(Bool.self, forKey: .showsBadgeNamesOnCard) ?? true
         if let id = try c.decodeIfPresent(String.self, forKey: .cardStyleID) {
             cardStyleID = id
         } else {

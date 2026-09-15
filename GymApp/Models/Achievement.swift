@@ -19,8 +19,11 @@ enum BadgeTier: String, CaseIterable {
         case .gold:     return 400
         case .platinum: return 1000
         case .diamond:  return 2000
-        case .emerald:  return 4000
-        case .legend:   return 8000
+        // Claude  Date 09/14/2026 — Emerald cut from 4000 and Legend from 8000 (Bryce's call).
+        // Banked coins aren't lost: Wallet.earnedHighWater holds them, but a user who already
+        // owns these badges earns no new coins until their derived total climbs back past it.
+        case .emerald:  return 3000
+        case .legend:   return 5000
         }
     }
 

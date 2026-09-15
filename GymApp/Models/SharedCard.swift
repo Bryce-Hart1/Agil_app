@@ -44,4 +44,9 @@ struct SharedCard: Codable, Equatable {
     // Server-owned; see note above. Optional + defaulted so local construction and
     // decoding of older/keyless payloads both stay valid.
     var friendCode: String? = nil
+    // Claude  Date 09/14/2026
+    // Whether badge titles show under the featured badges. Optional so a card from an older
+    // build (or a backend that doesn't store it yet) decodes as nil, which renders as SHOWN —
+    // the behaviour every card had before this switch existed.
+    var showsBadgeNames: Bool? = nil
 }

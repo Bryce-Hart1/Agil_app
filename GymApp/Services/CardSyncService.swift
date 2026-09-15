@@ -223,7 +223,9 @@ final class CardSyncService: ObservableObject {
             memberSince: stats.memberSince,
             updatedAt: nil,
             // Server-owned — never sent from the client (ignored on PUT).
-            friendCode: nil
+            friendCode: nil,
+            // Claude  Date 09/14/2026 — the Edit Profile Card "Badge names" switch.
+            showsBadgeNames: store.profile.showsBadgeNamesOnCard
         )
     }
 

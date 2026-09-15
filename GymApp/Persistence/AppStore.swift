@@ -1356,6 +1356,15 @@ final class AppStore: ObservableObject {
         guard let index = workouts.firstIndex(where: { $0.id == id }),
               !workouts[index].isFinished else { return }
 
+        // Claude  Date 09/14/2026
+        // An empty session (no exercises added) is thrown away, not saved: it has nothing
+        // to credit, so it shouldn't count as a finished session or pop the performance card.
+        // Side effect: it simply disappears from the mini-bar / History.
+        if workouts[index].exercises.isEmpty {
+            workouts.remove(at: index)
+            return
+        }
+
         var newEvents: [ActivityEvent] = []
         for logged in workouts[index].exercises {
             // Claude  Date 07/11/2026
@@ -1399,7 +1408,10 @@ final class AppStore: ObservableObject {
         // (07/21) The card's "Best Set" is now scored against the user's history, so it
         // gets the ledger — MINUS this session's own events, which were appended a few
         // lines up. Without that filter every workout would set a record against itself.
-        guard showSummary else { return }
+        // Claude  Date 09/14/2026
+        // No card when nothing was checked off — a session with zero completed sets has
+        // no performance to recap, so finishing it just closes it out quietly.
+        guard showSummary, workouts[index].completedSets > 0 else { return }
         let ownSetIds = Set(workouts[index].exercises.flatMap { $0.sets.map(\.id) })
         pendingWorkoutSummary = WorkoutSummary(
             workout: workouts[index],

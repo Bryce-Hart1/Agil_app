@@ -31,7 +31,9 @@ struct FriendCardView: View {
             pinnedIDs: card.showcasedAchievementIDs,
             memberSince: card.memberSince,
             rank: card.showsRankOnCard ? card.rank : nil,
-            rankProgress: card.rankProgress
+            rankProgress: card.rankProgress,
+            // Claude  Date 09/14/2026 — honour the friend's own switch; nil (older card) shows.
+            showsBadgeNames: card.showsBadgeNames ?? true
         )
     }
 }
