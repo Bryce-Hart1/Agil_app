@@ -37,6 +37,12 @@ final class WorkoutSession: ObservableObject {
     // offering "return to your workout" when you're already in it.
     @Published var viewingWorkoutID: UUID?
 
+    // Claude  Date 09/16/2026
+    // Which unilateral set fields have had their one-time first-entry fill (see writeSetEdit
+    // in WorkoutDetailView). Lives here, not in the editor, so leaving and reopening a workout
+    // doesn't re-arm it. Not @Published — nothing draws from it. Lost on relaunch.
+    var unilateralFills = UnilateralFillState()
+
     private var timer: Timer?
     private var hideCompleteWork: DispatchWorkItem?
     // Claude  Date 06/18/2026
@@ -154,5 +160,19 @@ final class WorkoutSession: ObservableObject {
     private func cancelHide() {
         hideCompleteWork?.cancel()
         hideCompleteWork = nil
+    }
+}
+
+// Claude  Date 09/16/2026
+// Both sides' SetEntryFields for each unilateral fill. `filling` = the first entry is still being
+// typed (so every keystroke keeps filling); `settle()` runs on any focus change and moves them to
+// `filled`, after which Left and Right are edited independently for good.
+struct UnilateralFillState {
+    var filling: Set<SetEntryField> = []
+    var filled: Set<SetEntryField> = []
+
+    mutating func settle() {
+        filled.formUnion(filling)
+        filling.removeAll()
     }
 }

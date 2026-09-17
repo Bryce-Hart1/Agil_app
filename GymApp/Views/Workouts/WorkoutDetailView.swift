@@ -79,6 +79,20 @@ private struct WorkoutEditor: View {
     // an exercise's form cue, the rep-range fields — deliberately aren't tracked here;
     // they get the plain Done, which is all they ever had.
     @FocusState private var focusedField: SetEntryField?
+    // Claude  Date 09/16/2026
+    // Missed-set review from Complete Workout: the alert, the unchecked sets the user went
+    // back for (drawn with a "!" until checked off), and the set to scroll to. Transient —
+    // leaving the editor clears them, so the next Complete re-checks from scratch.
+    @State private var showingMissedSetsAlert = false
+    @State private var flaggedSetIDs: Set<UUID> = []
+    @State private var missedSetScrollTarget: UUID?
+
+    // Claude  Date 09/16/2026
+    // Every set not yet checked off, in on-screen order (exercise, then set), so `.last` is
+    // the lowest one on the page. Cardio entries count too — they're finished by swipe as well.
+    private var uncheckedSetIDs: [UUID] {
+        workout.exercises.flatMap { $0.sets.filter { $0.completedAt == nil }.map(\.id) }
+    }
 
     // Claude  Date 07/13/2026
     // The preset this workout was started from, if it still exists (nil for empty/ad-hoc
@@ -245,7 +259,43 @@ private struct WorkoutEditor: View {
         }
     }
 
+    // Claude  Date 09/16/2026
+    // Wraps the form in a ScrollViewReader so "Go Back" on the missed-set alert can land the
+    // user on the set. Delayed past the alert's dismissal, which otherwise swallows the scroll;
+    // the target is reset to nil after so a second "Go Back" to the same set still fires.
     var body: some View {
+        ScrollViewReader { proxy in
+            editorForm
+                .onChange(of: missedSetScrollTarget) { target in
+                    guard let target else { return }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                        withAnimation(.easeInOut(duration: 0.35)) {
+                            proxy.scrollTo(target, anchor: .center)
+                        }
+                        missedSetScrollTarget = nil
+                    }
+                }
+                // Claude  Date 09/16/2026
+                // Any focus move ends a unilateral pair's first entry: from here on its Left and
+                // Right are edited independently. Settled on ANY change (not just leaving the
+                // field) so it holds whether a number field commits per keystroke or on blur.
+                .onChange(of: focusedField) { _ in session.unilateralFills.settle() }
+        }
+        // Claude  Date 09/16/2026
+        // Raised by Complete Workout when sets are unchecked. Go Back is the cancel role, so
+        // it's the bold, default choice; Finish Anyway credits only what's checked off.
+        .alert(missedSetsTitle, isPresented: $showingMissedSetsAlert) {
+            Button("Go Back", role: .cancel) { reviewMissedSets() }
+            Button("Finish Anyway") { finishAndDismiss() }
+        } message: {
+            Text(missedSetsMessage)
+        }
+    }
+
+    // Claude  Date 09/16/2026
+    // The editor's Form and its whole modifier chain, split out of body only so body can wrap
+    // it in the ScrollViewReader above. Toolbars, sheets and alerts still reach the nav stack.
+    private var editorForm: some View {
         Form {
             headerSection
 
@@ -263,6 +313,7 @@ private struct WorkoutEditor: View {
                     ExerciseLogSection(logged: $logged, accent: theme.current.accent,
                                        isPresetBacked: workout.presetID != nil,
                                        isFirst: workout.exercises.first?.id == logged.id,
+                                       flaggedSetIDs: flaggedSetIDs,
                                        focusedField: $focusedField,
                                        onNeedsBodyweight: { showingBodyweightPrompt = true }) { exercise in
                         logged.exerciseId = exercise.id
@@ -321,9 +372,7 @@ private struct WorkoutEditor: View {
             // just "Finish Edit" (navigation only; edits don't change earned credit).
             Section {
                 Button {
-                    hideKeyboard()
-                    if !workout.isFinished { store.finishWorkout(id: workout.id) }
-                    dismiss()
+                    completeTapped()
                 } label: {
                     Text(workout.isFinished ? "Finish Edit" : "Complete Workout")
                         .fontWeight(.semibold)
@@ -422,7 +471,11 @@ private struct WorkoutEditor: View {
         // While this editor is on screen, tell the session so the global mini-bar
         // hides itself for this workout (clearing only our own id on the way out).
         .onAppear { session.viewingWorkoutID = workout.id }
-        .onDisappear { if session.viewingWorkoutID == workout.id { session.viewingWorkoutID = nil } }
+        .onDisappear {
+            if session.viewingWorkoutID == workout.id { session.viewingWorkoutID = nil }
+            // Claude  Date 09/16/2026 — leaving mid-entry still counts as the first entry.
+            session.unilateralFills.settle()
+        }
         .selectAllWhenEditingNumberFields()
         .toolbar {
             // Claude  Date 07/13/2026 last changed: 08/04/2026 by: Claude
@@ -595,6 +648,63 @@ private struct WorkoutEditor: View {
         hideKeyboard()
     }
 
+    // MARK: - Missed sets
+
+    // Claude  Date 09/16/2026
+    // Complete Workout / Finish Edit. An in-progress workout with unchecked sets the user
+    // hasn't already been shown stops at the missed-set alert instead of finishing; ones
+    // flagged by an earlier Go Back don't re-trigger it, so a deliberate skip isn't nagged twice.
+    private func completeTapped() {
+        hideKeyboard()
+        if !workout.isFinished && !Set(uncheckedSetIDs).isSubset(of: flaggedSetIDs) {
+            showingMissedSetsAlert = true
+            return
+        }
+        finishAndDismiss()
+    }
+
+    // Claude  Date 09/16/2026
+    // Finish (credits checked-off sets and queues the performance card, see
+    // AppStore.finishWorkout) and leave the editor. A no-op finish for an already-finished one.
+    private func finishAndDismiss() {
+        if !workout.isFinished { store.finishWorkout(id: workout.id) }
+        dismiss()
+    }
+
+    // Claude  Date 09/16/2026
+    // The alert's Go Back: badge every unchecked set with "!" and scroll to the last one on
+    // the page. Side effect: those sets stop re-triggering the alert on the next Complete.
+    private func reviewMissedSets() {
+        let unchecked = uncheckedSetIDs
+        flaggedSetIDs.formUnion(unchecked)
+        missedSetScrollTarget = unchecked.last.map(rowID(containing:))
+    }
+
+    // Claude  Date 09/16/2026
+    // The list row a set is drawn in: its own id, or its pair's lead id for a unilateral side
+    // (both sides share one row). Used to scroll to a set and to count a pair as one set.
+    private func rowID(containing setID: UUID) -> UUID {
+        guard let logged = workout.exercises.first(where: { $0.sets.contains { $0.id == setID } })
+        else { return setID }
+        return SetGroup.groups(from: logged.sets, isUnilateral: isUnilateral(logged))
+            .first { $0.setIDs.contains(setID) }?.id ?? setID
+    }
+
+    private var uncheckedRowCount: Int {
+        Set(uncheckedSetIDs.map(rowID(containing:))).count
+    }
+
+    private var missedSetsTitle: String {
+        let count = uncheckedRowCount
+        return count == 1 ? "1 Set Not Checked Off" : "\(count) Sets Not Checked Off"
+    }
+
+    private var missedSetsMessage: String {
+        let them = uncheckedRowCount == 1 ? "it" : "them"
+        return "If you did \(them) and just forgot to track, go back and swipe \(them) right. "
+            + "Unchecked sets won't count toward your progress."
+    }
+
     // Claude  Date 07/21/2026
     // Move the focused set field by `delta` (the keyboard bar's steppers). Writes through
     // the same `$workout` binding typing does, so AppStore persists it identically — and
@@ -610,14 +720,16 @@ private struct WorkoutEditor: View {
             guard let setIndex = workout.exercises[exerciseIndex].sets
                 .firstIndex(where: { $0.id == field.setID }) else { continue }
 
+            // Claude  Date 09/16/2026 — reps/weight go through writeSetEdit, so a stepper on a
+            // unilateral pair's first entry fills the other side exactly as typing does.
+            var edited = workout.exercises[exerciseIndex].sets[setIndex]
             switch field {
             case .reps:
-                let updated = workout.exercises[exerciseIndex].sets[setIndex].reps + Int(delta)
-                workout.exercises[exerciseIndex].sets[setIndex].reps = max(0, updated)
+                edited.reps = max(0, edited.reps + Int(delta))
+                applySetEdit(edited, exerciseIndex: exerciseIndex)
             case .weight:
-                let updated = workout.exercises[exerciseIndex].sets[setIndex].weight + delta
-                workout.exercises[exerciseIndex].sets[setIndex].weight =
-                    max(0, (updated * 100).rounded() / 100)
+                edited.weight = max(0, ((edited.weight + delta) * 100).rounded() / 100)
+                applySetEdit(edited, exerciseIndex: exerciseIndex)
             // Claude  Date 09/07/2026
             // Both halves of a bout's time fold into the one durationSeconds, so a seconds
             // step past 60 carries into the minute for free. Clamped to CardioPolicy's hard
@@ -653,6 +765,17 @@ private struct WorkoutEditor: View {
         return nil
     }
 
+    private func isUnilateral(_ logged: LoggedExercise) -> Bool {
+        store.exercise(for: logged.exerciseId)?.isUnilateral ?? false
+    }
+
+    private func applySetEdit(_ edited: ExerciseSet, exerciseIndex: Int) {
+        var sets = workout.exercises[exerciseIndex].sets
+        writeSetEdit(edited, into: &sets, isUnilateral: isUnilateral(workout.exercises[exerciseIndex]),
+                     fills: &session.unilateralFills)
+        workout.exercises[exerciseIndex].sets = sets
+    }
+
     private func adjustDuration(_ exerciseIndex: Int, _ setIndex: Int, bySeconds delta: Int) {
         let current = workout.exercises[exerciseIndex].sets[setIndex].durationSeconds ?? 0
         workout.exercises[exerciseIndex].sets[setIndex].durationSeconds =
@@ -664,6 +787,8 @@ private struct WorkoutEditor: View {
 /// and a "remove exercise" button.
 private struct ExerciseLogSection: View {
     @EnvironmentObject private var store: AppStore
+    // Claude  Date 09/16/2026 — holds the unilateral first-entry fill state (see setBinding).
+    @EnvironmentObject private var session: WorkoutSession
     // Claude  Date 07/16/2026
     // For retintOnThemeChange below — the menu picker needs the active theme's
     // identity, not just the resolved accent Color passed in by the parent.
@@ -679,6 +804,10 @@ private struct ExerciseLogSection: View {
     // True for the workout's first exercise only — the one place the one-time
     // swipe/long-press hint row is allowed to appear, so it isn't repeated per section.
     let isFirst: Bool
+    // Claude  Date 09/16/2026
+    // Sets the user went back for from the missed-set alert; each one's row shows the "!"
+    // badge until it's checked off. Empty until that alert's Go Back is tapped.
+    let flaggedSetIDs: Set<UUID>
     // Claude  Date 07/21/2026
     // The editor's set-field focus, passed straight through to each SetRow so the
     // keyboard accessory bar knows which value it's stepping.
@@ -769,27 +898,33 @@ private struct ExerciseLogSection: View {
         // no delete, reorder or Add, since there's nothing to have more than one of.
         // (Older workouts logged with several entries still list each one.)
         if isCardio {
-            ForEach(Array(logged.sets.enumerated()), id: \.element.id) { index, _ in
-                entryRow(at: index)
+            ForEach(Array(logged.sets.enumerated()), id: \.element.id) { index, set in
+                cardioRow(at: index)
                     .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                        completeSwipeButton(at: index)
+                        completeSwipeButton(for: [set.id])
                     }
+                    // Claude  Date 09/16/2026 — scroll anchor for the missed-set alert's Go Back.
+                    .id(set.id)
             }
         } else {
-            ForEach(Array(logged.sets.enumerated()), id: \.element.id) { index, _ in
-                entryRow(at: index)
+            // Claude  Date 09/16/2026
+            // One list row per LOGICAL set: a unilateral Left/Right pair shares a single row, so
+            // the swipes and long-press below animate across both sides and act on both at once.
+            // Keyed by the group's lead set id, which is also the missed-set scroll anchor.
+            ForEach(Array(rowGroups.enumerated()), id: \.element.id) { position, group in
+                setGroupRow(group, number: position + 1)
                     // Claude  Date 09/01/2026
                     // Swipe RIGHT to check a set off — full swipe finishes it in one flick,
                     // swiping again undoes it. This replaced the ~17pt checkmark button that
                     // used to sit at the row's leading edge.
                     .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                        completeSwipeButton(at: index)
+                        completeSwipeButton(for: group.setIDs)
                     }
                     // Explicit trailing delete replaces the ForEach's old .onDelete so both
-                    // edges are declared here; deleteSets still drops a unilateral pair whole.
+                    // edges are declared here; a unilateral pair is one row, so it goes whole.
                     .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                         Button(role: .destructive) {
-                            deleteSets(at: IndexSet(integer: index))
+                            deleteSets(group.setIDs)
                         } label: {
                             Label("Delete", systemImage: "trash")
                         }
@@ -800,18 +935,18 @@ private struct ExerciseLogSection: View {
                     // Moves act on LOGICAL sets, so a unilateral L/R pair travels as one.
                     .contextMenu {
                         Button {
-                            moveSet(at: index, by: -1)
+                            moveGroup(group.id, by: -1)
                         } label: {
                             Label("Move Up", systemImage: "arrow.up")
                         }
-                        .disabled(!canMove(at: index, by: -1))
+                        .disabled(!canMove(group.id, by: -1))
 
                         Button {
-                            moveSet(at: index, by: 1)
+                            moveGroup(group.id, by: 1)
                         } label: {
                             Label("Move Down", systemImage: "arrow.down")
                         }
-                        .disabled(!canMove(at: index, by: 1))
+                        .disabled(!canMove(group.id, by: 1))
 
                         Divider()
 
@@ -820,8 +955,9 @@ private struct ExerciseLogSection: View {
                         } label: {
                             Label("Reorder Sets…", systemImage: "arrow.up.arrow.down")
                         }
-                        .disabled(setGroups.wrappedValue.count < 2)
+                        .disabled(rowGroups.count < 2)
                     }
+                    .id(group.id)
             }
         }
 
@@ -904,43 +1040,90 @@ private struct ExerciseLogSection: View {
     }
     private var isCardio: Bool { cardioMachine != nil }
 
-    // Claude  Date 09/07/2026
-    // One logged entry: a bout row for cardio, a set row otherwise. Split out so the
-    // swipe-to-complete, swipe-to-delete and long-press-to-reorder modifiers in the
-    // ForEach above apply identically to both — all three act on `logged.sets` either way.
+    // Claude  Date 09/07/2026 last changed: 09/16/2026 by: Claude
+    // A cardio bout's row. (09/16) Lifts no longer come through here — they render per
+    // logical set in setGroupRow — so this is the cardio half of what was entryRow.
     @ViewBuilder
-    private func entryRow(at index: Int) -> some View {
+    private func cardioRow(at index: Int) -> some View {
         if let machine = cardioMachine {
             CardioEntryRow(machine: machine,
                            set: $logged.sets[index],
                            accent: accent,
                            unit: distanceUnit,
                            bodyweightLb: store.profile.bodyweightLb,
+                           isMissed: flaggedSetIDs.contains(logged.sets[index].id),
                            focusedField: $focusedField,
                            onMissingBodyweight: onNeedsBodyweight)
-        } else {
-            SetRow(number: setNumber(at: index),
-                   sideLabel: logged.sets[index].side?.title,
-                   lagsBehind: lagsBehind(at: index),
-                   isBodyweight: isBodyweight,
-                   set: $logged.sets[index],
-                   targetRange: logged.targetRepRange, accent: accent,
-                   focusedField: $focusedField)
         }
     }
 
-    // Claude  Date 09/14/2026
+    // Claude  Date 09/16/2026
+    // This lift's sets as list rows: one per set, or one per Left/Right pair when unilateral.
+    private var rowGroups: [SetGroup] {
+        SetGroup.groups(from: logged.sets, isUnilateral: isUnilateral)
+    }
+
+    // Claude  Date 09/16/2026
+    // One logical set's row. A pair stacks its Left and Right lines (divider between) in ONE
+    // cell, so a swipe slides both together; a fully-done pair gets one wash across both lines
+    // (a half-done legacy pair keeps per-line washes so you can see which side).
+    @ViewBuilder
+    private func setGroupRow(_ group: SetGroup, number: Int) -> some View {
+        if group.indices.count == 2 {
+            let lead = group.indices.lowerBound
+            let pairDone = isCompleted(group.setIDs)
+            VStack(spacing: 10) {
+                setLine(at: lead, partner: lead + 1, number: number, drawsCompletedWash: !pairDone)
+                Divider()
+                setLine(at: lead + 1, partner: lead, number: number, drawsCompletedWash: !pairDone)
+            }
+            .completedSetStyling(isCompleted: pairDone, accent: accent)
+        } else {
+            setLine(at: group.indices.lowerBound, partner: nil, number: number, drawsCompletedWash: true)
+        }
+    }
+
+    private func setLine(at index: Int, partner: Int?, number: Int, drawsCompletedWash: Bool) -> some View {
+        SetRow(number: number,
+               sideLabel: logged.sets[index].side?.title,
+               lagsBehind: lagsBehind(at: index, partner: partner),
+               isBodyweight: isBodyweight,
+               isMissed: flaggedSetIDs.contains(logged.sets[index].id),
+               drawsCompletedWash: drawsCompletedWash,
+               set: setBinding(at: index),
+               targetRange: logged.targetRepRange, accent: accent,
+               focusedField: $focusedField)
+    }
+
+    // Claude  Date 09/16/2026
+    // A set's binding for SetRow, read by id so a delete can't strand it on a stale index.
+    // Writes go through writeSetEdit — side effect: a pair's first reps/weight entry fills the
+    // other side once (tracked on the session, see UnilateralFillState).
+    private func setBinding(at index: Int) -> Binding<ExerciseSet> {
+        let snapshot = logged.sets[index]
+        return Binding(
+            get: { logged.sets.first { $0.id == snapshot.id } ?? snapshot },
+            set: { edited in
+                var sets = logged.sets
+                writeSetEdit(edited, into: &sets, isUnilateral: isUnilateral,
+                             fills: &session.unilateralFills)
+                logged.sets = sets
+            })
+    }
+
+    // Claude  Date 09/14/2026 last changed: 09/16/2026 by: Claude
     // The leading-swipe Done/Undo button, shared by the lift ForEach and the cardio card so
     // both finish the same way. Only toggles completedAt; credit still lands at finishWorkout.
-    private func completeSwipeButton(at index: Int) -> some View {
-        Button {
-            toggleComplete(at: index)
+    // (09/16) Takes a row's set ids, so on a unilateral pair it checks off / undoes both sides.
+    private func completeSwipeButton(for ids: [UUID]) -> some View {
+        let done = isCompleted(ids)
+        return Button {
+            toggleComplete(ids)
         } label: {
-            Label(isCompleted(at: index) ? "Undo" : "Done",
-                  systemImage: isCompleted(at: index)
-                      ? "arrow.uturn.backward" : "checkmark")
+            Label(done ? "Undo" : "Done",
+                  systemImage: done ? "arrow.uturn.backward" : "checkmark")
         }
-        .tint(isCompleted(at: index) ? .gray : accent)
+        .tint(done ? .gray : accent)
     }
 
     /// Adds a set, defaulting to the previous set's reps/weight (or the low end of
@@ -969,98 +1152,78 @@ private struct ExerciseLogSection: View {
         }
     }
 
-    // Claude  Date 06/14/2026
-    // Swipe-delete: for unilateral exercises, removing one side also removes its
-    // pair partner so a set never ends up half-deleted. (The activity ledger is
-    // append-only, so any already-earned credit for those sides is kept.)
-    // Claude  Date 08/07/2026 — explicitly animated: swipe-to-delete animates the row you
-    // swiped on its own, but the PARTNER row removed alongside it is not part of that
-    // gesture and would otherwise vanish instantly.
-    private func deleteSets(at offsets: IndexSet) {
-        guard isUnilateral else {
-            withAnimation(.easeInOut(duration: 0.25)) {
-                logged.sets.remove(atOffsets: offsets)
-            }
-            return
-        }
-        var toRemove = Set(offsets)
-        for index in offsets {
-            if let partner = partnerIndex(of: index) { toRemove.insert(partner) }
-        }
+    // Claude  Date 06/14/2026 last changed: 09/16/2026 by: Claude
+    // Swipe-delete a row's sets. (The activity ledger is append-only, so any already-earned
+    // credit is kept.) (09/16) A unilateral pair is now one row, so the swipe itself animates
+    // both sides out together — no partner row left to vanish on its own.
+    private func deleteSets(_ ids: [UUID]) {
         withAnimation(.easeInOut(duration: 0.25)) {
-            logged.sets.remove(atOffsets: IndexSet(toRemove))
+            logged.sets.removeAll { ids.contains($0.id) }
         }
     }
 
-    // Claude  Date 06/14/2026
-    // Displayed set number: for unilateral exercises each Left/Right pair shares one
-    // number (index 0,1 → Set 1; 2,3 → Set 2); otherwise it's just the position.
-    private func setNumber(at index: Int) -> Int {
-        isUnilateral ? index / 2 + 1 : index + 1
-    }
-
-    // Claude  Date 06/14/2026
-    // The paired (other-side) index for a unilateral set — adjacent by parity —
-    // but only when it genuinely exists and is the opposite side.
-    private func partnerIndex(of index: Int) -> Int? {
-        guard isUnilateral else { return nil }
-        let partner = index % 2 == 0 ? index + 1 : index - 1
-        guard logged.sets.indices.contains(partner),
-              let mine = logged.sets[index].side,
-              let theirs = logged.sets[partner].side,
-              mine != theirs else { return nil }
-        return partner
-    }
-
-    // Claude  Date 06/14/2026
-    // True when this side is the one to push to even out the pair: it's strictly
-    // lower on at least one metric (weight or reps) than its partner. A matched pair
-    // flags neither; a "mixed" pair (each side ahead on a different metric) flags
-    // both, nudging the user to match reps AND weight.
-    private func lagsBehind(at index: Int) -> Bool {
-        guard let partner = partnerIndex(of: index) else { return false }
+    // Claude  Date 06/14/2026 last changed: 09/16/2026 by: Claude
+    // True when this side is the one to push to even out the pair: strictly lower on weight
+    // or reps than its partner. A matched pair flags neither; a "mixed" pair flags both.
+    // (09/16) The partner comes from the row's group instead of index parity.
+    private func lagsBehind(at index: Int, partner: Int?) -> Bool {
+        guard let partner else { return false }
         let mine = logged.sets[index]
         let theirs = logged.sets[partner]
         guard mine.reps != theirs.reps || mine.weight != theirs.weight else { return false }
         return mine.weight < theirs.weight || mine.reps < theirs.reps
     }
 
-    private func isCompleted(at index: Int) -> Bool {
-        logged.sets.indices.contains(index) && logged.sets[index].completedAt != nil
+    /// Whether every set in a row is checked off (false for ids that no longer exist).
+    private func isCompleted(_ ids: [UUID]) -> Bool {
+        let matched = logged.sets.filter { ids.contains($0.id) }
+        return !matched.isEmpty && matched.allSatisfy { $0.completedAt != nil }
     }
 
-    // Claude  Date 09/01/2026
-    // Check a set off / undo it, from the leading swipe. Only stamps completedAt — credit
-    // is still granted in one batch by AppStore.finishWorkout. Side effects: a haptic
-    // graded by what just happened, and it retires the one-time swipe hint app-wide.
-    private func toggleComplete(at index: Int) {
-        guard logged.sets.indices.contains(index) else { return }
-        let completing = !isCompleted(at: index)
+    // Claude  Date 09/01/2026 last changed: 09/16/2026 by: Claude
+    // Check a row off / undo it, from the leading swipe. Only stamps completedAt — credit is
+    // still granted in one batch by AppStore.finishWorkout. Side effects: a graded haptic, and
+    // it retires the one-time swipe hint. (09/16) Acts on every set in the row (both sides).
+    private func toggleComplete(_ ids: [UUID]) {
+        let indices = logged.sets.indices.filter { ids.contains(logged.sets[$0].id) }
+        guard !indices.isEmpty else { return }
+        let completing = !isCompleted(ids)
         // Claude  Date 09/07/2026
         // The hard tier's last line of defence: a bout past the physically-possible ceiling
         // cannot be checked off at all, so it can never reach finishWorkout's ledger mint.
         // This catches the one order the input clamp can't — distance typed BEFORE the time,
         // where there was no duration to clamp the distance against yet.
-        if completing, let machine = cardioMachine,
-           let seconds = logged.sets[index].durationSeconds,
-           !CardioPolicy.isWithinHardLimits(machine: machine, seconds: seconds,
-                                            meters: logged.sets[index].distanceMeters) {
-            Haptics.soften()
-            return
+        if completing, let machine = cardioMachine {
+            for index in indices {
+                guard let seconds = logged.sets[index].durationSeconds else { continue }
+                if !CardioPolicy.isWithinHardLimits(machine: machine, seconds: seconds,
+                                                    meters: logged.sets[index].distanceMeters) {
+                    Haptics.soften()
+                    return
+                }
+            }
         }
         // Three textures, so the gesture tells you WHICH thing happened without looking:
-        // the last open set of the lift celebrates, any other set succeeds, undo is soft.
+        // the last open row of the lift celebrates, any other row succeeds, undo is soft.
+        let openInRow = indices.filter { logged.sets[$0].completedAt == nil }.count
         if !completing {
             Haptics.soften()
-        } else if openSetCount == 1 {
+        } else if openSetCount == openInRow {
             Haptics.celebrate()
         } else {
             Haptics.success()
         }
+        // Written as one array so a pair flips in a single update. A side already done keeps
+        // its original timestamp when the other side is checked off.
+        var sets = logged.sets
+        let now = Date()
+        for index in indices {
+            sets[index].completedAt = completing ? (sets[index].completedAt ?? now) : nil
+        }
         // Underdamped on purpose — the check overshoots and settles, which is what makes
         // finishing a set feel like a physical action instead of a state flag flipping.
         withAnimation(.spring(response: 0.34, dampingFraction: 0.62)) {
-            logged.sets[index].completedAt = completing ? Date() : nil
+            logged.sets = sets
             hasSeenSetSwipeHint = true
         }
     }
@@ -1071,66 +1234,26 @@ private struct ExerciseLogSection: View {
     }
 
     // Claude  Date 09/01/2026
-    // One LOGICAL set: a single row normally, a Left+Right pair for a unilateral lift.
-    // Reordering has to move these, not raw rows — setNumber/partnerIndex/lagsBehind all
-    // assume a pair sits at adjacent even/odd indices, so splitting one corrupts them all.
-    private struct SetGroup: Identifiable {
-        let id: UUID          // the leading set's id, so identity survives a move
-        var sets: [ExerciseSet]
-    }
-
-    private func groups(from sets: [ExerciseSet]) -> [SetGroup] {
-        guard isUnilateral else { return sets.map { SetGroup(id: $0.id, sets: [$0]) } }
-        var result: [SetGroup] = []
-        var index = 0
-        while index < sets.count {
-            // Pair adjacent OPPOSITE sides; a stray unpaired set stands on its own so
-            // legacy/half-deleted data still renders instead of crashing.
-            if index + 1 < sets.count,
-               let mine = sets[index].side,
-               let theirs = sets[index + 1].side,
-               mine != theirs {
-                result.append(SetGroup(id: sets[index].id, sets: [sets[index], sets[index + 1]]))
-                index += 2
-            } else {
-                result.append(SetGroup(id: sets[index].id, sets: [sets[index]]))
-                index += 1
-            }
-        }
-        return result
-    }
-
-    // Claude  Date 09/01/2026
     // The sets as logical groups, writable — flattening back through this binding is what
     // persists a reorder (AppStore.binding(for:) → @Published workouts → disk).
     private var setGroups: Binding<[SetGroup]> {
-        Binding(get: { groups(from: logged.sets) },
+        Binding(get: { rowGroups },
                 set: { logged.sets = $0.flatMap(\.sets) })
     }
 
-    /// The logical-set index that row `index` belongs to.
-    private func groupIndex(forRow index: Int) -> Int? {
-        var row = 0
-        for (position, group) in groups(from: logged.sets).enumerated() {
-            if index < row + group.sets.count { return position }
-            row += group.sets.count
-        }
-        return nil
+    private func canMove(_ id: UUID, by delta: Int) -> Bool {
+        guard let position = rowGroups.firstIndex(where: { $0.id == id }) else { return false }
+        return rowGroups.indices.contains(position + delta)
     }
 
-    private func canMove(at index: Int, by delta: Int) -> Bool {
-        guard let position = groupIndex(forRow: index) else { return false }
-        let target = position + delta
-        return target >= 0 && target < groups(from: logged.sets).count
-    }
-
-    // Claude  Date 09/01/2026
+    // Claude  Date 09/01/2026 last changed: 09/16/2026 by: Claude
     // Swap this row's logical set with its neighbour. Set NUMBERS are positional, so the
     // list renumbers itself top-down afterwards; the ledger keys off setId, so nothing
-    // already earned is disturbed.
-    private func moveSet(at index: Int, by delta: Int) {
-        guard canMove(at: index, by: delta), let position = groupIndex(forRow: index) else { return }
-        var all = groups(from: logged.sets)
+    // already earned is disturbed. (09/16) Addressed by the row's id rather than a row index.
+    private func moveGroup(_ id: UUID, by delta: Int) {
+        var all = rowGroups
+        guard let position = all.firstIndex(where: { $0.id == id }),
+              all.indices.contains(position + delta) else { return }
         all.swapAt(position, position + delta)
         // A crisp detent click, not the generic tap — the set snapped into a new slot.
         Haptics.click()
@@ -1139,6 +1262,66 @@ private struct ExerciseLogSection: View {
         }
     }
 
+}
+
+// Claude  Date 09/01/2026 last changed: 09/16/2026 by: Claude
+// One LOGICAL set: a single set normally, a Left+Right pair for a unilateral lift — and, as of
+// 09/16, one list row either way. Moved to file scope so the editor can find a set's row too
+// (missed-set scroll, stepper auto-fill). Moves must carry groups whole, never split a pair.
+private struct SetGroup: Identifiable {
+    let id: UUID          // the leading set's id, so identity survives a move
+    var sets: [ExerciseSet]
+    /// Where these sets sat in the array the group was built from (stale after a move).
+    let indices: Range<Int>
+
+    var setIDs: [UUID] { sets.map(\.id) }
+
+    static func groups(from sets: [ExerciseSet], isUnilateral: Bool) -> [SetGroup] {
+        var result: [SetGroup] = []
+        var index = 0
+        while index < sets.count {
+            // Pair adjacent OPPOSITE sides; a stray unpaired set stands on its own so
+            // legacy/half-deleted data still renders instead of crashing.
+            if isUnilateral, index + 1 < sets.count,
+               let mine = sets[index].side,
+               let theirs = sets[index + 1].side,
+               mine != theirs {
+                result.append(SetGroup(id: sets[index].id, sets: [sets[index], sets[index + 1]],
+                                       indices: index..<(index + 2)))
+                index += 2
+            } else {
+                result.append(SetGroup(id: sets[index].id, sets: [sets[index]],
+                                       indices: index..<(index + 1)))
+                index += 1
+            }
+        }
+        return result
+    }
+}
+
+// Claude  Date 09/16/2026
+// Writes an edited set. Unilateral first-entry fill: the FIRST time a pair's reps or weight is
+// entered (either side), the other side copies it; after that each side is independent. Skipped
+// once either side is checked off, or if the sides already differ. Side effect: updates `fills`.
+private func writeSetEdit(_ edited: ExerciseSet, into sets: inout [ExerciseSet],
+                          isUnilateral: Bool, fills: inout UnilateralFillState) {
+    guard let index = sets.firstIndex(where: { $0.id == edited.id }) else { return }
+    let old = sets[index]
+    sets[index] = edited
+    guard let pair = SetGroup.groups(from: sets, isUnilateral: isUnilateral)
+            .first(where: { $0.indices.count == 2 && $0.indices.contains(index) }) else { return }
+    let partner = index == pair.indices.lowerBound ? index + 1 : index - 1
+    guard old.completedAt == nil, sets[partner].completedAt == nil else { return }
+
+    let partnerID = sets[partner].id
+    if edited.reps != old.reps && !fills.filled.contains(.reps(old.id)) {
+        if sets[partner].reps == old.reps { sets[partner].reps = edited.reps }
+        fills.filling.formUnion([.reps(old.id), .reps(partnerID)])
+    }
+    if edited.weight != old.weight && !fills.filled.contains(.weight(old.id)) {
+        if sets[partner].weight == old.weight { sets[partner].weight = edited.weight }
+        fills.filling.formUnion([.weight(old.id), .weight(partnerID)])
+    }
 }
 
 // Claude  Date 07/01/2026
@@ -1214,6 +1397,14 @@ private struct SetRow: View {
     // When true this is a bodyweight lift, so the weight field is ADDED weight and gets
     // a leading "+" (e.g. "+25 lb", or a bare "+" when 0 added).
     var isBodyweight: Bool = false
+    // Claude  Date 09/16/2026
+    // Flagged by the missed-set alert's Go Back: swaps the rep-range dot for the "!" badge
+    // until the set is checked off (completion always wins the mark slot).
+    var isMissed: Bool = false
+    // Claude  Date 09/16/2026
+    // False when this line is half of a finished Left/Right pair — the pair's row draws one
+    // wash across both lines instead (see ExerciseLogSection.setGroupRow).
+    var drawsCompletedWash: Bool = true
     @Binding var set: ExerciseSet
     let targetRange: RepRange?
     let accent: Color
@@ -1229,7 +1420,8 @@ private struct SetRow: View {
 
     var body: some View {
         HStack {
-            CompletionMark(isCompleted: isCompleted, markColor: markColor, accent: accent)
+            CompletionMark(isCompleted: isCompleted, isMissed: isMissed,
+                           markColor: markColor, accent: accent)
 
             // Claude  Date 06/14/2026
             // Set number, with the Left/Right side beneath it for unilateral sets.
@@ -1286,11 +1478,11 @@ private struct SetRow: View {
             Text("lb")
                 .foregroundStyle(.secondary)
         }
-        .completedSetStyling(isCompleted: isCompleted, accent: accent)
+        .completedSetStyling(isCompleted: isCompleted && drawsCompletedWash, accent: accent)
         // Swipe actions reach VoiceOver through the Actions rotor on their own, but the
         // row still has to say which state it is in.
         .accessibilityElement(children: .contain)
-        .accessibilityValue(isCompleted ? "Completed" : "Not completed")
+        .accessibilityValue(completionAccessibilityValue(isCompleted: isCompleted, isMissed: isMissed))
     }
 
     // Claude  Date 06/09/2026
@@ -1313,6 +1505,8 @@ private struct SetRow: View {
 // tappable — completion is a leading swipe, wired up in ExerciseLogSection.
 private struct CompletionMark: View {
     let isCompleted: Bool
+    // Claude  Date 09/16/2026 — a set flagged by the missed-set alert; shows the "!" badge.
+    var isMissed: Bool = false
     var markColor: Color? = nil
     let accent: Color
 
@@ -1326,6 +1520,9 @@ private struct CompletionMark: View {
                     .foregroundStyle(accent)
                     // Grows in from a dot, so it reads as the mark BECOMING a check.
                     .transition(.scale(scale: 0.3).combined(with: .opacity))
+            } else if isMissed {
+                MissedSetBadge()
+                    .transition(.scale.combined(with: .opacity))
             } else {
                 Circle()
                     .fill(markColor ?? .clear)
@@ -1341,6 +1538,34 @@ private struct CompletionMark: View {
             withAnimation(.spring(response: 0.45, dampingFraction: 0.5)) { pop = 1 }
         }
     }
+}
+
+// Claude  Date 09/16/2026
+// The "!" on a set left unchecked at Complete Workout. Fixed warning-sign colors, not theme
+// ones, so it reads on every theme and custom palette: black "!" on yellow inside a black ring
+// (the ring carries it on pale rows, the yellow fill on dark and colored ones).
+private struct MissedSetBadge: View {
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(Color(hex: "#FFCC00"))
+            Circle()
+                .strokeBorder(Color.black, lineWidth: 1.5)
+            Text("!")
+                .font(.system(size: 12, weight: .black, design: .rounded))
+                .foregroundStyle(Color.black)
+        }
+        .frame(width: 17, height: 17)
+        .accessibilityHidden(true)
+    }
+}
+
+// Claude  Date 09/16/2026
+// The row-level VoiceOver state shared by SetRow and CardioEntryRow. The badge itself is
+// hidden from VoiceOver, so "missed" has to be spoken here instead.
+private func completionAccessibilityValue(isCompleted: Bool, isMissed: Bool) -> String {
+    if isCompleted { return "Completed" }
+    return isMissed ? "Not completed, missed" : "Not completed"
 }
 
 // Claude  Date 09/07/2026
@@ -1376,6 +1601,8 @@ private struct CardioEntryRow: View {
     let accent: Color
     let unit: DistanceUnit
     let bodyweightLb: Double?
+    // Claude  Date 09/16/2026 — flagged by the missed-set alert; see SetRow.isMissed.
+    var isMissed: Bool = false
     @FocusState.Binding var focusedField: SetEntryField?
     let onMissingBodyweight: () -> Void
 
@@ -1387,7 +1614,7 @@ private struct CardioEntryRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 4) {
-                CompletionMark(isCompleted: isCompleted, accent: accent)
+                CompletionMark(isCompleted: isCompleted, isMissed: isMissed, accent: accent)
 
                 Text("Time")
 
@@ -1436,7 +1663,7 @@ private struct CardioEntryRow: View {
         }
         .completedSetStyling(isCompleted: isCompleted, accent: accent)
         .accessibilityElement(children: .contain)
-        .accessibilityValue(isCompleted ? "Completed" : "Not completed")
+        .accessibilityValue(completionAccessibilityValue(isCompleted: isCompleted, isMissed: isMissed))
         // Claude  Date 09/07/2026
         // Re-clamp on BLUR, not on every keystroke. Clamping distance while the duration is
         // half-typed ("3" of "30") would eat a legitimate distance, and typing the distance

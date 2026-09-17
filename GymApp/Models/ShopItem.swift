@@ -176,7 +176,7 @@ extension ShopItem {
         "card:thunderstorm":
             "Lightning flickering deep inside the cloud. Never close enough to hear.",
         "card:coral_reef":
-            "Looking up from the seabed. Kelp swaying, plankton rising through the light.",
+            "Looking up from the seabed. Bubbles drifting up through the light.",
 
         // MARK: Cards — grant-only
         "card:founders_shooting_stars":
