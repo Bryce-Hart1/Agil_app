@@ -15,7 +15,7 @@ progress turn into badges, ranks, and a profile card you can share with friends.
 - **Show progress honestly.** Personal records, monthly recaps, and charts built from what you
   actually logged, with guardrails against implausible entries.
 - **Be private by default.** Ghost Mode keeps everything on the device. Friends mode shares
-  only your profile card — never your training history, nutrition, or body data.
+  only your profile card. Never your training history, nutrition, or body data.
 - **Grow into a full training companion.** Planned next: body measurements, data
   export/import, and friend leaderboards.
 
