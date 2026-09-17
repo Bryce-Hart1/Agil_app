@@ -514,17 +514,17 @@ private struct WorkoutEditor: View {
                     }
                 }
             }
-            // Claude  Date 07/21/2026
-            // The bar that rides on top of the keyboard: Done, plus quick steppers for
-            // whichever set field is focused (see SetEntryAccessoryBar).
-            ToolbarItemGroup(placement: .keyboard) {
-                SetEntryAccessoryBar(
-                    field: focusedField,
-                    accent: theme.current.accent,
-                    onAdjust: { adjustFocusedField(by: $0) },
-                    onDone: dismissKeyboardBar)
-            }
         }
+        // Claude  Date 07/21/2026 last changed: 09/17/2026 by: CLAUDE
+        // The bar that rides on top of the keyboard: Done, plus quick steppers for
+        // whichever set field is focused (see SetEntryAccessoryBar). (09/17) Mounted via
+        // setEntryKeyboardBar so iOS 26's glass container is hidden behind its own ring.
+        .setEntryKeyboardBar(SetEntryAccessoryBar(
+            field: focusedField,
+            accent: theme.current.accent,
+            surface: theme.current.surface,
+            onAdjust: { adjustFocusedField(by: $0) },
+            onDone: dismissKeyboardBar))
         // Claude  Date 09/07/2026
         // Hung on the editor, not on a bout row, so it survives that row being reordered or
         // deleted out from under the presentation (same reasoning as the reorder sheet).

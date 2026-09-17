@@ -263,16 +263,15 @@ private struct PresetEditor: View {
                     }
                 }
             }
-            // CLAUDE  Date 09/17/2026
-            // The workout editor's keyboard bar (Bryce, 9/17/26 — faster preset setup): ±1
-            // steppers on a rep-range field, Done alone on the name and notes fields.
-            ToolbarItemGroup(placement: .keyboard) {
-                SetEntryAccessoryBar(field: repRangeFocus,
-                                     accent: theme.current.accent,
-                                     onAdjust: { adjustRepRange(by: $0) },
-                                     onDone: hideKeyboard)
-            }
         }
+        // CLAUDE  Date 09/17/2026
+        // The workout editor's keyboard bar (Bryce, 9/17/26 — faster preset setup): ±1
+        // steppers on a rep-range field, Done alone on the name and notes fields.
+        .setEntryKeyboardBar(SetEntryAccessoryBar(field: repRangeFocus,
+                                                  accent: theme.current.accent,
+                                                  surface: theme.current.surface,
+                                                  onAdjust: { adjustRepRange(by: $0) },
+                                                  onDone: hideKeyboard))
         // CLAUDE  Date 09/17/2026 — as in the workout editor: tapping a rep field selects
         // its number, so typing replaces it instead of appending.
         .selectAllWhenEditingNumberFields()

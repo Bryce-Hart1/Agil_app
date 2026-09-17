@@ -62,9 +62,16 @@ enum SetEntryField: Hashable {
 // app widget parked on the keyboard. The capsule chips they replace stacked a third corner
 // radius on top of the system container's and the keys', which is what made the bar look
 // unconsidered; accent is now spent on the single Done key rather than washed across four.
+//
+// CLAUDE  Date 09/17/2026
+// Restyled (Bryce, 9/17/26): the keys now butt together inside one capsule whose ring is
+// ModeNotch's rim light at rest (fully lit), with the same inset all the way round. The
+// square keycaps poked past the glass container's rounded ends; this shape can't.
 struct SetEntryAccessoryBar: View {
     let field: SetEntryField?
     let accent: Color
+    // CLAUDE  Date 09/17/2026 — the capsule's fill, as behind the top pill (theme surface).
+    let surface: Color
     // Claude  Date 09/07/2026
     // Read here rather than passed in, matching how the water views resolve their unit:
     // only the distance steppers' VoiceOver labels need it.
@@ -94,13 +101,13 @@ struct SetEntryAccessoryBar: View {
         }
     }
 
-    // Claude  Date 07/21/2026
-    // Metrics borrowed from the iPhone keyboard so the row sits under it as a matched
-    // set: ~5pt continuous corners, ~6pt between keys, a key roughly 38pt tall. These are
-    // the numbers to nudge if a future iOS restyles its keys.
-    private static let keyCornerRadius: CGFloat = 5
-    private static let keySpacing: CGFloat = 6
-    private static let keyHeight: CGFloat = 38
+    // CLAUDE  Date 09/17/2026
+    // Keys sit edge to edge (no spacing) at 40pt tall, `rimInset` inside the ring on every
+    // side, so the ring is 48pt — the height of the glass container it replaces. `glowRoom`
+    // keeps the ring's blurred glow from being clipped by the toolbar's bounds.
+    private static let keyHeight: CGFloat = 40
+    private static let rimInset: CGFloat = 4
+    private static let glowRoom: CGFloat = 2
     // Claude  Date 08/18/2026
     // FIXED widths, not floors, and deliberately so.
     //
@@ -116,12 +123,13 @@ struct SetEntryAccessoryBar: View {
     // why only weight looked broken.
     //
     // Fixed widths take the proposal out of the equation: the row is always
-    // 4×keyWidth + doneWidth + 4×keySpacing = 288pt regardless of what is proposed, which
-    // fits inside the container's usable width on every shipping iPhone (~303pt on the
-    // 375pt SE, ~321pt at 393pt). Raise these only against `screen − 72`, never
-    // `screen − 32`, and never reintroduce `maxWidth: .infinity` here.
-    private static let keyWidth: CGFloat = 50
-    private static let doneWidth: CGFloat = 64
+    // 4×keyWidth + doneWidth + 2×(rimInset + glowRoom) = 296pt regardless of what is
+    // proposed, which fits inside the container's usable width on every shipping iPhone
+    // (~303pt on the 375pt SE, ~321pt at 393pt). Raise these only against `screen − 72`,
+    // never `screen − 32`, and never reintroduce `maxWidth: .infinity` here.
+    // (09/17: 50/64 → 54/68 — the 24pt the old key gaps took went into the keys.)
+    private static let keyWidth: CGFloat = 54
+    private static let doneWidth: CGFloat = 68
 
     // Claude  Date 07/21/2026
     // Done sits in the MIDDLE with the decreases to its left and the increases to its
@@ -131,12 +139,32 @@ struct SetEntryAccessoryBar: View {
     // With no steppers to show (the note and rep-range fields) the row is Done alone at its
     // fixed width, which the toolbar centres — a full-width accent slab for a plain dismiss
     // button would shout far louder than the keyboard beneath it.
+    //
+    // CLAUDE  Date 09/17/2026
+    // Clipping the row to a capsule rounds only the two end keys, concentric with the ring,
+    // so the inset reads equal around the curve too. Neighbouring step keys share a fill,
+    // so a hairline divides them; Done's accent already separates it from its neighbours.
     var body: some View {
-        HStack(spacing: Self.keySpacing) {
-            ForEach(steps.filter { $0 < 0 }, id: \.self) { stepKey($0) }
-            doneKey
-            ForEach(steps.filter { $0 > 0 }, id: \.self) { stepKey($0) }
+        HStack(spacing: 0) {
+            ForEach(Array(keys.enumerated()), id: \.element) { index, key in
+                switch key {
+                case .done:
+                    doneKey
+                case .step(let step):
+                    stepKey(step)
+                        .overlay(alignment: .leading) {
+                            if followsStepKey(index) { keyDivider }
+                        }
+                }
+            }
         }
+        .clipShape(Capsule())
+        .padding(Self.rimInset)
+        // Closure form on purpose: `.background(surface, in: Capsule())` here made every
+        // key round itself into its own capsule (verified in an offline render, 09/17/26).
+        .background { Capsule().fill(surface) }
+        .overlay(restingRim)
+        .padding(Self.glowRoom)
         // Claude  Date 08/13/2026 last changed: 08/18/2026 by: Claude
         // The widths above are fixed, so oversized type can no longer widen a key — but it
         // could still overflow one, since "−2.5" at an accessibility size is wider than
@@ -144,6 +172,42 @@ struct SetEntryAccessoryBar: View {
         // device setting; they're short digits, so holding them at .large costs nothing in
         // legibility. The rest of the app scales freely.
         .dynamicTypeSize(...DynamicTypeSize.large)
+    }
+
+    private enum Key: Hashable {
+        case step(Double)
+        case done
+    }
+
+    /// Decreases, Done, increases — the number line described above.
+    private var keys: [Key] {
+        steps.filter { $0 < 0 }.map(Key.step) + [.done] + steps.filter { $0 > 0 }.map(Key.step)
+    }
+
+    private func followsStepKey(_ index: Int) -> Bool {
+        guard index > 0, case .step = keys[index - 1] else { return false }
+        return true
+    }
+
+    private var keyDivider: some View {
+        Rectangle()
+            .fill(Color.primary.opacity(0.18))
+            .frame(width: 1)
+            .padding(.vertical, 10)
+    }
+
+    // CLAUDE  Date 09/17/2026
+    // ModeNotch's rim light in its stopped state (the lit ring, not the moving streak):
+    // a 1.5pt accent ring over a blurred 3pt glow. Keep the two in step if either changes.
+    private var restingRim: some View {
+        ZStack {
+            Capsule()
+                .stroke(accent.opacity(0.35), lineWidth: 3)
+                .blur(radius: 2)
+            Capsule()
+                .stroke(accent.opacity(0.9), lineWidth: 1.5)
+        }
+        .allowsHitTesting(false)
     }
 
     private var doneKey: some View {
@@ -154,8 +218,8 @@ struct SetEntryAccessoryBar: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .frame(width: Self.doneWidth, height: Self.keyHeight)
-                .background(accent, in: keyShape)
-                .contentShape(keyShape)
+                .background { Rectangle().fill(accent) }
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
@@ -174,15 +238,11 @@ struct SetEntryAccessoryBar: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .frame(width: Self.keyWidth, height: Self.keyHeight)
-                .background(Self.keyFill, in: keyShape)
-                .contentShape(keyShape)
+                .background { Rectangle().fill(Self.keyFill) }
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(accessibilityLabel(for: step))
-    }
-
-    private var keyShape: RoundedRectangle {
-        RoundedRectangle(cornerRadius: Self.keyCornerRadius, style: .continuous)
     }
 
     // Claude  Date 07/21/2026
@@ -215,6 +275,26 @@ struct SetEntryAccessoryBar: View {
     }
 }
 
+extension View {
+    // CLAUDE  Date 09/17/2026
+    // Mounts the bar over the keyboard. On iOS 26 the toolbar's shared glass background is
+    // hidden so only the bar's own ringed capsule shows. Branched here, at the View level,
+    // because an #available inside a toolbar builder needs iOS 17.5 and we target 16.1.
+    @ViewBuilder
+    func setEntryKeyboardBar(_ bar: SetEntryAccessoryBar) -> some View {
+        if #available(iOS 26.0, *) {
+            toolbar {
+                ToolbarItemGroup(placement: .keyboard) { bar }
+                    .sharedBackgroundVisibility(.hidden)
+            }
+        } else {
+            toolbar {
+                ToolbarItemGroup(placement: .keyboard) { bar }
+            }
+        }
+    }
+}
+
 // Claude  Date 07/21/2026
 // The three states, stacked, over the system grouped background so the keycaps read
 // against something close to a real keyboard. The horizontal padding stands in for the
@@ -224,12 +304,16 @@ struct SetEntryAccessoryBar: View {
 #Preview {
     VStack(spacing: 24) {
         SetEntryAccessoryBar(field: .weight(UUID()), accent: .accentColor,
+                             surface: Color(uiColor: .systemBackground),
                              onAdjust: { _ in }, onDone: {})
         SetEntryAccessoryBar(field: .reps(UUID()), accent: .accentColor,
+                             surface: Color(uiColor: .systemBackground),
                              onAdjust: { _ in }, onDone: {})
         SetEntryAccessoryBar(field: nil, accent: .accentColor,
+                             surface: Color(uiColor: .systemBackground),
                              onAdjust: { _ in }, onDone: {})
         SetEntryAccessoryBar(field: .weight(UUID()), accent: Color(hex: "#F2E14C"),
+                             surface: Color(uiColor: .systemBackground),
                              onAdjust: { _ in }, onDone: {})
     }
     .padding(.horizontal, 16)
