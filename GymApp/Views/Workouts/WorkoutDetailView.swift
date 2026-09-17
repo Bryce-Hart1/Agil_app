@@ -745,6 +745,10 @@ private struct WorkoutEditor: View {
                 let updated = max(0, ((distanceUnit.fromMeters(current) + delta) * 100).rounded() / 100)
                 let meters = distanceUnit.toMeters(updated)
                 workout.exercises[exerciseIndex].sets[setIndex].distanceMeters = meters > 0 ? meters : nil
+            // CLAUDE  Date 09/17/2026 — rep-range bounds are only focus-tracked in the preset
+            // editor; they're keyed by a preset item, so no set here ever matches them.
+            case .repRangeMin, .repRangeMax:
+                break
             }
             return
         }

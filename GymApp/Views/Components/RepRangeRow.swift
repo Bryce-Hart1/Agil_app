@@ -18,12 +18,16 @@ import SwiftUI
 //     order is handled by RepRange.display, so min/max order doesn't matter.
 struct RepRangeRow: View {
     @Binding var targetRepRange: RepRange?
+    // CLAUDE  Date 09/17/2026
+    // Reports which bound has the keyboard (nil when it leaves), so a screen can put its
+    // ±1 rep steppers in the keyboard bar. Optional: the workout editor doesn't track it.
+    var onFocusChange: ((Field?) -> Void)? = nil
 
     @State private var minText = ""
     @State private var maxText = ""
     @FocusState private var focused: Field?
 
-    private enum Field: Hashable { case min, max }
+    enum Field: Hashable { case min, max }
 
     var body: some View {
         Group {
@@ -41,7 +45,13 @@ struct RepRangeRow: View {
         // Re-seed the text when the range is (re)added via the button.
         .onChange(of: targetRepRange == nil) { isNil in if !isNil { syncText() } }
         // Settle edge cases once the user taps away from the fields.
-        .onChange(of: focused) { newValue in if newValue == nil { normalize() } }
+        .onChange(of: focused) { newValue in
+            if newValue == nil { normalize() }
+            onFocusChange?(newValue)
+        }
+        // CLAUDE  Date 09/17/2026
+        // Keyboard-bar steppers edit the range directly, so re-show it in the fields.
+        .onChange(of: targetRepRange) { _ in syncIfEditedElsewhere() }
     }
 
     private var activeRow: some View {
@@ -99,6 +109,16 @@ struct RepRangeRow: View {
         case (let lo?, let hi?):
             targetRepRange = RepRange(min: lo, max: hi)
         }
+    }
+
+    // CLAUDE  Date 09/17/2026
+    // Re-shows only a side that no longer matches what's typed (blank reads as 0, as
+    // liveCommit writes it). Typing always matches, so a just-cleared field isn't turned
+    // into "0" mid-edit, and a stepper on one side leaves a blank other side blank.
+    private func syncIfEditedElsewhere() {
+        guard let range = targetRepRange else { return }
+        if (Int(minText) ?? 0) != range.min { minText = "\(range.min)" }
+        if (Int(maxText) ?? 0) != range.max { maxText = "\(range.max)" }
     }
 
     private func syncText() {

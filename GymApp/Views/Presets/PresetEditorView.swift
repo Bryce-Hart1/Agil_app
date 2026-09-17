@@ -41,6 +41,10 @@ private struct PresetEditor: View {
     // level rather than per-row because the rows are built inline in this Form's body
     // and so can't own @State of their own.
     @State private var swappingItemID: UUID?
+    // CLAUDE  Date 09/17/2026
+    // The rep-range bound that has the keyboard (nil = none, or the name/notes field), as
+    // reported by each RepRangeRow. Drives the same keyboard bar the workout editor uses.
+    @State private var repRangeFocus: SetEntryField?
 
     /// The lift currently being swapped out, if any — what the picker ranks against.
     private var swappingExercise: Exercise? {
@@ -98,7 +102,15 @@ private struct PresetEditor: View {
 
             ForEach($preset.items) { $item in
                 Section {
-                    RepRangeRow(targetRepRange: $item.targetRepRange)
+                    RepRangeRow(targetRepRange: $item.targetRepRange) { bound in
+                        switch bound {
+                        case .min: repRangeFocus = .repRangeMin(item.id)
+                        case .max: repRangeFocus = .repRangeMax(item.id)
+                        case nil:
+                            // Only clear if focus didn't already move to another row.
+                            if repRangeFocus?.setID == item.id { repRangeFocus = nil }
+                        }
+                    }
                     // Claude  Date 07/13/2026 last changed: 08/07/2026 by: Claude
                     // Planned set count, picked up front. Starting a workout from this
                     // preset pre-fills this many empty sets (see AppStore.workout(from:)).
@@ -251,11 +263,19 @@ private struct PresetEditor: View {
                     }
                 }
             }
+            // CLAUDE  Date 09/17/2026
+            // The workout editor's keyboard bar (Bryce, 9/17/26 — faster preset setup): ±1
+            // steppers on a rep-range field, Done alone on the name and notes fields.
             ToolbarItemGroup(placement: .keyboard) {
-                Spacer()
-                Button("Done") { hideKeyboard() }
+                SetEntryAccessoryBar(field: repRangeFocus,
+                                     accent: theme.current.accent,
+                                     onAdjust: { adjustRepRange(by: $0) },
+                                     onDone: hideKeyboard)
             }
         }
+        // CLAUDE  Date 09/17/2026 — as in the workout editor: tapping a rep field selects
+        // its number, so typing replaces it instead of appending.
+        .selectAllWhenEditingNumberFields()
         .sheet(isPresented: $showingExercisePicker) {
             ExercisePickerView { exercise in
                 // New preset items default to an 8–12 range since rep targets are
@@ -343,6 +363,22 @@ private struct PresetEditor: View {
     // both); dismissing clears it so a later Finish can raise it again.
     private var duplicateAlertBinding: Binding<Bool> {
         Binding(get: { duplicate != nil }, set: { if !$0 { duplicate = nil } })
+    }
+
+    // CLAUDE  Date 09/17/2026
+    // A keyboard-bar stepper on the focused rep-range bound. Held to 1...999 — the fields
+    // take three digits, and a zero-rep target means nothing. RepRangeRow re-shows the value.
+    private func adjustRepRange(by delta: Double) {
+        guard let field = repRangeFocus,
+              let index = preset.items.firstIndex(where: { $0.id == field.setID }),
+              var range = preset.items[index].targetRepRange else { return }
+        let step = Int(delta)
+        switch field {
+        case .repRangeMin: range.min = min(999, max(1, range.min + step))
+        case .repRangeMax: range.max = min(999, max(1, range.max + step))
+        default: return
+        }
+        preset.items[index].targetRepRange = range
     }
 
     // Claude  Date 07/01/2026

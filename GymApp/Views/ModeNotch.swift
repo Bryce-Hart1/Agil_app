@@ -506,42 +506,161 @@ struct ModeNotch: View {
 // TimelineView recomputes the phase from the clock each frame, so there's no
 // repeatForever animation for other state changes to hijack; `paused` freezes
 // the timeline entirely for off-screen instances.
+//
+// CLAUDE  Date 09/17/2026
+// No longer an endless loop (Bryce, 9/17/26). A ~2-minute cycle: circle, brake to a
+// stop at top-center, grow both ways until the whole rim is lit, hold still for
+// 60–90s, then shrink back to the streak and pull away. Still purely clock-driven.
 private struct RimTrace: View {
     let color: Color
     let paused: Bool
 
-    /// Seconds per full lap. Slow enough to read as ambient, not urgent.
+    /// Seconds per full lap at cruising speed. Slow enough to read as ambient, not urgent.
     private static let lapDuration: TimeInterval = 3.5
+    /// One whole cycle. The hold takes 60–90s of it; circling gets the rest (~27–57s).
+    private static let period: TimeInterval = 120
+    private static let holdRange: ClosedRange<TimeInterval> = 60...90
+    /// Brake-to-stop / pull-away time, and the streak's grow / shrink time.
+    private static let ease: TimeInterval = 1.1
+    private static let fill: TimeInterval = 1.4
+    /// The moving streak's length, as a fraction of the rim.
+    private static let streak: CGFloat = 0.3
+
+    // CLAUDE  Date 09/17/2026
+    // The cycle clock starts when the first notch draws, so the app always opens with
+    // the light moving rather than mid-hold. Shared by every notch, so switching tabs
+    // picks the rim up exactly where the last one left it.
+    private static let epoch = Date()
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 40.0, paused: paused)) { context in
+        TimelineView(RimSchedule(paused: paused)) { context in
             GeometryReader { geo in
                 let w = geo.size.width
                 let h = geo.size.height
                 // Capsule perimeter: two straight runs + the two end caps' circle.
                 let perimeter = max(2 * (w - h) + .pi * h, 1)
-                let dash = perimeter * 0.3
-                let t = context.date.timeIntervalSinceReferenceDate
-                let phase = CGFloat((t / Self.lapDuration)
-                    .truncatingRemainder(dividingBy: 1))
-                let dashes: [CGFloat] = [dash, perimeter - dash]
-                let dashPhase = -phase * perimeter
+                let rim = Self.rim(at: context.date)
 
                 ZStack {
-                    Capsule()
+                    RimPath()
                         .stroke(color.opacity(0.35),
-                                style: StrokeStyle(lineWidth: 3, lineCap: .round,
-                                                   dash: dashes, dashPhase: dashPhase))
+                                style: Self.stroke(3, perimeter: perimeter, rim: rim))
                         .blur(radius: 2)
-                    Capsule()
+                    RimPath()
                         .stroke(color.opacity(0.9),
-                                style: StrokeStyle(lineWidth: 1.5, lineCap: .round,
-                                                   dash: dashes, dashPhase: dashPhase))
+                                style: Self.stroke(1.5, perimeter: perimeter, rim: rim))
                 }
             }
         }
+        // A custom schedule is only read when the TimelineView is built, so pausing
+        // (tab switch) rebuilds it rather than trusting it to notice the new flag.
+        .id(paused)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+    }
+
+    // CLAUDE  Date 09/17/2026
+    // Where the current cycle stands: seconds into it, and how long its circling and hold
+    // last. Each hold's length comes from a hash of the cycle number, so no two in a row
+    // match and the rhythm never reads as a loop.
+    private struct Cycle { let local, run, hold: Double }
+
+    private static func cycle(at date: Date) -> Cycle {
+        let clock = max(0, date.timeIntervalSince(epoch))
+        let index = (clock / period).rounded(.down)
+        let hash = sin(index * 12.9898 + 4.1) * 43758.5453
+        let hold = holdRange.lowerBound
+            + (hash - hash.rounded(.down)) * (holdRange.upperBound - holdRange.lowerBound)
+        return Cycle(local: clock - index * period, run: period - hold - 2 * fill, hold: hold)
+    }
+
+    // CLAUDE  Date 09/17/2026
+    // The lit streak at a moment: center and length as fractions of the rim, clockwise
+    // from top-center. Circling covers whole laps only, so every run brakes back at
+    // top-center (cruise speed shifts a few percent per cycle to fit — not visible).
+    private static func rim(at date: Date) -> (center: CGFloat, length: CGFloat) {
+        let c = cycle(at: date)
+        if c.local < c.run {
+            let laps = max(1, ((c.run - ease) / lapDuration).rounded())
+            let travel = laps * cruise(c.local / c.run, ramp: ease / c.run)
+            return (CGFloat(travel - travel.rounded(.down)), streak)
+        }
+        let settled = c.local - c.run
+        if settled < fill {
+            return (0, streak + (1 - streak) * smooth(settled / fill))
+        }
+        if settled < fill + c.hold {
+            return (0, 1)
+        }
+        return (0, 1 - (1 - streak) * smooth((settled - fill - c.hold) / fill))
+    }
+
+    /// 0→1 across a run with a linear speed ramp at each end: pull away, cruise, brake.
+    private static func cruise(_ u: Double, ramp a: Double) -> Double {
+        if u < a { return u * u / (2 * a * (1 - a)) }
+        if u > 1 - a { return 1 - (1 - u) * (1 - u) / (2 * a * (1 - a)) }
+        return (u - a / 2) / (1 - a)
+    }
+
+    private static func smooth(_ u: Double) -> CGFloat { CGFloat(u * u * (3 - 2 * u)) }
+
+    // The streak as a dash. A full rim is a plain stroke — a zero-length gap in the
+    // dash array isn't something to hand Core Graphics.
+    private static func stroke(_ width: CGFloat, perimeter: CGFloat,
+                               rim: (center: CGFloat, length: CGFloat)) -> StrokeStyle {
+        guard rim.length < 0.999 else { return StrokeStyle(lineWidth: width, lineCap: .round) }
+        let dash = perimeter * rim.length
+        return StrokeStyle(lineWidth: width, lineCap: .round,
+                           dash: [dash, perimeter - dash],
+                           dashPhase: -(rim.center - rim.length / 2) * perimeter)
+    }
+
+    // CLAUDE  Date 09/17/2026
+    // 40fps while anything moves, but a hold jumps straight to its end: the rim is
+    // still for 60–90s, so the hold costs one frame instead of ~3,000. Paused (off-screen)
+    // notches get their first frame only.
+    private struct RimSchedule: TimelineSchedule {
+        let paused: Bool
+
+        func entries(from startDate: Date, mode: TimelineScheduleMode) -> AnyIterator<Date> {
+            var next: Date? = startDate
+            return AnyIterator {
+                guard let current = next else { return nil }
+                next = paused ? nil : RimTrace.frame(after: current,
+                                                     lowFrequency: mode == .lowFrequency)
+                return current
+            }
+        }
+    }
+
+    private static func frame(after date: Date, lowFrequency: Bool) -> Date {
+        let c = cycle(at: date)
+        let holdEnd = c.run + fill + c.hold
+        if c.local >= c.run + fill, c.local < holdEnd {
+            // +1ms so float error can't land the next frame a hair inside the hold again.
+            return date.addingTimeInterval(holdEnd - c.local + 0.001)
+        }
+        return date.addingTimeInterval(lowFrequency ? 1 : 1.0 / 40.0)
+    }
+
+    // CLAUDE  Date 09/17/2026
+    // The capsule, drawn by hand so its path STARTS at top-center and runs clockwise —
+    // SwiftUI's Capsule doesn't document where its path begins, and the stop-and-fill
+    // needs to know exactly where on the rim the dash offset is measured from.
+    private struct RimPath: Shape {
+        func path(in rect: CGRect) -> Path {
+            let r = min(rect.width, rect.height) / 2
+            var p = Path()
+            p.move(to: CGPoint(x: rect.midX, y: rect.minY))
+            p.addLine(to: CGPoint(x: rect.maxX - r, y: rect.minY))
+            p.addArc(center: CGPoint(x: rect.maxX - r, y: rect.midY), radius: r,
+                     startAngle: .degrees(-90), endAngle: .degrees(90), clockwise: false)
+            p.addLine(to: CGPoint(x: rect.minX + r, y: rect.maxY))
+            p.addArc(center: CGPoint(x: rect.minX + r, y: rect.midY), radius: r,
+                     startAngle: .degrees(90), endAngle: .degrees(270), clockwise: false)
+            p.closeSubpath()
+            return p
+        }
     }
 }
 

@@ -16,11 +16,18 @@ enum SetEntryField: Hashable {
     case durationMinutes(UUID)
     case durationSeconds(UUID)
     case distance(UUID)
+    // CLAUDE  Date 09/17/2026
+    // A target rep range's two bounds, keyed by the row that owns the range (a preset item)
+    // rather than a set. Lets the preset editor show the same ±1 rep steppers as a set's
+    // reps field; setID below is that owning row's id for these two.
+    case repRangeMin(UUID)
+    case repRangeMax(UUID)
 
     var setID: UUID {
         switch self {
         case .reps(let id), .weight(let id),
-             .durationMinutes(let id), .durationSeconds(let id), .distance(let id):
+             .durationMinutes(let id), .durationSeconds(let id), .distance(let id),
+             .repRangeMin(let id), .repRangeMax(let id):
             return id
         }
     }
@@ -29,7 +36,7 @@ enum SetEntryField: Hashable {
     var isCardio: Bool {
         switch self {
         case .durationMinutes, .durationSeconds, .distance: return true
-        case .reps, .weight:                                return false
+        case .reps, .weight, .repRangeMin, .repRangeMax:    return false
         }
     }
 }
@@ -78,7 +85,7 @@ struct SetEntryAccessoryBar: View {
     // the bar's fixed width already assumes four is the maximum.
     private var steps: [Double] {
         switch field {
-        case .reps:            return [-1, 1]
+        case .reps, .repRangeMin, .repRangeMax: return [-1, 1]
         case .weight:          return [-5, -2.5, 2.5, 5]
         case .durationMinutes: return [-5, -1, 1, 5]
         case .durationSeconds: return [-15, -5, 5, 15]
@@ -194,7 +201,7 @@ struct SetEntryAccessoryBar: View {
     private func accessibilityLabel(for step: Double) -> String {
         let unit: String
         switch field {
-        case .reps:            unit = abs(step) == 1 ? "rep" : "reps"
+        case .reps, .repRangeMin, .repRangeMax: unit = abs(step) == 1 ? "rep" : "reps"
         case .weight:          unit = "pounds"
         case .durationMinutes: unit = abs(step) == 1 ? "minute" : "minutes"
         case .durationSeconds: unit = "seconds"
