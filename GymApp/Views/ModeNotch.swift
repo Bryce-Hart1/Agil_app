@@ -12,8 +12,8 @@ import SwiftUI
 //
 // Claude  Date 08/29/2026
 // The pill is now ALIVE. Three additions, one state machine:
-//   1. A tracing light runs the capsule's rim continuously (RimTrace below) —
-//      skipped under Reduce Motion, paused on non-visible tabs.
+//   1. A tracing light runs the capsule's rim (RimTrace below) — a one-time
+//      intro per launch, paused on non-visible tabs. (09/17/26)
 //   2. Transient MESSAGES briefly replace the pill's standard content: a
 //      once-per-launch "Tap to flip" hint, and after every flip a banner naming
 //      the side you landed on with its headline stat in bold ("243 cal
@@ -113,16 +113,15 @@ struct ModeNotch: View {
                 Capsule()
                     .stroke(theme.current.accent.opacity(0.25), lineWidth: 1)
             )
-            // Claude  Date 08/29/2026
-            // The living rim. Sits ABOVE the static ring so the comet traces over
-            // it. Static under Reduce Motion (the faint ring alone), and paused on
-            // tabs that aren't on screen so seven live notches don't each burn a
-            // 40fps timeline.
+            // Claude  Date 08/29/2026 last changed: 09/17/2026 by: CLAUDE
+            // The living rim. Sits ABOVE the static ring so the streak traces over it, and
+            // paused on tabs that aren't on screen so seven live notches don't each burn a
+            // 40fps timeline. Reduce Motion gets `settled`: the lit rim the intro ends on,
+            // drawn with no motion at all (it used to get the faint ring alone).
             .overlay {
-                if !reduceMotion {
-                    RimTrace(color: theme.current.accent,
-                             paused: tab != activeTabTag)
-                }
+                RimTrace(color: theme.current.accent,
+                         paused: tab != activeTabTag,
+                         settled: reduceMotion)
             }
         }
         .buttonStyle(.plain)
@@ -508,47 +507,54 @@ struct ModeNotch: View {
 // the timeline entirely for off-screen instances.
 //
 // CLAUDE  Date 09/17/2026
-// No longer an endless loop (Bryce, 9/17/26). A ~2-minute cycle: circle, brake to a
-// stop at top-center, grow both ways until the whole rim is lit, hold still for
-// 60–90s, then shrink back to the streak and pull away. Still purely clock-driven.
+// A ONE-TIME intro now (Bryce, 9/17/26), not a loop: ~20s forward, ~20s back, ~20s
+// forward — easing to a stop and away again at each turn — then it slows, fills the
+// whole rim, and stays lit for the rest of the session. A fresh launch plays it again.
 private struct RimTrace: View {
     let color: Color
     let paused: Bool
+    // CLAUDE  Date 09/17/2026
+    // Skip the intro and draw the lit rim it ends on. Reduce Motion takes this, so it gets
+    // the settled look with no motion at all rather than a bare pill.
+    var settled: Bool = false
 
-    /// Seconds per full lap at cruising speed. Slow enough to read as ambient, not urgent.
-    private static let lapDuration: TimeInterval = 3.5
-    /// One whole cycle. The hold takes 60–90s of it; circling gets the rest (~27–57s).
-    private static let period: TimeInterval = 120
-    private static let holdRange: ClosedRange<TimeInterval> = 60...90
-    /// Brake-to-stop / pull-away time, and the streak's grow / shrink time.
+    // CLAUDE  Date 09/17/2026
+    // The intro's legs: laps travelled (sign = direction) and seconds taken. They net +6
+    // laps, so the streak finishes where it started — top-centre — and the fill can spread
+    // from there symmetrically, meeting at the bottom. The quarter-lap in leg 2 is what
+    // puts the two turns at different places on the rim instead of both at the bottom.
+    private struct Leg { let laps, duration: Double }
+    private static let legs: [Leg] = [Leg(laps:  5.50, duration: 19.5),
+                                      Leg(laps: -5.25, duration: 18.5),
+                                      Leg(laps:  5.75, duration: 20.0)]
+
+    /// Ramp at each end of every leg: the brake into a turn, the pull away out of it.
     private static let ease: TimeInterval = 1.1
+    /// Seconds for the streak to grow from its resting length to the whole rim.
     private static let fill: TimeInterval = 1.4
     /// The moving streak's length, as a fraction of the rim.
     private static let streak: CGFloat = 0.3
+    private static let runtime: TimeInterval = legs.reduce(0) { $0 + $1.duration }
 
     // CLAUDE  Date 09/17/2026
-    // The cycle clock starts when the first notch draws, so the app always opens with
-    // the light moving rather than mid-hold. Shared by every notch, so switching tabs
-    // picks the rim up exactly where the last one left it.
+    // The intro's clock starts when the first notch draws — so, a fresh launch, since this
+    // is a static. Shared by every notch, so all tabs stay in step, and once it has run
+    // nothing here moves again until the app is launched again.
     private static let epoch = Date()
 
     var body: some View {
-        TimelineView(RimSchedule(paused: paused)) { context in
-            GeometryReader { geo in
-                let w = geo.size.width
-                let h = geo.size.height
-                // Capsule perimeter: two straight runs + the two end caps' circle.
-                let perimeter = max(2 * (w - h) + .pi * h, 1)
-                let rim = Self.rim(at: context.date)
-
-                ZStack {
-                    RimPath()
-                        .stroke(color.opacity(0.35),
-                                style: Self.stroke(3, perimeter: perimeter, rim: rim))
-                        .blur(radius: 2)
-                    RimPath()
-                        .stroke(color.opacity(0.9),
-                                style: Self.stroke(1.5, perimeter: perimeter, rim: rim))
+        Group {
+            if settled {
+                ring(rim: (center: 0, length: 1), perimeter: 1)
+            } else {
+                TimelineView(RimSchedule(paused: paused)) { context in
+                    GeometryReader { geo in
+                        let w = geo.size.width
+                        let h = geo.size.height
+                        // Capsule perimeter: two straight runs + the two end caps' circle.
+                        let perimeter = max(2 * (w - h) + .pi * h, 1)
+                        ring(rim: Self.rim(at: context.date), perimeter: perimeter)
+                    }
                 }
             }
         }
@@ -559,43 +565,43 @@ private struct RimTrace: View {
         .accessibilityHidden(true)
     }
 
-    // CLAUDE  Date 09/17/2026
-    // Where the current cycle stands: seconds into it, and how long its circling and hold
-    // last. Each hold's length comes from a hash of the cycle number, so no two in a row
-    // match and the rhythm never reads as a loop.
-    private struct Cycle { let local, run, hold: Double }
-
-    private static func cycle(at date: Date) -> Cycle {
-        let clock = max(0, date.timeIntervalSince(epoch))
-        let index = (clock / period).rounded(.down)
-        let hash = sin(index * 12.9898 + 4.1) * 43758.5453
-        let hold = holdRange.lowerBound
-            + (hash - hash.rounded(.down)) * (holdRange.upperBound - holdRange.lowerBound)
-        return Cycle(local: clock - index * period, run: period - hold - 2 * fill, hold: hold)
+    // The lit streak, plus a blurred copy under it for the glow.
+    private func ring(rim: (center: CGFloat, length: CGFloat), perimeter: CGFloat) -> some View {
+        ZStack {
+            RimPath()
+                .stroke(color.opacity(0.35),
+                        style: Self.stroke(3, perimeter: perimeter, rim: rim))
+                .blur(radius: 2)
+            RimPath()
+                .stroke(color.opacity(0.9),
+                        style: Self.stroke(1.5, perimeter: perimeter, rim: rim))
+        }
     }
 
     // CLAUDE  Date 09/17/2026
-    // The lit streak at a moment: center and length as fractions of the rim, clockwise
-    // from top-center. Circling covers whole laps only, so every run brakes back at
-    // top-center (cruise speed shifts a few percent per cycle to fit — not visible).
+    // The lit streak at a moment: center and length as fractions of the rim, clockwise from
+    // top-centre. Walks the legs while the intro runs, then grows to the full rim and stays
+    // there — `smooth` is already 1 past the fill, so no separate settled branch is needed.
     private static func rim(at date: Date) -> (center: CGFloat, length: CGFloat) {
-        let c = cycle(at: date)
-        if c.local < c.run {
-            let laps = max(1, ((c.run - ease) / lapDuration).rounded())
-            let travel = laps * cruise(c.local / c.run, ramp: ease / c.run)
-            return (CGFloat(travel - travel.rounded(.down)), streak)
+        let clock = max(0, date.timeIntervalSince(epoch))
+        guard clock < runtime else {
+            return (0, streak + (1 - streak) * smooth(min(1, (clock - runtime) / fill)))
         }
-        let settled = c.local - c.run
-        if settled < fill {
-            return (0, streak + (1 - streak) * smooth(settled / fill))
+        var travel = 0.0
+        var elapsed = clock
+        for leg in legs {
+            guard elapsed < leg.duration else {
+                travel += leg.laps
+                elapsed -= leg.duration
+                continue
+            }
+            travel += leg.laps * cruise(elapsed / leg.duration, ramp: ease / leg.duration)
+            break
         }
-        if settled < fill + c.hold {
-            return (0, 1)
-        }
-        return (0, 1 - (1 - streak) * smooth((settled - fill - c.hold) / fill))
+        return (CGFloat(travel - travel.rounded(.down)), streak)
     }
 
-    /// 0→1 across a run with a linear speed ramp at each end: pull away, cruise, brake.
+    /// 0→1 across a leg with a linear speed ramp at each end: pull away, cruise, brake.
     private static func cruise(_ u: Double, ramp a: Double) -> Double {
         if u < a { return u * u / (2 * a * (1 - a)) }
         if u > 1 - a { return 1 - (1 - u) * (1 - u) / (2 * a * (1 - a)) }
@@ -616,9 +622,9 @@ private struct RimTrace: View {
     }
 
     // CLAUDE  Date 09/17/2026
-    // 40fps while anything moves, but a hold jumps straight to its end: the rim is
-    // still for 60–90s, so the hold costs one frame instead of ~3,000. Paused (off-screen)
-    // notches get their first frame only.
+    // 40fps through the intro and then nothing at all: the schedule ENDS once the rim is
+    // lit, so a settled notch costs no frames for the rest of the session. Paused
+    // (off-screen) notches get their first frame only.
     private struct RimSchedule: TimelineSchedule {
         let paused: Bool
 
@@ -633,20 +639,18 @@ private struct RimTrace: View {
         }
     }
 
-    private static func frame(after date: Date, lowFrequency: Bool) -> Date {
-        let c = cycle(at: date)
-        let holdEnd = c.run + fill + c.hold
-        if c.local >= c.run + fill, c.local < holdEnd {
-            // +1ms so float error can't land the next frame a hair inside the hold again.
-            return date.addingTimeInterval(holdEnd - c.local + 0.001)
-        }
-        return date.addingTimeInterval(lowFrequency ? 1 : 1.0 / 40.0)
+    /// The next frame after `date`, or nil once the rim is lit and nothing moves again.
+    private static func frame(after date: Date, lowFrequency: Bool) -> Date? {
+        let settledAt = epoch.addingTimeInterval(runtime + fill)
+        guard date < settledAt else { return nil }
+        // Land exactly on the settled frame rather than a hair short of it.
+        return min(date.addingTimeInterval(lowFrequency ? 1 : 1.0 / 40.0), settledAt)
     }
 
     // CLAUDE  Date 09/17/2026
     // The capsule, drawn by hand so its path STARTS at top-center and runs clockwise —
-    // SwiftUI's Capsule doesn't document where its path begins, and the stop-and-fill
-    // needs to know exactly where on the rim the dash offset is measured from.
+    // SwiftUI's Capsule doesn't document where its path begins, and the turns and the fill
+    // need to know exactly where on the rim the dash offset is measured from.
     private struct RimPath: Shape {
         func path(in rect: CGRect) -> Path {
             let r = min(rect.width, rect.height) / 2

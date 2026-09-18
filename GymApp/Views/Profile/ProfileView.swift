@@ -41,6 +41,12 @@ struct ProfileView: View {
                             showsBadgeNames: store.profile.showsBadgeNamesOnCard
                         )
                         .frame(height: max(380, geo.size.height - 32))
+                        // CLAUDE  Date 09/18/2026
+                        // Freeze the card's animation while another tab is showing. A
+                        // TabView keeps visited tabs alive, so without this the card
+                        // keeps repainting behind whatever screen you switched to — the
+                        // same reason ModeNotch pauses its rim on `tab != activeTabTag`.
+                        .cardMotionActive(profileTab == activeTabTag)
                         // CLAUDE  Date 09/05/2026
                         // The card here is the front only. Tapping it opens the
                         // fullscreen showcase (CardInspectOverlay), and inspect mode in

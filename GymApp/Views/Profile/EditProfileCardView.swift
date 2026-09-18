@@ -369,6 +369,10 @@ struct CardStyleSwatch: View {
                     .overlay(Circle().strokeBorder(Color(hex: stroke), lineWidth: 2))
             }
         }
+        // CLAUDE  Date 09/17/2026
+        // Preview budget: a whole list of these is on screen at once, and at 28pt the
+        // difference between 12 and 120fps is nothing but battery.
+        .cardMotionDetail(.preview)
         .frame(width: 28, height: 28)
         .clipShape(Circle())
         .overlay(Circle().stroke(.quaternary))

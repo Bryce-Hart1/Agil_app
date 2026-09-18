@@ -1356,11 +1356,17 @@ final class AppStore: ObservableObject {
         guard let index = workouts.firstIndex(where: { $0.id == id }),
               !workouts[index].isFinished else { return }
 
-        // Claude  Date 09/14/2026
+        // Claude  Date 09/14/2026 last changed: 09/17/2026 by: CLAUDE
         // An empty session (no exercises added) is thrown away, not saved: it has nothing
         // to credit, so it shouldn't count as a finished session or pop the performance card.
         // Side effect: it simply disappears from the mini-bar / History.
-        if workouts[index].exercises.isEmpty {
+        //
+        // CLAUDE  Date 09/17/2026
+        // Same for a session with NOTHING checked off (Bryce, 9/17/26): the missed-set alert
+        // has already asked, so the user has said they didn't do those sets. History only
+        // holds sessions with at least one completed set. Applies to auto-finish too, so a
+        // forgotten session nobody logged a set in is dropped rather than filed.
+        if workouts[index].exercises.isEmpty || workouts[index].completedSets == 0 {
             workouts.remove(at: index)
             return
         }
@@ -1408,10 +1414,10 @@ final class AppStore: ObservableObject {
         // (07/21) The card's "Best Set" is now scored against the user's history, so it
         // gets the ledger — MINUS this session's own events, which were appended a few
         // lines up. Without that filter every workout would set a record against itself.
-        // Claude  Date 09/14/2026
-        // No card when nothing was checked off — a session with zero completed sets has
-        // no performance to recap, so finishing it just closes it out quietly.
-        guard showSummary, workouts[index].completedSets > 0 else { return }
+        // Claude  Date 09/14/2026 last changed: 09/17/2026 by: CLAUDE
+        // (09/17) The zero-completed-set case never reaches here any more — such a session is
+        // dropped above — so this is only autoFinishStaleWorkouts asking for no card.
+        guard showSummary else { return }
         let ownSetIds = Set(workouts[index].exercises.flatMap { $0.sets.map(\.id) })
         pendingWorkoutSummary = WorkoutSummary(
             workout: workouts[index],

@@ -379,7 +379,11 @@ private struct FeaturedItemCard: View {
     var body: some View {
         Button(action: onTap) {
             VStack(alignment: .leading, spacing: 8) {
+                // CLAUDE  Date 09/17/2026
+                // Tile size: animated cards animate here, but on the preview motion
+                // budget — a 130pt tile can't show a 1pt star twinkling at 120fps.
                 ShopItemArtwork(item: item, cornerRadius: 14)
+                    .cardMotionDetail(.preview)
                     .frame(height: 130)
                     .frame(maxWidth: .infinity)
                     .clipShape(RoundedRectangle(cornerRadius: 14))
@@ -429,7 +433,10 @@ private struct CatalogRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
+            // CLAUDE  Date 09/17/2026
+            // 44pt row, and a whole list of them on screen at once — preview budget.
             ShopItemArtwork(item: item, cornerRadius: 8)
+                .cardMotionDetail(.preview)
                 .frame(width: 44, height: 44)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 .overlay(RoundedRectangle(cornerRadius: 8).stroke(.quaternary))

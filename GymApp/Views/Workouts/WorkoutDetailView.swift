@@ -701,8 +701,13 @@ private struct WorkoutEditor: View {
 
     private var missedSetsMessage: String {
         let them = uncheckedRowCount == 1 ? "it" : "them"
-        return "If you did \(them) and just forgot to track, go back and swipe \(them) right. "
+        let base = "If you did \(them) and just forgot to track, go back and swipe \(them) right. "
             + "Unchecked sets won't count toward your progress."
+        // CLAUDE  Date 09/17/2026
+        // With nothing checked off the session isn't kept at all (AppStore.finishWorkout
+        // drops it), so say that before they tap Finish Anyway rather than after.
+        guard workout.completedSets == 0 else { return base }
+        return base + " With none checked off, this workout won't be saved to your history."
     }
 
     // Claude  Date 07/21/2026

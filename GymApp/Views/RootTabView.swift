@@ -116,7 +116,8 @@ struct RootTabView: View {
         }
         // Claude  Date 07/11/2026
         // Full-screen rest countdown, opened by tapping the mini-bar or the inline
-        // rest row while resting (see WorkoutSession.showFullScreenTimer).
+        // rest row while resting (see WorkoutSession.showFullScreenTimer). (09/17/26: the
+        // mini bar no longer opens it — that tap reopens the workout instead.)
         .fullScreenCover(isPresented: $session.showFullScreenTimer) {
             RestTimerFullScreenView()
         }

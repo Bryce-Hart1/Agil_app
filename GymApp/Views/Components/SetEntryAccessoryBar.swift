@@ -163,7 +163,7 @@ struct SetEntryAccessoryBar: View {
         // Closure form on purpose: `.background(surface, in: Capsule())` here made every
         // key round itself into its own capsule (verified in an offline render, 09/17/26).
         .background { Capsule().fill(surface) }
-        .overlay(restingRim)
+        .overlay(AccentRim(shape: Capsule(), accent: accent))
         .padding(Self.glowRoom)
         // Claude  Date 08/13/2026 last changed: 08/18/2026 by: Claude
         // The widths above are fixed, so oversized type can no longer widen a key — but it
@@ -194,20 +194,6 @@ struct SetEntryAccessoryBar: View {
             .fill(Color.primary.opacity(0.18))
             .frame(width: 1)
             .padding(.vertical, 10)
-    }
-
-    // CLAUDE  Date 09/17/2026
-    // ModeNotch's rim light in its stopped state (the lit ring, not the moving streak):
-    // a 1.5pt accent ring over a blurred 3pt glow. Keep the two in step if either changes.
-    private var restingRim: some View {
-        ZStack {
-            Capsule()
-                .stroke(accent.opacity(0.35), lineWidth: 3)
-                .blur(radius: 2)
-            Capsule()
-                .stroke(accent.opacity(0.9), lineWidth: 1.5)
-        }
-        .allowsHitTesting(false)
     }
 
     private var doneKey: some View {

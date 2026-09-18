@@ -91,7 +91,10 @@ struct FoundersUnlockOverlay: View {
             HStack(spacing: spacing) {
                 ForEach(Array(cards.enumerated()), id: \.element.id) { index, style in
                     VStack(spacing: 8) {
+                        // CLAUDE  Date 09/17/2026
+                        // Mini previews, three at once — preview motion budget.
                         CardBackgroundView(background: style.background, cornerRadius: 16)
+                            .cardMotionDetail(.preview)
                             .frame(width: cardW, height: cardH)
                             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                             .overlay(

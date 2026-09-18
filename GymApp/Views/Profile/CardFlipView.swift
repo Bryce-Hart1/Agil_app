@@ -238,6 +238,14 @@ struct CardFlipFaces<Front: View, Back: View>: View, Animatable {
 
     private var showsBack: Bool { Self.showsBack(at: angle) }
 
+    // CLAUDE  Date 09/18/2026
+    // The budget in force for whichever face the card is showing. Both faces are always
+    // built — the turn needs them — so the one pointing away would otherwise keep a full
+    // animated background running behind an .opacity(0): opacity hides a Canvas, it does
+    // not stop its clock. Freezing it halves the cost of a card with an animated style.
+    // It thaws at the 90° swap, while the card is edge-on and neither face is legible.
+    // (cardMotionActive(true) is a no-op, so a caller's own budget still wins.)
+
     var body: some View {
         let radians = angle * .pi / 180
         let edgeOn = abs(sin(radians))          // 0 face-on, 1 edge-on
@@ -252,10 +260,12 @@ struct CardFlipFaces<Front: View, Back: View>: View, Animatable {
 
         ZStack {
             front
+                .cardMotionActive(!showsBack)
                 .opacity(showsBack ? 0 : 1)
                 .allowsHitTesting(!showsBack)
                 .accessibilityHidden(showsBack)
             back
+                .cardMotionActive(showsBack)
                 .rotation3DEffect(.degrees(180), axis: (x: 0, y: 1, z: 0))
                 .opacity(showsBack ? 1 : 0)
                 .allowsHitTesting(showsBack)

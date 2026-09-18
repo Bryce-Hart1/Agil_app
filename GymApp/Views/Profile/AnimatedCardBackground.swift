@@ -19,6 +19,26 @@ import SwiftUI
 struct AnimatedCardBackground: View {
     let kind: AnimatedCard
 
+    // CLAUDE  Date 09/17/2026 last changed: 09/18/2026 by: CLAUDE
+    // Reduce Motion pins every card to .still — one frozen frame, no clock running —
+    // which is what Coral Reef already did on its own. Side effect: cards that used to
+    // keep animating under Reduce Motion now hold still.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.cardMotionDetail) private var detail
+    // CLAUDE  Date 09/18/2026
+    // The two ambient reasons to stop drawing that no caller should have to remember:
+    // the app isn't frontmost, and Low Power Mode is on.
+    @Environment(\.scenePhase) private var scenePhase
+    @ObservedObject private var power = PowerMonitor.shared
+
+    // Reduce Motion and a backgrounded app freeze the card outright; Low Power drops a
+    // full-size card to the preview budget but never overrides a stricter caller.
+    private var budget: CardMotionDetail {
+        if reduceMotion || scenePhase != .active { return .still }
+        if power.lowPower, detail == .full { return .preview }
+        return detail
+    }
+
     var body: some View {
         ZStack {
             switch kind {
@@ -36,10 +56,81 @@ struct AnimatedCardBackground: View {
             case .legendGem:             GemCardBackground(tier: .legend)
             }
         }
+        .compositingGroup()   // scope any layer blend mode to the card
         .overlay(
             LinearGradient(colors: [.black.opacity(0.10), .black.opacity(0.40)],
                            startPoint: .top, endPoint: .bottom)
         )
+        .cardMotionDetail(budget)
+    }
+}
+
+// CLAUDE  Date 09/17/2026
+// One painted layer of a card, and the whole point of the card optimisation: a card is
+// now several of these stacked, each clocked at the rate its own content needs, instead
+// of one Canvas redrawing everything at display rate. A .still layer never repaints (it
+// rasterises once via drawingGroup), .slow carries base fills and the big blurs that
+// drift too slowly to be worth 120fps, .steady is film rate for unhurried motion, and
+// .fast carries the quick action.
+// Side effect: each layer is its own Canvas, so anything that has to blend against the
+// layer beneath it must either stay in the same layer or pass `blend` here.
+private struct CardLayer: View {
+    enum Rate { case still, slow, steady, fast }
+
+    let rate: Rate
+    var blend: BlendMode = .normal
+    // CLAUDE  Date 09/18/2026
+    // True only for a layer whose draw fills every pixel with an opaque colour (the base
+    // fills do). It lets the Canvas skip alpha entirely on the largest surface it draws.
+    // Side effect: if such a layer ever leaves a pixel untouched, that pixel is garbage.
+    var opaque: Bool = false
+    let draw: (GraphicsContext, CGSize, Double) -> Void
+
+    @Environment(\.cardMotionDetail) private var detail
+
+    // The frozen clock a .still layer (and Reduce Motion) draws at. Nonzero so the loops
+    // are caught mid-stride instead of all sitting at their t = 0 start pose.
+    static let stillT: Double = 8.0
+
+    var body: some View {
+        content.blendMode(blend)
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if let fps {
+            TimelineView(.animation(minimumInterval: 1 / fps)) { tl in
+                canvas(at: tl.date.timeIntervalSinceReferenceDate)
+            }
+        } else {
+            canvas(at: Self.stillT).drawingGroup()
+        }
+    }
+
+    /// nil means "never repaint" — a .still layer, or any layer under .still detail.
+    private var fps: Double? {
+        guard detail.isAnimating else { return nil }
+        switch rate {
+        case .still:  return nil
+        case .slow:   return detail.slowFPS
+        case .steady: return detail.steadyFPS
+        case .fast:   return detail.fastFPS
+        }
+    }
+
+    private func canvas(at t: Double) -> some View {
+        Canvas(opaque: opaque) { ctx, size in draw(ctx, size, t) }
+    }
+}
+
+// CLAUDE  Date 09/17/2026
+// The leading `density` share of a seeded particle field. The arrays are already in
+// random order, so a prefix is a fair sample — this is how a 300-star card thins itself
+// down for a 28pt swatch. Always keeps at least one element.
+extension Array {
+    func thinned(_ density: Double) -> ArraySlice<Element> {
+        guard density < 1 else { return self[...] }
+        return prefix(Swift.max(1, Int(Double(count) * density)))
     }
 }
 
@@ -78,22 +169,37 @@ private struct GemCardGloss: View {
     // The sweep glint color — white for diamond/emerald, gold for the Legend card.
     var highlight: Color = .white
 
+    // CLAUDE  Date 09/17/2026
+    // The gem cards' only moving part, so it carries the whole frame budget alone. A
+    // soft gradient crossing the card once every 5.5s gains nothing above film rate, and
+    // under .still detail it holds at a fixed phase instead of ticking forever.
+    @Environment(\.cardMotionDetail) private var detail
+
     var body: some View {
         let span = hypot(size.width, size.height)
-        TimelineView(.animation) { ctx in
-            let period = 5.5
-            let phase = ctx.date.timeIntervalSinceReferenceDate
-                .truncatingRemainder(dividingBy: period) / period      // 0…1
-            let x = (phase * 2 - 0.5) * size.width                     // travel edge→edge
-            Rectangle()
-                .fill(LinearGradient(colors: [.clear, highlight.opacity(0.32), .clear],
-                 startPoint: .leading, endPoint: .trailing))
-                .frame(width: size.width * 0.34, height: span)
-                .rotationEffect(.degrees(18))
-                .position(x: x, y: size.height / 2)
-                .blendMode(.plusLighter)
+        Group {
+            if detail.isAnimating {
+                TimelineView(.animation(minimumInterval: 1 / detail.steadyFPS)) { ctx in
+                    sweep(at: ctx.date.timeIntervalSinceReferenceDate, span: span)
+                }
+            } else {
+                sweep(at: CardLayer.stillT, span: span)
+            }
         }
         .allowsHitTesting(false)
+    }
+
+    private func sweep(at t: Double, span: CGFloat) -> some View {
+        let period = 5.5
+        let phase = t.truncatingRemainder(dividingBy: period) / period  // 0…1
+        let x = (phase * 2 - 0.5) * size.width                          // travel edge→edge
+        return Rectangle()
+            .fill(LinearGradient(colors: [.clear, highlight.opacity(0.32), .clear],
+             startPoint: .leading, endPoint: .trailing))
+            .frame(width: size.width * 0.34, height: span)
+            .rotationEffect(.degrees(18))
+            .position(x: x, y: size.height / 2)
+            .blendMode(.plusLighter)
     }
 }
 
@@ -129,72 +235,84 @@ private struct ShootingStarsBackground: View {
          size: 0.70, phase: 4.4, speed: 0.16),
     ]
 
+    @Environment(\.cardMotionDetail) private var detail
+
+    // CLAUDE  Date 09/17/2026
+    // Two layers. The base fill and the nebula clouds carry a blur of 0.16 × the card's
+    // short side while drifting at 0.16 rad/s — the classic case for the slow clock, and
+    // the single biggest saving on this card. Stars and meteors keep the fast one.
     var body: some View {
-        TimelineView(.animation) { tl in
-            let t = tl.date.timeIntervalSinceReferenceDate
-            Canvas { ctx, size in
-                let w = size.width, h = size.height
-                let rect = CGRect(origin: .zero, size: size)
-
-                // Deep-space base.
-                ctx.fill(Path(rect), with: .linearGradient(
-                    Gradient(colors: [Color(red: 0.05, green: 0.03, blue: 0.16),
-                                      Color(red: 0.02, green: 0.01, blue: 0.06)]),
-                    startPoint: .zero, endPoint: CGPoint(x: w, y: h)))
-
-                // Drifting nebula clouds (blurred as one layer).
-                ctx.drawLayer { layer in
-                    layer.addFilter(.blur(radius: min(w, h) * 0.16))
-                    for c in clouds {
-                        let dx = CGFloat(sin(t * c.speed + c.phase)) * w * 0.08
-                        let dy = CGFloat(cos(t * c.speed * 0.8 + c.phase)) * h * 0.06
-                        let d = min(w, h) * c.size
-                        let r = CGRect(x: c.x * w - d / 2 + dx,
-                                       y: c.y * h - d / 2 + dy,
-                                       width: d, height: d)
-                        layer.fill(Path(ellipseIn: r), with: .color(c.color.opacity(0.55)))
-                    }
-                }
-
-                // Twinkling stars.
-                for s in stars {
-                    let tw = 0.35 + 0.65 * (0.5 + 0.5 * sin(t * s.speed + s.phase))
-                    let r = s.radius
-                    let rect = CGRect(x: s.x * w - r, y: s.y * h - r, width: r * 2, height: r * 2)
-                    ctx.fill(Path(ellipseIn: rect), with: .color(.white.opacity(tw)))
-                }
-
-                // A flurry of shooting stars: each streaks during the "active"
-                // slice of its own loop, then waits — staggered so several can be
-                // mid-flight at once without ever marching in lockstep.
-                for m in meteors {
-                    let local = ((t + m.offset) / m.period).truncatingRemainder(dividingBy: 1) // 0…1
-                    guard local < m.activeFraction else { continue }
-                    let p: CGFloat = CGFloat(local / m.activeFraction)   // 0…1 across the streak
-                    let travel: CGFloat = (w + h) * 0.6                  // diagonal distance covered
-                    let dx: CGFloat = CGFloat(cos(m.angle))
-                    let dy: CGFloat = CGFloat(sin(m.angle))
-                    let headX: CGFloat = w * CGFloat(m.startX) + dx * travel * p
-                    let headY: CGFloat = h * CGFloat(m.startY) + dy * travel * p
-                    let head = CGPoint(x: headX, y: headY)
-                    let len: CGFloat = CGFloat(m.length)
-                    let tail = CGPoint(x: headX - dx * len, y: headY - dy * len)
-                    let fade: CGFloat = CGFloat(sin(Double(p) * .pi))    // fade in then out
-                    var trail = Path()
-                    trail.move(to: head)
-                    trail.addLine(to: tail)
-                    ctx.stroke(trail, with: .linearGradient(
-                        Gradient(colors: [.white.opacity(0.95 * fade), .clear]),
-                        startPoint: head, endPoint: tail),
-                        style: StrokeStyle(lineWidth: CGFloat(m.width), lineCap: .round))
-                    // Bright head spark.
-                    let hr: CGFloat = CGFloat(m.width) * 0.9
-                    ctx.fill(Path(ellipseIn: CGRect(x: headX - hr, y: headY - hr, width: hr * 2, height: hr * 2)),
-                             with: .color(.white.opacity(fade)))
-                }
+        ZStack {
+            CardLayer(rate: .slow, opaque: true) { ctx, size, t in drawSky(ctx, size: size, t: t) }
+            CardLayer(rate: .fast) { ctx, size, t in
+                drawStars(ctx, size: size, t: t)
+                drawMeteors(ctx, size: size, t: t)
             }
         }
-        .drawingGroup()   // composite the canvas on the GPU
+    }
+
+    // Deep-space base plus the drifting nebula clouds (blurred as one layer).
+    private func drawSky(_ ctx: GraphicsContext, size: CGSize, t: Double) {
+        let w = size.width, h = size.height
+        ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .linearGradient(
+            Gradient(colors: [Color(red: 0.05, green: 0.03, blue: 0.16),
+                              Color(red: 0.02, green: 0.01, blue: 0.06)]),
+            startPoint: .zero, endPoint: CGPoint(x: w, y: h)))
+        ctx.drawLayer { layer in
+            layer.addFilter(.blur(radius: min(w, h) * 0.16))
+            for c in clouds {
+                let dx = CGFloat(sin(t * c.speed + c.phase)) * w * 0.08
+                let dy = CGFloat(cos(t * c.speed * 0.8 + c.phase)) * h * 0.06
+                let d = min(w, h) * c.size
+                let r = CGRect(x: c.x * w - d / 2 + dx,
+                               y: c.y * h - d / 2 + dy,
+                               width: d, height: d)
+                layer.fill(Path(ellipseIn: r), with: .color(c.color.opacity(0.55)))
+            }
+        }
+    }
+
+    // Twinkling stars.
+    private func drawStars(_ ctx: GraphicsContext, size: CGSize, t: Double) {
+        let w = size.width, h = size.height
+        for s in stars.thinned(detail.density(at: size)) {
+            let tw = 0.35 + 0.65 * (0.5 + 0.5 * sin(t * s.speed + s.phase))
+            let r = s.radius
+            let rect = CGRect(x: s.x * w - r, y: s.y * h - r, width: r * 2, height: r * 2)
+            ctx.fill(Path(ellipseIn: rect), with: .color(.white.opacity(tw)))
+        }
+    }
+
+    // A flurry of shooting stars: each streaks during the "active" slice of its own
+    // loop, then waits — staggered so several can be mid-flight at once without ever
+    // marching in lockstep.
+    private func drawMeteors(_ ctx: GraphicsContext, size: CGSize, t: Double) {
+        let w = size.width, h = size.height
+        for m in meteors {
+            let local = ((t + m.offset) / m.period).truncatingRemainder(dividingBy: 1) // 0…1
+            guard local < m.activeFraction else { continue }
+            let p: CGFloat = CGFloat(local / m.activeFraction)   // 0…1 across the streak
+            let travel: CGFloat = (w + h) * 0.6                  // diagonal distance covered
+            let dx: CGFloat = CGFloat(cos(m.angle))
+            let dy: CGFloat = CGFloat(sin(m.angle))
+            let headX: CGFloat = w * CGFloat(m.startX) + dx * travel * p
+            let headY: CGFloat = h * CGFloat(m.startY) + dy * travel * p
+            let head = CGPoint(x: headX, y: headY)
+            let len: CGFloat = CGFloat(m.length)
+            let tail = CGPoint(x: headX - dx * len, y: headY - dy * len)
+            let fade: CGFloat = CGFloat(sin(Double(p) * .pi))    // fade in then out
+            var trail = Path()
+            trail.move(to: head)
+            trail.addLine(to: tail)
+            ctx.stroke(trail, with: .linearGradient(
+                Gradient(colors: [.white.opacity(0.95 * fade), .clear]),
+                startPoint: head, endPoint: tail),
+                style: StrokeStyle(lineWidth: CGFloat(m.width), lineCap: .round))
+            // Bright head spark.
+            let hr: CGFloat = CGFloat(m.width) * 0.9
+            ctx.fill(Path(ellipseIn: CGRect(x: headX - hr, y: headY - hr, width: hr * 2, height: hr * 2)),
+                     with: .color(.white.opacity(fade)))
+        }
     }
 
     // Seeded flurry of shooting stars, each with its own loop/angle/speed.
@@ -234,6 +352,8 @@ private struct ShootingStarsBackground: View {
 //  - A soft diagonal foil-shine sweep glides across the whole card on a slow
 //    loop, like light catching foil on a physical premium trading card.
 private struct FoundersShootingStarsBackground: View {
+    @Environment(\.cardMotionDetail) private var detail
+
     // Stable, seeded star field — distinct seed from the base card so the two
     // fields don't visually echo each other.
     private let stars: [Star] = {
@@ -282,18 +402,24 @@ private struct FoundersShootingStarsBackground: View {
     // closure was too large for the type-checker ("unable to type-check this
     // expression in reasonable time"). Each function draws straight into the
     // GraphicsContext it's handed, same as the inline version did.
+    // CLAUDE  Date 09/17/2026
+    // Two layers. The base, the gold aura and the nebula clouds carry both of this
+    // card's blurs (0.45 × the aura radius, 0.11 × the card's short side) and drift at
+    // 0.2 rad/s, so they run at 12fps instead of display rate. The 130 stars twinkle
+    // slowly too but sit above the clouds, and the meteors are genuinely fast, so they
+    // share the fast layer.
     var body: some View {
-        TimelineView(.animation) { tl in
-            let t = tl.date.timeIntervalSinceReferenceDate
-            Canvas { ctx, size in
+        ZStack {
+            CardLayer(rate: .slow, opaque: true) { ctx, size, t in
                 drawBase(ctx, size: size)
                 drawAura(ctx, size: size, t: t)
                 drawClouds(ctx, size: size, t: t)
+            }
+            CardLayer(rate: .fast) { ctx, size, t in
                 drawStars(ctx, size: size, t: t)
                 drawMeteors(ctx, size: size, t: t)
             }
         }
-        .drawingGroup()   // composite the canvas on the GPU
     }
 
     // Deep-space base with a faint purple-to-green undertone corner to corner
@@ -346,7 +472,7 @@ private struct FoundersShootingStarsBackground: View {
     // flare at the peak of their twinkle.
     private func drawStars(_ ctx: GraphicsContext, size: CGSize, t: Double) {
         let w = size.width, h = size.height
-        for s in stars {
+        for s in stars.thinned(detail.density(at: size)) {
             let twPhase: Double = 0.5 + 0.5 * sin(t * s.speed + s.phase)
             let tw: Double = 0.35 + 0.65 * twPhase
             let r = s.radius
@@ -449,77 +575,103 @@ private struct GalaxyBackground: View {
         }
     }()
 
+    @Environment(\.cardMotionDetail) private var detail
+
+    private func center(_ size: CGSize) -> CGPoint { CGPoint(x: size.width * 0.5, y: size.height * 0.46) }
+    private func maxR(_ size: CGSize) -> CGFloat { min(size.width, size.height) * 0.52 }
+
+    // CLAUDE  Date 09/17/2026
+    // Two layers. The base and the pulsing core glow (this card's only blur, at half the
+    // core radius) breathe at 0.13Hz, so they run at 12fps. The background field joins
+    // them because it has to stay UNDER the glow. The disc's own stars twinkle
+    // individually and rotate, but at 0.06 rad/s — film rate is more than enough.
     var body: some View {
-        TimelineView(.animation) { tl in
-            let t = tl.date.timeIntervalSinceReferenceDate
-            Canvas { ctx, size in
-                let w = size.width, h = size.height
-                let rect = CGRect(origin: .zero, size: size)
-                let center = CGPoint(x: w * 0.5, y: h * 0.46)
-                let maxR = min(w, h) * 0.52
-                let spin = t * 0.06                          // slow disc rotation
-                let twist = 3.4                              // how tightly the arms wind
-
-                // Deep-space base, faintly blue-violet toward the core.
-                ctx.fill(Path(rect), with: .radialGradient(
-                    Gradient(colors: [Color(red: 0.10, green: 0.10, blue: 0.26),
-                                      Color(red: 0.02, green: 0.02, blue: 0.07)]),
-                    center: center, startRadius: 0, endRadius: maxR * 1.6))
-
-                // Background twinkle field.
-                for s in bgStars {
-                    let tw = 0.25 + 0.45 * (0.5 + 0.5 * sin(t * s.speed + s.phase))
-                    let r = s.radius
-                    ctx.fill(Path(ellipseIn: CGRect(x: s.x * w - r, y: s.y * h - r, width: r * 2, height: r * 2)),
-                             with: .color(.white.opacity(tw)))
-                }
-
-                // Pulsing core glow.
-                let pulse = 0.5 + 0.5 * sin(t * 0.8)
-                let coreR = maxR * (0.42 + 0.05 * pulse)
-                ctx.drawLayer { layer in
-                    layer.addFilter(.blur(radius: coreR * 0.5))
-                    layer.fill(
-                        Path(ellipseIn: CGRect(x: center.x - coreR, y: center.y - coreR,
-                                               width: coreR * 2, height: coreR * 2)),
-                        with: .radialGradient(
-                            Gradient(colors: [Color(red: 0.85, green: 0.80, blue: 1.0).opacity(0.95),
-                                              Color(red: 0.45, green: 0.55, blue: 0.95).opacity(0.35),
-                                              .clear]),
-                            center: center, startRadius: 0, endRadius: coreR))
-                }
-
-                // Dense core cluster (rotates with the disc, squashed for tilt).
-                for s in coreStars {
-                    let r = s.r01 * maxR * 0.45
-                    let angle = s.angle + spin
-                    let x = center.x + cos(angle) * r
-                    let y = center.y + sin(angle) * r * 0.62
-                    let tw = 0.45 + 0.55 * (0.5 + 0.5 * sin(t * s.twinkle + s.phase))
-                    let rad = s.radius
-                    ctx.fill(Path(ellipseIn: CGRect(x: x - rad, y: y - rad, width: rad * 2, height: rad * 2)),
-                             with: .color(Color(red: 0.95, green: 0.92, blue: 1.0).opacity(tw)))
-                }
-
-                // Spiral-arm stars (slightly squashed to fake a disc tilt).
-                for s in armStars {
-                    let r = s.t01 * maxR
-                    let angle = s.arm + spin + s.t01 * twist + s.jitter
-                    let x = center.x + cos(angle) * r
-                    let y = center.y + sin(angle) * r * 0.62     // vertical squash = tilt
-                    let tw = 0.4 + 0.6 * (0.5 + 0.5 * sin(t * s.twinkle + s.phase))
-                    // Bluer at the rim, warm-white near the core.
-                    let warmth = 1.0 - s.t01
-                    let color = Color(red: 0.70 + 0.25 * warmth,
-                                      green: 0.75 + 0.10 * warmth,
-                                      blue: 1.0)
-                    let rad = s.radius * (1.0 - 0.3 * s.t01)
-                    ctx.fill(Path(ellipseIn: CGRect(x: x - rad, y: y - rad, width: rad * 2, height: rad * 2)),
-                             with: .color(color.opacity(tw)))
-                }
+        ZStack {
+            CardLayer(rate: .slow, opaque: true) { ctx, size, t in
+                drawBase(ctx, size: size)
+                drawBackgroundStars(ctx, size: size, t: t)
+                drawCoreGlow(ctx, size: size, t: t)
+            }
+            CardLayer(rate: .steady) { ctx, size, t in
+                drawCoreStars(ctx, size: size, t: t)
+                drawArmStars(ctx, size: size, t: t)
             }
         }
-        .drawingGroup()
+    }
+
+    // Deep-space base, faintly blue-violet toward the core.
+    private func drawBase(_ ctx: GraphicsContext, size: CGSize) {
+        ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .radialGradient(
+            Gradient(colors: [Color(red: 0.10, green: 0.10, blue: 0.26),
+                              Color(red: 0.02, green: 0.02, blue: 0.07)]),
+            center: center(size), startRadius: 0, endRadius: maxR(size) * 1.6))
+    }
+
+    // Background twinkle field.
+    private func drawBackgroundStars(_ ctx: GraphicsContext, size: CGSize, t: Double) {
+        let w = size.width, h = size.height
+        for s in bgStars.thinned(detail.density(at: size)) {
+            let tw = 0.25 + 0.45 * (0.5 + 0.5 * sin(t * s.speed + s.phase))
+            let r = s.radius
+            ctx.fill(Path(ellipseIn: CGRect(x: s.x * w - r, y: s.y * h - r, width: r * 2, height: r * 2)),
+                     with: .color(.white.opacity(tw)))
+        }
+    }
+
+    // Pulsing core glow.
+    private func drawCoreGlow(_ ctx: GraphicsContext, size: CGSize, t: Double) {
+        let c = center(size)
+        let pulse = 0.5 + 0.5 * sin(t * 0.8)
+        let coreR = maxR(size) * (0.42 + 0.05 * pulse)
+        ctx.drawLayer { layer in
+            layer.addFilter(.blur(radius: coreR * 0.5))
+            layer.fill(
+                Path(ellipseIn: CGRect(x: c.x - coreR, y: c.y - coreR,
+                                       width: coreR * 2, height: coreR * 2)),
+                with: .radialGradient(
+                    Gradient(colors: [Color(red: 0.85, green: 0.80, blue: 1.0).opacity(0.95),
+                                      Color(red: 0.45, green: 0.55, blue: 0.95).opacity(0.35),
+                                      .clear]),
+                    center: c, startRadius: 0, endRadius: coreR))
+        }
+    }
+
+    // Dense core cluster (rotates with the disc, squashed for tilt).
+    private func drawCoreStars(_ ctx: GraphicsContext, size: CGSize, t: Double) {
+        let c = center(size), maxR = maxR(size)
+        let spin = t * 0.06                          // slow disc rotation
+        for s in coreStars.thinned(detail.density(at: size)) {
+            let r = s.r01 * maxR * 0.45
+            let angle = s.angle + spin
+            let x = c.x + cos(angle) * r
+            let y = c.y + sin(angle) * r * 0.62
+            let tw = 0.45 + 0.55 * (0.5 + 0.5 * sin(t * s.twinkle + s.phase))
+            let rad = s.radius
+            ctx.fill(Path(ellipseIn: CGRect(x: x - rad, y: y - rad, width: rad * 2, height: rad * 2)),
+                     with: .color(Color(red: 0.95, green: 0.92, blue: 1.0).opacity(tw)))
+        }
+    }
+
+    // Spiral-arm stars (slightly squashed to fake a disc tilt).
+    private func drawArmStars(_ ctx: GraphicsContext, size: CGSize, t: Double) {
+        let c = center(size), maxR = maxR(size)
+        let spin = t * 0.06
+        let twist = 3.4                              // how tightly the arms wind
+        for s in armStars.thinned(detail.density(at: size)) {
+            let r = s.t01 * maxR
+            let angle = s.arm + spin + s.t01 * twist + s.jitter
+            let x = c.x + cos(angle) * r
+            let y = c.y + sin(angle) * r * 0.62     // vertical squash = tilt
+            let tw = 0.4 + 0.6 * (0.5 + 0.5 * sin(t * s.twinkle + s.phase))
+            // Bluer at the rim, warm-white near the core.
+            let warmth = 1.0 - s.t01
+            let color = Color(red: 0.70 + 0.25 * warmth,
+                              green: 0.75 + 0.10 * warmth,
+                              blue: 1.0)
+            let rad = s.radius * (1.0 - 0.3 * s.t01)
+            ctx.fill(Path(ellipseIn: CGRect(x: x - rad, y: y - rad, width: rad * 2, height: rad * 2)),
+                     with: .color(color.opacity(tw)))
+        }
     }
 
     private struct ArmStar { let t01, arm, jitter, radius, phase, twinkle: Double }
@@ -552,6 +704,8 @@ private struct GalaxyBackground: View {
 // Split into one small function per visual layer (same reason as the Founders
 // Shooting Stars card: one giant Canvas closure blows the type-checker budget).
 private struct FoundersGalaxyBackground: View {
+    @Environment(\.cardMotionDetail) private var detail
+
     // Stars along the three spiral arms. `amber` flags the warm cluster stars.
     private let armStars: [ArmStar] = {
         var rng = SeededGenerator(seed: 173)
@@ -651,20 +805,26 @@ private struct FoundersGalaxyBackground: View {
 
     // MARK: Body
 
+    // CLAUDE  Date 09/17/2026
+    // Two layers. The base, the drifting background field, the companion and the core
+    // glow all move slowly and carry both of this card's blurs, so they run at 12fps.
+    // The 460-odd disc stars stay on the fast layer — they twinkle individually — but
+    // the background field has to stay UNDER the core glow, which is why it is grouped
+    // with the slow half rather than with the other star fields.
     var body: some View {
-        TimelineView(.animation) { tl in
-            let t = tl.date.timeIntervalSinceReferenceDate
-            Canvas { ctx, size in
+        ZStack {
+            CardLayer(rate: .slow, opaque: true) { ctx, size, t in
                 drawBase(ctx, size: size)
                 drawBackgroundStars(ctx, size: size, t: t)
                 drawCompanion(ctx, size: size, t: t)
                 drawCoreGlow(ctx, size: size, t: t)
+            }
+            CardLayer(rate: .steady) { ctx, size, t in
                 drawCoreStars(ctx, size: size, t: t)
                 drawArmStars(ctx, size: size, t: t)
                 drawNovae(ctx, size: size, t: t)
             }
         }
-        .drawingGroup()   // composite the canvas on the GPU
     }
 
     // Deep-space base: violet toward the core with a whisper of teal along the
@@ -684,7 +844,7 @@ private struct FoundersGalaxyBackground: View {
     // of sitting frozen behind the rotating disc.
     private func drawBackgroundStars(_ ctx: GraphicsContext, size: CGSize, t: Double) {
         let w = size.width, h = size.height
-        for s in bgStars {
+        for s in bgStars.thinned(detail.density(at: size)) {
             let xx: CGFloat = CGFloat((s.x + t * s.drift).truncatingRemainder(dividingBy: 1))
             let tw: Double = 0.25 + 0.45 * (0.5 + 0.5 * sin(t * s.speed + s.phase))
             let r: CGFloat = s.radius
@@ -704,7 +864,7 @@ private struct FoundersGalaxyBackground: View {
                        with: .color(Color(red: 0.95, green: 0.60, blue: 0.55).opacity(0.30)))
         }
         let spin: Double = t * 0.18
-        for s in companionStars {
+        for s in companionStars.thinned(detail.density(at: size)) {
             let rr: CGFloat = CGFloat(s.r01) * r
             let a: Double = s.angle + spin
             let x: CGFloat = c.x + CGFloat(cos(a)) * rr
@@ -745,7 +905,7 @@ private struct FoundersGalaxyBackground: View {
         let spin = discSpin(t)
         let squash = discSquash(t)
         let disc = wobbled(ctx, size: size, t: t)
-        for s in coreStars {
+        for s in coreStars.thinned(detail.density(at: size)) {
             let r: CGFloat = CGFloat(s.r01) * maxR * 0.45
             let angle: Double = s.angle + spin
             let x: CGFloat = center.x + CGFloat(cos(angle)) * r
@@ -772,7 +932,7 @@ private struct FoundersGalaxyBackground: View {
     // The three spiral arms.
     private func drawArmStars(_ ctx: GraphicsContext, size: CGSize, t: Double) {
         let disc = wobbled(ctx, size: size, t: t)
-        for s in armStars {
+        for s in armStars.thinned(detail.density(at: size)) {
             let p = discPoint(t01: s.t01, arm: s.arm, jitter: s.jitter, size: size, t: t)
             let tw: Double = 0.4 + 0.6 * (0.5 + 0.5 * sin(t * s.twinkle + s.phase))
             let rad: CGFloat = CGFloat(s.radius * (1.0 - 0.25 * s.t01)) * (s.amber ? 1.4 : 1.0)
@@ -834,6 +994,8 @@ private struct FoundersGalaxyBackground: View {
 // Split into one small function per visual layer (same reason as the other
 // Founders cards: one giant Canvas closure blows the type-checker budget).
 private struct FoundersConstellationBackground: View {
+    @Environment(\.cardMotionDetail) private var detail
+
     // Warm pink-white shared by the figure's stars and their chart lines.
     private let pink = Color(red: 0.98, green: 0.55, blue: 0.75)
 
@@ -935,22 +1097,28 @@ private struct FoundersConstellationBackground: View {
     // Layers, back to front. Added since the shine was removed: a pink aura
     // pooled behind the "A" (drawFigureAura), a bead of light tracing the figure
     // (drawLinkPulse), and a meteor aimed to graze the letter (drawGrazingMeteor).
+    // CLAUDE  Date 09/17/2026
+    // Four layers, stacked in exactly the order the single canvas drew them. Almost
+    // everything on this card breathes below 0.15Hz — including the five anchors, which
+    // are its real cost at two blurred halos each — so only the travelling bead and the
+    // meteors need a real frame rate. The bead passes UNDER the anchors, which is why
+    // the slow content is split in two instead of merged into one layer.
     var body: some View {
-        TimelineView(.animation) { tl in
-            let t = tl.date.timeIntervalSinceReferenceDate
-            Canvas { ctx, size in
+        ZStack {
+            CardLayer(rate: .slow, opaque: true) { ctx, size, t in
                 drawBase(ctx, size: size)
                 drawHaze(ctx, size: size, t: t)
                 drawFigureAura(ctx, size: size, t: t)
                 drawStars(ctx, size: size, t: t)
                 drawLinks(ctx, size: size, t: t)
-                drawLinkPulse(ctx, size: size, t: t)
-                drawAnchors(ctx, size: size, t: t)
+            }
+            CardLayer(rate: .fast) { ctx, size, t in drawLinkPulse(ctx, size: size, t: t) }
+            CardLayer(rate: .slow) { ctx, size, t in drawAnchors(ctx, size: size, t: t) }
+            CardLayer(rate: .fast) { ctx, size, t in
                 drawMeteors(ctx, size: size, t: t)
                 drawGrazingMeteor(ctx, size: size, t: t)
             }
         }
-        .drawingGroup()   // composite the canvas on the GPU
     }
 
     // Near-black base with a warm plum/maroon undertone — the "pink family"
@@ -1014,7 +1182,7 @@ private struct FoundersConstellationBackground: View {
     // stars are unmistakably the brightest points in the sky.
     private func drawStars(_ ctx: GraphicsContext, size: CGSize, t: Double) {
         let w = size.width, h = size.height
-        for s in stars {
+        for s in stars.thinned(detail.density(at: size)) {
             let tw = 0.22 + 0.48 * (0.5 + 0.5 * sin(t * s.speed + s.phase))
             let r = s.radius
             ctx.fill(Path(ellipseIn: CGRect(x: s.x * w - r, y: s.y * h - r, width: r * 2, height: r * 2)),
@@ -1245,88 +1413,97 @@ private struct MoltenBackground: View {
         }
     }()
 
+    @Environment(\.cardMotionDetail) private var detail
+
+    // CLAUDE  Date 09/17/2026
+    // Two layers. The forge base never changes, so it paints once. Everything else —
+    // the magma glow pulsing at 0.14Hz, the lava bed rippling at 0.17Hz, embers rising
+    // at a tenth of the card height per second — tops out well inside film rate, so it
+    // runs at 30 instead of display rate.
     var body: some View {
-        TimelineView(.animation) { tl in
-            let t = tl.date.timeIntervalSinceReferenceDate
-            Canvas { ctx, size in
-                let w = size.width, h = size.height
-                let rect = CGRect(origin: .zero, size: size)
+        ZStack {
+            CardLayer(rate: .still, opaque: true) { ctx, size, _ in drawBase(ctx, size: size) }
+            CardLayer(rate: .steady) { ctx, size, t in drawForge(ctx, size: size, t: t) }
+        }
+    }
 
-                // Dark forge base.
-                ctx.fill(Path(rect), with: .linearGradient(
-                    Gradient(colors: [Color(red: 0.10, green: 0.02, blue: 0.02),
-                                      Color(red: 0.02, green: 0.01, blue: 0.01)]),
-                    startPoint: .zero, endPoint: CGPoint(x: 0, y: h)))
+    // Dark forge base.
+    private func drawBase(_ ctx: GraphicsContext, size: CGSize) {
+        ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .linearGradient(
+            Gradient(colors: [Color(red: 0.10, green: 0.02, blue: 0.02),
+                              Color(red: 0.02, green: 0.01, blue: 0.01)]),
+            startPoint: .zero, endPoint: CGPoint(x: 0, y: size.height)))
+    }
 
-                // Pulsing magma glow at the bottom.
-                let pulse = 0.5 + 0.5 * sin(t * 0.9)
-                let glowR = max(w, h) * (1.05 + 0.14 * pulse)
-                let center = CGPoint(x: w * 0.5, y: h * 1.04)
-                ctx.fill(
-                    Path(ellipseIn: CGRect(x: center.x - glowR, y: center.y - glowR * 0.8,
-                                           width: glowR * 2, height: glowR * 1.6)),
-                    with: .radialGradient(
-                        Gradient(colors: [Color(red: 1.0, green: 0.50, blue: 0.12).opacity(0.65 + 0.2 * pulse),
-                                          Color(red: 0.88, green: 0.14, blue: 0.04).opacity(0.32),
-                                          .clear]),
-                        center: center, startRadius: 0, endRadius: glowR))
+    // The glow, the lava bed and its lip, and the embers rising off it.
+    private func drawForge(_ ctx: GraphicsContext, size: CGSize, t: Double) {
+        let w = size.width, h = size.height
+        // Pulsing magma glow at the bottom.
+        let pulse = 0.5 + 0.5 * sin(t * 0.9)
+        let glowR = max(w, h) * (1.05 + 0.14 * pulse)
+        let center = CGPoint(x: w * 0.5, y: h * 1.04)
+        ctx.fill(
+            Path(ellipseIn: CGRect(x: center.x - glowR, y: center.y - glowR * 0.8,
+                                   width: glowR * 2, height: glowR * 1.6)),
+            with: .radialGradient(
+                Gradient(colors: [Color(red: 1.0, green: 0.50, blue: 0.12).opacity(0.65 + 0.2 * pulse),
+                                  Color(red: 0.88, green: 0.14, blue: 0.04).opacity(0.32),
+                                  .clear]),
+                center: center, startRadius: 0, endRadius: glowR))
 
-                // Thick lava bed: a molten band hugging the bottom edge with a
-                // rippling, glowing top surface (two offset sine waves).
-                let bedTop = h * (0.74 - 0.02 * pulse)
-                var bed = Path()
-                bed.move(to: CGPoint(x: 0, y: h))
-                bed.addLine(to: CGPoint(x: 0, y: bedTop))
-                let steps = 24
-                for i in 0...steps {
-                    let fx = CGFloat(i) / CGFloat(steps)
-                    let x = fx * w
-                    let ripple = sin(Double(fx) * 7.0 + t * 1.1) * 0.5
-                                 + sin(Double(fx) * 3.0 - t * 0.7) * 0.5
-                    let y = bedTop + CGFloat(ripple) * h * 0.05
-                    bed.addLine(to: CGPoint(x: x, y: y))
-                }
-                bed.addLine(to: CGPoint(x: w, y: h))
-                bed.closeSubpath()
-                ctx.fill(bed, with: .linearGradient(
-                    Gradient(colors: [Color(red: 1.0, green: 0.62, blue: 0.18),
-                                      Color(red: 0.92, green: 0.20, blue: 0.04),
-                                      Color(red: 0.45, green: 0.05, blue: 0.02)]),
-                    startPoint: CGPoint(x: 0, y: bedTop), endPoint: CGPoint(x: 0, y: h)))
-                // Bright molten lip riding the lava surface.
-                ctx.drawLayer { layer in
-                    layer.addFilter(.blur(radius: 2))
-                    var lip = Path()
-                    for i in 0...steps {
-                        let fx = CGFloat(i) / CGFloat(steps)
-                        let x = fx * w
-                        let ripple = sin(Double(fx) * 7.0 + t * 1.1) * 0.5
-                                     + sin(Double(fx) * 3.0 - t * 0.7) * 0.5
-                        let y = bedTop + CGFloat(ripple) * h * 0.05
-                        if i == 0 { lip.move(to: CGPoint(x: x, y: y)) }
-                        else { lip.addLine(to: CGPoint(x: x, y: y)) }
-                    }
-                    layer.stroke(lip, with: .color(Color(red: 1.0, green: 0.85, blue: 0.45).opacity(0.85)),
-                                 style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
-                }
+        // Thick lava bed: a molten band hugging the bottom edge with a
+        // rippling, glowing top surface (two offset sine waves).
+        let bedTop = h * (0.74 - 0.02 * pulse)
+        var bed = Path()
+        bed.move(to: CGPoint(x: 0, y: h))
+        bed.addLine(to: CGPoint(x: 0, y: bedTop))
+        let steps = 24
+        for i in 0...steps {
+            let fx = CGFloat(i) / CGFloat(steps)
+            let x = fx * w
+            let ripple = sin(Double(fx) * 7.0 + t * 1.1) * 0.5
+                         + sin(Double(fx) * 3.0 - t * 0.7) * 0.5
+            let y = bedTop + CGFloat(ripple) * h * 0.05
+            bed.addLine(to: CGPoint(x: x, y: y))
+        }
+        bed.addLine(to: CGPoint(x: w, y: h))
+        bed.closeSubpath()
+        ctx.fill(bed, with: .linearGradient(
+            Gradient(colors: [Color(red: 1.0, green: 0.62, blue: 0.18),
+                              Color(red: 0.92, green: 0.20, blue: 0.04),
+                              Color(red: 0.45, green: 0.05, blue: 0.02)]),
+            startPoint: CGPoint(x: 0, y: bedTop), endPoint: CGPoint(x: 0, y: h)))
+        // Bright molten lip riding the lava surface.
+        ctx.drawLayer { layer in
+            layer.addFilter(.blur(radius: 2))
+            var lip = Path()
+            for i in 0...steps {
+                let fx = CGFloat(i) / CGFloat(steps)
+                let x = fx * w
+                let ripple = sin(Double(fx) * 7.0 + t * 1.1) * 0.5
+                             + sin(Double(fx) * 3.0 - t * 0.7) * 0.5
+                let y = bedTop + CGFloat(ripple) * h * 0.05
+                if i == 0 { lip.move(to: CGPoint(x: x, y: y)) }
+                else { lip.addLine(to: CGPoint(x: x, y: y)) }
+            }
+            layer.stroke(lip, with: .color(Color(red: 1.0, green: 0.85, blue: 0.45).opacity(0.85)),
+                         style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
+        }
 
-                // Rising, swaying embers (glowing dots).
-                ctx.drawLayer { layer in
-                    layer.addFilter(.blur(radius: 0.6))
-                    for e in embers {
-                        let prog = (t * e.speed + e.offset).truncatingRemainder(dividingBy: 1) // 0 bottom → 1 top
-                        let y = h * (1.0 - prog)
-                        let x = w * (e.x + e.sway * sin(t * 1.3 + e.swayPhase))
-                        let fade = sin(prog * .pi)        // dim at birth and death
-                        let r = e.size * (1.0 - 0.3 * prog)
-                        let color = Color(red: 1.0, green: 0.55 + 0.3 * fade, blue: 0.18)
-                        layer.fill(Path(ellipseIn: CGRect(x: x - r, y: y - r, width: r * 2, height: r * 2)),
-                                   with: .color(color.opacity(0.9 * fade)))
-                    }
-                }
+        // Rising, swaying embers (glowing dots).
+        ctx.drawLayer { layer in
+            layer.addFilter(.blur(radius: 0.6))
+            for e in embers.thinned(detail.density(at: size)) {
+                let prog = (t * e.speed + e.offset).truncatingRemainder(dividingBy: 1) // 0 bottom → 1 top
+                let y = h * (1.0 - prog)
+                let x = w * (e.x + e.sway * sin(t * 1.3 + e.swayPhase))
+                let fade = sin(prog * .pi)        // dim at birth and death
+                let r = e.size * (1.0 - 0.3 * prog)
+                let color = Color(red: 1.0, green: 0.55 + 0.3 * fade, blue: 0.18)
+                layer.fill(Path(ellipseIn: CGRect(x: x - r, y: y - r, width: r * 2, height: r * 2)),
+                           with: .color(color.opacity(0.9 * fade)))
             }
         }
-        .drawingGroup()
     }
 
     private struct Ember { let x, size, speed, offset, sway, swayPhase: Double }
@@ -1567,146 +1744,161 @@ private struct CherryBlossomBackground: View {
 
     // MARK: Body
 
+    // CLAUDE  Date 09/17/2026
+    // Three layers. The backdrop and the bokeh pools never move at all — and the bokeh
+    // carries the widest blur on the card (0.10 × its short side) — so they paint once
+    // and are never touched again. The bough and its blossoms sway, bob and flutter, but
+    // all of it under 1.5°/second, so 12fps is indistinguishable from display rate there.
+    // Only the falling petals need a real frame rate.
     var body: some View {
-        TimelineView(.animation) { tl in
-            let t = tl.date.timeIntervalSinceReferenceDate
-            Canvas { ctx, size in
-                let w = size.width, h = size.height
-                let scale = min(w, h)
-                let rect = CGRect(origin: .zero, size: size)
+        ZStack {
+            CardLayer(rate: .still, opaque: true) { ctx, size, _ in drawBackdrop(ctx, size: size) }
+            CardLayer(rate: .slow)   { ctx, size, t in drawBough(ctx, size: size, t: t) }
+            CardLayer(rate: .steady) { ctx, size, t in drawFall(ctx, size: size, t: t) }
+        }
+    }
 
-                // 1) Dusky mauve backdrop — the out-of-focus "everything else".
-                ctx.fill(Path(rect), with: .linearGradient(
-                    Gradient(colors: [Color(red: 0.42, green: 0.34, blue: 0.44),
-                                      Color(red: 0.55, green: 0.42, blue: 0.50),
-                                      Color(red: 0.38, green: 0.30, blue: 0.38)]),
-                    startPoint: .zero, endPoint: CGPoint(x: w * 0.3, y: h)))
-
-                // 2) Bokeh pools, blurred to mush.
-                ctx.drawLayer { layer in
-                    layer.addFilter(.blur(radius: scale * 0.10))
-                    for b in bokeh {
-                        layer.fill(disc(CGFloat(b.x) * w, CGFloat(b.y) * h, CGFloat(b.r) * scale),
-                                   with: .color(palePink(b.shade).opacity(0.35)))
-                    }
-                }
-
-                // 3) Out-of-focus mid-depth blossoms.
-                ctx.drawLayer { layer in
-                    layer.addFilter(.blur(radius: scale * 0.035))
-                    for fl in backFlowers {
-                        drawBlossom(layer,
-                                    center: CGPoint(x: CGFloat(fl.x) * w, y: CGFloat(fl.y) * h),
-                                    r: CGFloat(fl.r) * scale, rot: fl.rot, shade: fl.shade,
-                                    t: t, bobPhase: fl.bobPhase, detail: false)
-                    }
-                }
-
-                // 4) The limb and everything attached, all inside one swaying
-                // transform pivoted where the branch enters the frame — so the
-                // whole bough flexes as a unit instead of pieces drifting apart.
-                let sway = 0.011 * sin(t * 0.5) + 0.006 * sin(t * 0.23 + 1.7)
-                var scene = ctx
-                let pivot = CGPoint(x: w * 1.05, y: h * 0.30)
-                scene.translateBy(x: pivot.x, y: pivot.y)
-                scene.rotate(by: .radians(sway))
-                scene.translateBy(x: -pivot.x, y: -pivot.y)
-
-                // Dark plum bark, faintly softened, tapering toward the tips.
-                let bark = Color(red: 0.23, green: 0.11, blue: 0.14)
-                scene.drawLayer { layer in
-                    layer.addFilter(.blur(radius: 0.6))
-                    for limb in limbs {
-                        let a = CGPoint(x: limb.a.x * w, y: limb.a.y * h)
-                        let b = CGPoint(x: limb.b.x * w, y: limb.b.y * h)
-                        layer.fill(taperedLimb(from: a, to: b,
-                                               w0: CGFloat(limb.w0) * scale,
-                                               w1: CGFloat(limb.w1) * scale),
-                                   with: .color(bark))
-                        // Round off the joints.
-                        layer.fill(disc(b.x, b.y, CGFloat(limb.w1) * scale * 0.5),
-                                   with: .color(bark))
-                    }
-                }
-
-                // Buds: thin stem + glossy deep-pink droplet.
-                for bud in buds {
-                    let from = CGPoint(x: bud.stemFrom.x * w, y: bud.stemFrom.y * h)
-                    let at = CGPoint(x: CGFloat(bud.x) * w, y: CGFloat(bud.y) * h)
-                    var stem = Path()
-                    stem.move(to: from)
-                    stem.addLine(to: at)
-                    scene.stroke(stem, with: .color(Color(red: 0.30, green: 0.14, blue: 0.17)),
-                                 style: StrokeStyle(lineWidth: max(1, scale * 0.006), lineCap: .round))
-                    let r = CGFloat(bud.r) * scale
-                    scene.fill(disc(at.x, at.y, r), with: .radialGradient(
-                        Gradient(colors: [Color(red: 0.98, green: 0.55, blue: 0.70),
-                                          Color(red: 0.80, green: 0.20, blue: 0.42)]),
-                        center: CGPoint(x: at.x - r * 0.3, y: at.y - r * 0.3),
-                        startRadius: 0, endRadius: r * 1.4))
-                }
-
-                // Burgundy leaves, each fluttering on its own phase.
-                for leaf in leaves {
-                    var l = scene
-                    let flutter = 0.08 * sin(t * 0.9 + leaf.flutterPhase)
-                    l.translateBy(x: CGFloat(leaf.x) * w, y: CGFloat(leaf.y) * h)
-                    l.rotate(by: .radians(leaf.angle + flutter))
-                    let len = CGFloat(leaf.len) * scale
-                    let shape = leafShape(len: len, width: len * 0.34)
-                    l.fill(shape, with: .linearGradient(
-                        Gradient(colors: [Color(red: 0.46 - 0.06 * leaf.shade,
-                                                green: 0.16, blue: 0.14),
-                                          Color(red: 0.62 - 0.08 * leaf.shade,
-                                                green: 0.28, blue: 0.20)]),
-                        startPoint: .zero, endPoint: CGPoint(x: 0, y: -len)))
-                    var vein = Path()
-                    vein.move(to: .zero)
-                    vein.addLine(to: CGPoint(x: 0, y: -len * 0.9))
-                    l.stroke(vein, with: .color(Color(red: 0.28, green: 0.09, blue: 0.09).opacity(0.7)),
-                             lineWidth: max(0.5, len * 0.02))
-                }
-
-                // 5) The hero blossoms — full detail, with just enough blur that
-                // they still sit back as a card background rather than clip art.
-                scene.drawLayer { layer in
-                    layer.addFilter(.blur(radius: max(0.5, scale * 0.004)))
-                    for fl in frontFlowers {
-                        drawBlossom(layer,
-                                    center: CGPoint(x: CGFloat(fl.x) * w, y: CGFloat(fl.y) * h),
-                                    r: CGFloat(fl.r) * scale, rot: fl.rot, shade: fl.shade,
-                                    t: t, bobPhase: fl.bobPhase, detail: true)
-                    }
-                }
-
-                // 6) Foreground fall: petals (and the odd leaf) detach near the
-                // canopy band, then sway, spin, and "flip" (x-squash fakes the
-                // 3D tumble) on their way down. Drawn outside the sway transform
-                // so loose petals move independently of the limb.
-                let margin = scale * 0.12
-                for bit in fallingBits {
-                    let prog = (t * bit.speed + bit.offset).truncatingRemainder(dividingBy: 1)
-                    let y0 = CGFloat(bit.y0) * h
-                    let y = y0 + CGFloat(prog) * (h + margin - y0)
-                    let x = CGFloat(bit.x0) * w
-                          + CGFloat(sin(t * bit.sway + bit.swayPhase)) * w * 0.05
-                    let fade = min(1, prog * 7) * min(1, (1 - prog) * 5)
-                    var p = ctx
-                    p.translateBy(x: x, y: y)
-                    p.rotate(by: .radians(t * bit.spin + bit.spinPhase))
-                    p.scaleBy(x: CGFloat(0.35 + 0.65 * abs(sin(t * bit.flip + bit.spinPhase))), y: 1)
-                    let s = CGFloat(bit.size) * scale
-                    if bit.isLeaf {
-                        p.fill(leafShape(len: s * 1.6, width: s * 0.55),
-                               with: .color(Color(red: 0.52, green: 0.20, blue: 0.16).opacity(0.9 * fade)))
-                    } else {
-                        p.fill(petalShape(len: s, width: s * 0.70),
-                               with: .color(midPink(bit.shade).opacity(0.92 * fade)))
-                    }
-                }
+    // 1) Dusky mauve backdrop — the out-of-focus "everything else" — and 2) the bokeh
+    // pools blurred to mush over it. Both are fixed geometry: no `t` anywhere.
+    private func drawBackdrop(_ ctx: GraphicsContext, size: CGSize) {
+        let w = size.width, h = size.height
+        let scale = min(w, h)
+        ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .linearGradient(
+            Gradient(colors: [Color(red: 0.42, green: 0.34, blue: 0.44),
+                              Color(red: 0.55, green: 0.42, blue: 0.50),
+                              Color(red: 0.38, green: 0.30, blue: 0.38)]),
+            startPoint: .zero, endPoint: CGPoint(x: w * 0.3, y: h)))
+        ctx.drawLayer { layer in
+            layer.addFilter(.blur(radius: scale * 0.10))
+            for b in bokeh {
+                layer.fill(disc(CGFloat(b.x) * w, CGFloat(b.y) * h, CGFloat(b.r) * scale),
+                           with: .color(palePink(b.shade).opacity(0.35)))
             }
         }
-        .drawingGroup()
+    }
+
+    // 3-5) The bough: out-of-focus mid-depth blossoms, then the limb and everything
+    // growing off it, then the hero blossoms.
+    private func drawBough(_ ctx: GraphicsContext, size: CGSize, t: Double) {
+        let w = size.width, h = size.height
+        let scale = min(w, h)
+        // 3) Out-of-focus mid-depth blossoms.
+        ctx.drawLayer { layer in
+            layer.addFilter(.blur(radius: scale * 0.035))
+            for fl in backFlowers {
+                drawBlossom(layer,
+                            center: CGPoint(x: CGFloat(fl.x) * w, y: CGFloat(fl.y) * h),
+                            r: CGFloat(fl.r) * scale, rot: fl.rot, shade: fl.shade,
+                            t: t, bobPhase: fl.bobPhase, detail: false)
+            }
+        }
+
+        // 4) The limb and everything attached, all inside one swaying
+        // transform pivoted where the branch enters the frame — so the
+        // whole bough flexes as a unit instead of pieces drifting apart.
+        let sway = 0.011 * sin(t * 0.5) + 0.006 * sin(t * 0.23 + 1.7)
+        var scene = ctx
+        let pivot = CGPoint(x: w * 1.05, y: h * 0.30)
+        scene.translateBy(x: pivot.x, y: pivot.y)
+        scene.rotate(by: .radians(sway))
+        scene.translateBy(x: -pivot.x, y: -pivot.y)
+
+        // Dark plum bark, faintly softened, tapering toward the tips.
+        let bark = Color(red: 0.23, green: 0.11, blue: 0.14)
+        scene.drawLayer { layer in
+            layer.addFilter(.blur(radius: 0.6))
+            for limb in limbs {
+                let a = CGPoint(x: limb.a.x * w, y: limb.a.y * h)
+                let b = CGPoint(x: limb.b.x * w, y: limb.b.y * h)
+                layer.fill(taperedLimb(from: a, to: b,
+                                       w0: CGFloat(limb.w0) * scale,
+                                       w1: CGFloat(limb.w1) * scale),
+                           with: .color(bark))
+                // Round off the joints.
+                layer.fill(disc(b.x, b.y, CGFloat(limb.w1) * scale * 0.5),
+                           with: .color(bark))
+            }
+        }
+
+        // Buds: thin stem + glossy deep-pink droplet.
+        for bud in buds {
+            let from = CGPoint(x: bud.stemFrom.x * w, y: bud.stemFrom.y * h)
+            let at = CGPoint(x: CGFloat(bud.x) * w, y: CGFloat(bud.y) * h)
+            var stem = Path()
+            stem.move(to: from)
+            stem.addLine(to: at)
+            scene.stroke(stem, with: .color(Color(red: 0.30, green: 0.14, blue: 0.17)),
+                         style: StrokeStyle(lineWidth: max(1, scale * 0.006), lineCap: .round))
+            let r = CGFloat(bud.r) * scale
+            scene.fill(disc(at.x, at.y, r), with: .radialGradient(
+                Gradient(colors: [Color(red: 0.98, green: 0.55, blue: 0.70),
+                                  Color(red: 0.80, green: 0.20, blue: 0.42)]),
+                center: CGPoint(x: at.x - r * 0.3, y: at.y - r * 0.3),
+                startRadius: 0, endRadius: r * 1.4))
+        }
+
+        // Burgundy leaves, each fluttering on its own phase.
+        for leaf in leaves {
+            var l = scene
+            let flutter = 0.08 * sin(t * 0.9 + leaf.flutterPhase)
+            l.translateBy(x: CGFloat(leaf.x) * w, y: CGFloat(leaf.y) * h)
+            l.rotate(by: .radians(leaf.angle + flutter))
+            let len = CGFloat(leaf.len) * scale
+            let shape = leafShape(len: len, width: len * 0.34)
+            l.fill(shape, with: .linearGradient(
+                Gradient(colors: [Color(red: 0.46 - 0.06 * leaf.shade,
+                                        green: 0.16, blue: 0.14),
+                                  Color(red: 0.62 - 0.08 * leaf.shade,
+                                        green: 0.28, blue: 0.20)]),
+                startPoint: .zero, endPoint: CGPoint(x: 0, y: -len)))
+            var vein = Path()
+            vein.move(to: .zero)
+            vein.addLine(to: CGPoint(x: 0, y: -len * 0.9))
+            l.stroke(vein, with: .color(Color(red: 0.28, green: 0.09, blue: 0.09).opacity(0.7)),
+                     lineWidth: max(0.5, len * 0.02))
+        }
+
+        // 5) The hero blossoms — full detail, with just enough blur that
+        // they still sit back as a card background rather than clip art.
+        scene.drawLayer { layer in
+            layer.addFilter(.blur(radius: max(0.5, scale * 0.004)))
+            for fl in frontFlowers {
+                drawBlossom(layer,
+                            center: CGPoint(x: CGFloat(fl.x) * w, y: CGFloat(fl.y) * h),
+                            r: CGFloat(fl.r) * scale, rot: fl.rot, shade: fl.shade,
+                            t: t, bobPhase: fl.bobPhase, detail: true)
+            }
+        }
+
+    }
+
+    // 6) Foreground fall: petals (and the odd leaf) detach near the canopy band, then
+    // sway, spin, and "flip" (x-squash fakes the 3D tumble) on their way down. Its own
+    // layer, outside the sway transform, so loose petals move independently of the limb.
+    private func drawFall(_ ctx: GraphicsContext, size: CGSize, t: Double) {
+        let w = size.width, h = size.height
+        let scale = min(w, h)
+        let margin = scale * 0.12
+        for bit in fallingBits {
+            let prog = (t * bit.speed + bit.offset).truncatingRemainder(dividingBy: 1)
+            let y0 = CGFloat(bit.y0) * h
+            let y = y0 + CGFloat(prog) * (h + margin - y0)
+            let x = CGFloat(bit.x0) * w
+                  + CGFloat(sin(t * bit.sway + bit.swayPhase)) * w * 0.05
+            let fade = min(1, prog * 7) * min(1, (1 - prog) * 5)
+            var p = ctx
+            p.translateBy(x: x, y: y)
+            p.rotate(by: .radians(t * bit.spin + bit.spinPhase))
+            p.scaleBy(x: CGFloat(0.35 + 0.65 * abs(sin(t * bit.flip + bit.spinPhase))), y: 1)
+            let s = CGFloat(bit.size) * scale
+            if bit.isLeaf {
+                p.fill(leafShape(len: s * 1.6, width: s * 0.55),
+                       with: .color(Color(red: 0.52, green: 0.20, blue: 0.16).opacity(0.9 * fade)))
+            } else {
+                p.fill(petalShape(len: s, width: s * 0.70),
+                       with: .color(midPink(bit.shade).opacity(0.92 * fade)))
+            }
+        }
     }
 }
 
@@ -1827,118 +2019,154 @@ private struct ThunderstormBackground: View {
         }
     }()
 
+    @Environment(\.cardMotionDetail) private var detail
+
+    // CLAUDE  Date 09/17/2026
+    // Three layers. The cloud bank carries a blur of 0.22 × the card's short side — the
+    // most expensive draw on any card here — but drifts at 0.1 rad/s, so it runs on the
+    // slow clock instead of at display rate. Lightning is split out because it flickers
+    // fast, and rain because it falls fast.
+    //
+    // The lightning LAYER is deliberately .normal. `layer.blendMode` set inside a
+    // drawLayer only governs how draws inside that layer combine with each other — it
+    // never reached the cloud beneath (verified by probe, and by rendering this card
+    // before and after). So the glows have always painted over the vapour rather than
+    // adding light to it; a .normal layer here is what keeps the card looking the same.
+    // The inner plusLighter still matters where glows or bolt forks overlap each other,
+    // so it stays exactly where it was. Passing `blend: .plusLighter` below is all it
+    // would take to get the additive-over-cloud effect the original comment described.
     var body: some View {
-        TimelineView(.animation) { tl in
-            let t = tl.date.timeIntervalSinceReferenceDate
-            Canvas { ctx, size in
-                let w = size.width, h = size.height
-                let rect = CGRect(origin: .zero, size: size)
-                let minDim = min(w, h)
-
-                // Storm base: bruised violet up top falling away to near-black.
-                ctx.fill(Path(rect), with: .linearGradient(
-                    Gradient(colors: [Color(red: 0.13, green: 0.11, blue: 0.22),
-                                      Color(red: 0.08, green: 0.07, blue: 0.15),
-                                      Color(red: 0.04, green: 0.03, blue: 0.08)]),
-                    startPoint: .zero, endPoint: CGPoint(x: 0, y: h)))
-
-                // The cloud bank, drifting on slow sine paths. Blurred as one
-                // layer so the puffs melt together into vapour.
-                ctx.drawLayer { layer in
-                    layer.addFilter(.blur(radius: minDim * 0.22))
-                    for p in puffs {
-                        let dx = CGFloat(sin(t * p.speed + p.phase)) * w * 0.06
-                        let dy = CGFloat(cos(t * p.speed * 0.7 + p.phase)) * h * 0.03
-                        let d = minDim * p.size
-                        let r = CGRect(x: p.x * w - d / 2 + dx,
-                                       y: p.y * h - d / 2 + dy,
-                                       width: d, height: d * 0.78)
-                        layer.fill(Path(ellipseIn: r), with: .color(p.color.opacity(0.62)))
-                    }
-                }
-
-                // In-cloud lightning: soft blooms lighting the vapour from behind.
-                // plusLighter so they add light to the cloud rather than paint a
-                // grey disc over it.
-                ctx.drawLayer { layer in
-                    layer.addFilter(.blur(radius: minDim * 0.14))
-                    layer.blendMode = .plusLighter
-                    for g in glows {
-                        let local = ((t + g.offset) / g.period).truncatingRemainder(dividingBy: 1)
-                        guard local < g.activeFraction else { continue }
-                        let i = pulse(local / g.activeFraction, flicker: g.flicker, phase: g.phase)
-                        guard i > 0.001 else { continue }
-                        let amp = i * g.strength
-                        let cx = g.x * w, cy = g.y * h
-                        let rad = minDim * g.radius
-                        layer.fill(
-                            Path(ellipseIn: CGRect(x: cx - rad, y: cy - rad * 0.82,
-                                                   width: rad * 2, height: rad * 1.64)),
-                            with: .radialGradient(
-                                Gradient(colors: [Color(red: 0.88, green: 0.85, blue: 1.0).opacity(0.66 * amp),
-                                                  Color(red: 0.56, green: 0.48, blue: 0.90).opacity(0.30 * amp),
-                                                  .clear]),
-                                center: CGPoint(x: cx, y: cy), startRadius: 0, endRadius: rad))
-                    }
-                }
-
-                // Distant bolts. Drawn twice: a wide blurred halo so the channel
-                // looks like it's glowing *through* cloud, then a thin core on
-                // top. Both stay dim — nothing here is meant to be close.
-                for b in bolts {
-                    let local = ((t + b.offset) / b.period).truncatingRemainder(dividingBy: 1)
-                    guard local < b.activeFraction else { continue }
-                    let i = pulse(local / b.activeFraction, flicker: b.flicker, phase: b.phase)
-                    guard i > 0.001 else { continue }
-
-                    var channel = Path()
-                    channel.addLines(b.points.map { CGPoint(x: $0.x * w, y: $0.y * h) })
-                    var forks = Path()
-                    for f in b.branches {
-                        forks.addLines(f.map { CGPoint(x: $0.x * w, y: $0.y * h) })
-                    }
-
-                    ctx.drawLayer { layer in
-                        layer.addFilter(.blur(radius: minDim * 0.040))
-                        layer.blendMode = .plusLighter
-                        layer.stroke(channel,
-                                     with: .color(Color(red: 0.70, green: 0.63, blue: 0.98).opacity(0.78 * i)),
-                                     style: StrokeStyle(lineWidth: b.width * 6.5, lineCap: .round, lineJoin: .round))
-                        layer.stroke(forks,
-                                     with: .color(Color(red: 0.70, green: 0.63, blue: 0.98).opacity(0.52 * i)),
-                                     style: StrokeStyle(lineWidth: b.width * 4.0, lineCap: .round, lineJoin: .round))
-                    }
-                    ctx.drawLayer { layer in
-                        layer.addFilter(.blur(radius: 0.7))
-                        layer.blendMode = .plusLighter
-                        layer.stroke(channel,
-                                     with: .color(Color(red: 0.96, green: 0.95, blue: 1.0).opacity(0.95 * i)),
-                                     style: StrokeStyle(lineWidth: b.width, lineCap: .round, lineJoin: .round))
-                        layer.stroke(forks,
-                                     with: .color(Color(red: 0.96, green: 0.95, blue: 1.0).opacity(0.68 * i)),
-                                     style: StrokeStyle(lineWidth: b.width * 0.70, lineCap: .round, lineJoin: .round))
-                    }
-                }
-
-                // Rain veil, falling on a loop and slanting slightly with the drift.
-                ctx.drawLayer { layer in
-                    layer.addFilter(.blur(radius: 0.4))
-                    for d in rain {
-                        let prog = (t * d.speed + d.offset).truncatingRemainder(dividingBy: 1)
-                        let len = CGFloat(d.length) * h
-                        let headY = CGFloat(prog) * (h + len) - len
-                        let headX = CGFloat(d.x) * w + CGFloat(sin(t * 0.2 + d.offset * 6)) * w * 0.01
-                        var streak = Path()
-                        streak.move(to: CGPoint(x: headX, y: headY))
-                        streak.addLine(to: CGPoint(x: headX - len * 0.26, y: headY - len))
-                        layer.stroke(streak,
-                                     with: .color(Color(red: 0.80, green: 0.78, blue: 0.95).opacity(d.alpha)),
-                                     style: StrokeStyle(lineWidth: CGFloat(d.width), lineCap: .round))
-                    }
-                }
+        ZStack {
+            CardLayer(rate: .slow, opaque: true) { ctx, size, t in
+                drawBase(ctx, size: size)
+                drawClouds(ctx, size: size, t: t)
+            }
+            CardLayer(rate: .fast) { ctx, size, t in
+                drawGlows(ctx, size: size, t: t)
+                drawBolts(ctx, size: size, t: t)
+            }
+            CardLayer(rate: .steady) { ctx, size, t in
+                drawRain(ctx, size: size, t: t)
             }
         }
-        .drawingGroup()   // composite the canvas on the GPU
+    }
+
+    // Storm base: bruised violet up top falling away to near-black.
+    private func drawBase(_ ctx: GraphicsContext, size: CGSize) {
+        ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .linearGradient(
+            Gradient(colors: [Color(red: 0.13, green: 0.11, blue: 0.22),
+                              Color(red: 0.08, green: 0.07, blue: 0.15),
+                              Color(red: 0.04, green: 0.03, blue: 0.08)]),
+            startPoint: .zero, endPoint: CGPoint(x: 0, y: size.height)))
+    }
+
+    // The cloud bank, drifting on slow sine paths. Blurred as one layer so the puffs
+    // melt together into vapour.
+    private func drawClouds(_ ctx: GraphicsContext, size: CGSize, t: Double) {
+        let w = size.width, h = size.height
+        let minDim = min(w, h)
+        ctx.drawLayer { layer in
+            layer.addFilter(.blur(radius: minDim * 0.22))
+            for p in puffs {
+                let dx = CGFloat(sin(t * p.speed + p.phase)) * w * 0.06
+                let dy = CGFloat(cos(t * p.speed * 0.7 + p.phase)) * h * 0.03
+                let d = minDim * p.size
+                let r = CGRect(x: p.x * w - d / 2 + dx,
+                               y: p.y * h - d / 2 + dy,
+                               width: d, height: d * 0.78)
+                layer.fill(Path(ellipseIn: r), with: .color(p.color.opacity(0.62)))
+            }
+        }
+    }
+
+    // In-cloud lightning: soft blooms over the vapour, on their own stuttering loops.
+    private func drawGlows(_ ctx: GraphicsContext, size: CGSize, t: Double) {
+        let w = size.width, h = size.height
+        let minDim = min(w, h)
+        ctx.drawLayer { layer in
+            layer.addFilter(.blur(radius: minDim * 0.14))
+            layer.blendMode = .plusLighter   // between the glows themselves, not vs. the cloud
+            for g in glows {
+                let local = ((t + g.offset) / g.period).truncatingRemainder(dividingBy: 1)
+                guard local < g.activeFraction else { continue }
+                let i = pulse(local / g.activeFraction, flicker: g.flicker, phase: g.phase)
+                guard i > 0.001 else { continue }
+                let amp = i * g.strength
+                let cx = g.x * w, cy = g.y * h
+                let rad = minDim * g.radius
+                layer.fill(
+                    Path(ellipseIn: CGRect(x: cx - rad, y: cy - rad * 0.82,
+                                           width: rad * 2, height: rad * 1.64)),
+                    with: .radialGradient(
+                        Gradient(colors: [Color(red: 0.88, green: 0.85, blue: 1.0).opacity(0.66 * amp),
+                                          Color(red: 0.56, green: 0.48, blue: 0.90).opacity(0.30 * amp),
+                                          .clear]),
+                        center: CGPoint(x: cx, y: cy), startRadius: 0, endRadius: rad))
+            }
+        }
+    }
+
+    // Distant bolts. Drawn twice: a wide blurred halo so the channel looks like it's
+    // glowing *through* cloud, then a thin core on top. Both stay dim — nothing here is
+    // meant to be close.
+    private func drawBolts(_ ctx: GraphicsContext, size: CGSize, t: Double) {
+        let w = size.width, h = size.height
+        let minDim = min(w, h)
+        for b in bolts {
+            let local = ((t + b.offset) / b.period).truncatingRemainder(dividingBy: 1)
+            guard local < b.activeFraction else { continue }
+            let i = pulse(local / b.activeFraction, flicker: b.flicker, phase: b.phase)
+            guard i > 0.001 else { continue }
+
+            var channel = Path()
+            channel.addLines(b.points.map { CGPoint(x: $0.x * w, y: $0.y * h) })
+            var forks = Path()
+            for f in b.branches {
+                forks.addLines(f.map { CGPoint(x: $0.x * w, y: $0.y * h) })
+            }
+
+            ctx.drawLayer { layer in
+                layer.addFilter(.blur(radius: minDim * 0.040))
+                layer.blendMode = .plusLighter   // forks add to the channel where they cross
+                layer.stroke(channel,
+                             with: .color(Color(red: 0.70, green: 0.63, blue: 0.98).opacity(0.78 * i)),
+                             style: StrokeStyle(lineWidth: b.width * 6.5, lineCap: .round, lineJoin: .round))
+                layer.stroke(forks,
+                             with: .color(Color(red: 0.70, green: 0.63, blue: 0.98).opacity(0.52 * i)),
+                             style: StrokeStyle(lineWidth: b.width * 4.0, lineCap: .round, lineJoin: .round))
+            }
+            ctx.drawLayer { layer in
+                layer.addFilter(.blur(radius: 0.7))
+                layer.blendMode = .plusLighter
+                layer.stroke(channel,
+                             with: .color(Color(red: 0.96, green: 0.95, blue: 1.0).opacity(0.95 * i)),
+                             style: StrokeStyle(lineWidth: b.width, lineCap: .round, lineJoin: .round))
+                layer.stroke(forks,
+                             with: .color(Color(red: 0.96, green: 0.95, blue: 1.0).opacity(0.68 * i)),
+                             style: StrokeStyle(lineWidth: b.width * 0.70, lineCap: .round, lineJoin: .round))
+            }
+        }
+    }
+
+    // Rain veil, falling on a loop and slanting slightly with the drift. Thinned at
+    // preview size — 90 hairlines is most of this card's cost and none of its read.
+    private func drawRain(_ ctx: GraphicsContext, size: CGSize, t: Double) {
+        let w = size.width, h = size.height
+        ctx.drawLayer { layer in
+            layer.addFilter(.blur(radius: 0.4))
+            for d in rain.thinned(detail.density(at: size)) {
+                let prog = (t * d.speed + d.offset).truncatingRemainder(dividingBy: 1)
+                let len = CGFloat(d.length) * h
+                let headY = CGFloat(prog) * (h + len) - len
+                let headX = CGFloat(d.x) * w + CGFloat(sin(t * 0.2 + d.offset * 6)) * w * 0.01
+                var streak = Path()
+                streak.move(to: CGPoint(x: headX, y: headY))
+                streak.addLine(to: CGPoint(x: headX - len * 0.26, y: headY - len))
+                layer.stroke(streak,
+                             with: .color(Color(red: 0.80, green: 0.78, blue: 0.95).opacity(d.alpha)),
+                             style: StrokeStyle(lineWidth: CGFloat(d.width), lineCap: .round))
+            }
+        }
     }
 
     // Claude  Date 08/24/2026
@@ -1970,12 +2198,6 @@ private struct ThunderstormBackground: View {
 // open water, still light shafts, a low hazy reef silhouette, and a few bubbles rising
 // slowly — the only motion. The still scene paints once; only the bubbles repaint.
 private struct CoralReefBackground: View {
-    // CLAUDE  Date 09/17/2026
-    // Reduce Motion freezes the bubbles at a fixed t — a clean still frame, not a
-    // disabled card. Nonzero so a few bubbles are caught mid-rise.
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    private static let stillT: Double = 8.0
-
     // Hand-placed: evenly random shafts read as an accident, not light through a surface.
     private let shafts: [Shaft] = [
         Shaft(x: 0.20, width: 0.12, length: 0.80, tilt:  0.12),
@@ -2025,25 +2247,14 @@ private struct CoralReefBackground: View {
     }()
 
     // CLAUDE  Date 09/17/2026
-    // Two canvases, each with its own drawingGroup, so the still scene (and its blurs)
-    // rasterizes once and each frame only strokes the bubbles. Capped at 30fps: bubbles
-    // this slow move ~1pt a frame, so 60/120Hz would repaint for no visible gain.
+    // Two layers, so the still scene (and its blurs) rasterises once and each frame only
+    // strokes the bubbles. Steady rate, not display rate: bubbles this slow move ~1pt a
+    // frame, so 60/120Hz would repaint for no visible gain. (Reduce Motion is handled
+    // for every card in AnimatedCardBackground now, not here.)
     var body: some View {
         ZStack {
-            Canvas { ctx, size in drawStill(ctx, size: size) }
-                .drawingGroup()
-            Group {
-                if reduceMotion {
-                    Canvas { ctx, size in drawBubbles(ctx, size: size, t: Self.stillT) }
-                } else {
-                    TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { tl in
-                        Canvas { ctx, size in
-                            drawBubbles(ctx, size: size, t: tl.date.timeIntervalSinceReferenceDate)
-                        }
-                    }
-                }
-            }
-            .drawingGroup()
+            CardLayer(rate: .still, opaque: true) { ctx, size, _ in drawStill(ctx, size: size) }
+            CardLayer(rate: .steady) { ctx, size, t in drawBubbles(ctx, size: size, t: t) }
         }
     }
 

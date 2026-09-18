@@ -117,11 +117,18 @@ struct AgilTabBar: View {
     // Defaulted so existing call sites and the preview compile unchanged.
     var badgeCounts: [Int: Int] = [:]
 
-    // Claude  Date 07/21/2026
+    // Claude  Date 07/21/2026 last changed: 09/17/2026 by: CLAUDE
     // Height of the item row — everything ABOVE the home-indicator inset, which
     // the bar's background fills separately. TourTarget.fallbackFrame reads this
     // so a synthesized tab spotlight lands on the real bar.
-    static let contentHeight: CGFloat = 54
+    // (09/17) 54 → 58, the 4pt going to `lineClearance` below, so the icons sit clear of
+    // the accent line instead of tucking up under it. The cells keep their own 54pt.
+    static let contentHeight: CGFloat = 58
+
+    // CLAUDE  Date 09/17/2026
+    // Room between the accent line on the top edge and the icons (Bryce, 9/17/26). Padding
+    // rather than a smaller row, so nothing about a cell is compressed to make space.
+    private static let lineClearance: CGFloat = 4
 
     var body: some View {
         HStack(spacing: 0) {
@@ -143,6 +150,7 @@ struct AgilTabBar: View {
             }
         }
         .frame(maxWidth: .infinity)
+        .padding(.top, Self.lineClearance)
         .frame(height: Self.contentHeight)
         // Claude  Date 07/21/2026
         // The solid slab. `.ignoresSafeArea(edges: .bottom)` on the fill (not on
@@ -153,10 +161,12 @@ struct AgilTabBar: View {
             theme.current.surface
                 .ignoresSafeArea(edges: .bottom)
         }
+        // CLAUDE  Date 09/17/2026
+        // The top edge is the app's accent outline (Bryce, 9/17/26), replacing the neutral
+        // 0.5pt hairline — the same line the pill and the mini bar are ringed with. Static:
+        // nothing here animates. See AccentRimLine.
         .overlay(alignment: .top) {
-            Rectangle()
-                .fill(Color.primary.opacity(0.10))
-                .frame(height: 0.5)
+            AccentRimLine(accent: theme.current.accent)
         }
     }
 
@@ -173,6 +183,10 @@ struct AgilTabBar: View {
             // tight to the glyph the way iOS draws tab badges. It's an overlay, so a
             // zero count (hidden) costs no layout and the row stays on one baseline.
             item.image
+                // CLAUDE  Date 09/17/2026
+                // Selected icons get the neon halo (Bryce, 9/17/26) — the same blurred-copy
+                // glow as the outlines, before the badge overlay so the count stays sharp.
+                .accentGlyphGlow(active: isSelected)
                 .overlay(alignment: .topTrailing) {
                     TabBadge(count: badgeCounts[item.tag] ?? 0)
                         .offset(x: 9, y: -5)

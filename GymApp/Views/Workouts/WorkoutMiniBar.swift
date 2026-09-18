@@ -3,9 +3,12 @@ import SwiftUI
 // Reviewed 6-26-26 Bryce Hart
 // The Spotify-style "now playing" bar for an in-progress workout. Floats above the
 // tab bar (placed by RootTabView) whenever there's an active workout. Tapping it
-// jumps back into the session (onOpen). While a rest timer runs it becomes a
-// progress bar sweeping left to right with the countdown; when the timer finishes it
-// briefly reads "Rest complete." Renders nothing when no workout is active.
+// jumps back into the session (onOpen). Renders nothing when no workout is active.
+//
+// CLAUDE  Date 09/17/2026
+// ONE bar, one state (Bryce, 9/17/26). It used to become a second, differently worded
+// bar while resting — "Resting 1:04 / Tap to view timer" — that opened the full-screen
+// timer. Now rest shows as the wash crossing this bar, plus the time left beside Skip.
 struct WorkoutMiniBar: View {
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var theme: ThemeManager
@@ -19,15 +22,16 @@ struct WorkoutMiniBar: View {
         if let active = store.activeWorkout, session.viewingWorkoutID != active.id {
             row(for: active)
                 .background(theme.current.surface)
-                // Thin accent progress bar across the bottom — width tracks the rest
-                // elapsed ÷ total. Overlaid before the clip so it follows the rounded
-                // corners. (A GeometryReader here is bounded to the row, not greedy.)
-                .overlay(alignment: .bottomLeading) { progressBar }
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(theme.current.accent.opacity(0.25), lineWidth: 1)
-                )
+                // CLAUDE  Date 09/17/2026
+                // Rest progress is a translucent accent wash crossing the whole bar now
+                // (Bryce, 9/17/26), not a 3pt line along the bottom. Overlaid before the
+                // clip so it follows the capsule's ends.
+                .overlay(alignment: .leading) { progressWash }
+                // CLAUDE  Date 09/17/2026
+                // Capsule + accent rim, so the bar matches the top pill and the keyboard
+                // bar rather than being the one 14pt rounded rectangle among them.
+                .clipShape(Capsule())
+                .overlay(AccentRim(shape: Capsule(), accent: theme.current.accent))
                 .shadow(color: .black.opacity(0.18), radius: 6, y: 2)
                 .padding(.horizontal, 10)
                 // Claude  Date 07/16/2026
@@ -36,98 +40,81 @@ struct WorkoutMiniBar: View {
                 // hardcoded 49pt tab-bar offset). Inside the `if` so a hidden bar
                 // contributes zero inset.
                 .padding(.bottom, 4)
-                // Claude  Date 07/11/2026
-                // Tap anywhere on the bar (except Skip): while resting, expand to the
-                // full-screen timer; otherwise reopen the workout as before.
-                .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .onTapGesture {
-                    if session.isResting || session.showRestComplete {
-                        session.showFullScreenTimer = true
-                    } else {
-                        onOpen()
-                    }
-                }
+                // Claude  Date 07/11/2026 last changed: 09/17/2026 by: CLAUDE
+                // Tap anywhere on the bar (except Skip) to reopen the workout — resting or
+                // not. The full-screen timer is still reachable from the rest row inside
+                // the workout itself (see RestTimer), just not from here.
+                .contentShape(Capsule())
+                .onTapGesture { onOpen() }
         }
     }
 
     private func row(for active: Workout) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: leadingIcon)
-                .font(.title3)
-                .foregroundStyle(theme.current.accent)
-                .frame(width: 24)
-
+        // CLAUDE  Date 09/17/2026 — the leading workout glyph is gone (Bryce, 9/17/26); the
+        // text starts the row now.
+        HStack(spacing: 10) {
+            // CLAUDE  Date 09/17/2026
+            // One line each, scaled down rather than wrapped or clipped: the theme face is
+            // monospaced, so at its widest ("Workout in progress" beside a countdown and
+            // Skip) the title wrapped to two lines and the subtitle lost its last word.
             VStack(alignment: .leading, spacing: 2) {
-                Text(title)
+                Text("Workout in progress")
                     .font(.subheadline).fontWeight(.semibold)
                     .foregroundStyle(.primary)
-                    .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
                 Text(subtitle(for: active))
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+                    .minimumScaleFactor(0.75)
             }
 
             Spacer()
 
-            // Claude  Date 07/11/2026
-            // Visual hint that the bar can be expanded to the full-screen timer while
-            // resting/just-finished (the tap-to-expand gesture is on the row itself,
-            // see .onTapGesture above — this icon has no gesture of its own).
+            // CLAUDE  Date 09/17/2026
+            // Resting is a trailing change only: the time left, then Skip. The chevron it
+            // replaces is just an affordance, and the row still opens the workout on tap.
             if session.isResting {
-                Image(systemName: "arrow.up.left.and.arrow.down.right")
-                    .font(.caption)
+                Text(RestDuration.label(session.restRemaining))
+                    .font(.caption).monospacedDigit()
                     .foregroundStyle(.secondary)
                 Button("Skip") { session.skipRest() }
                     .buttonStyle(.bordered)
+                    .controlSize(.small)   // 09/17: gives the title back the width it needs
                     .tint(theme.current.accent)
-            } else if session.showRestComplete {
-                Image(systemName: "arrow.up.left.and.arrow.down.right")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
             } else {
                 Image(systemName: "chevron.up")
                     .foregroundStyle(.secondary)
             }
         }
-        .padding(.horizontal, 14)
+        // CLAUDE  Date 09/17/2026 — 14 → 20 horizontally: a capsule's ends curve away, so
+        // the icon and the Skip button need the extra room to clear them.
+        .padding(.horizontal, 20)
         .padding(.vertical, 10)
     }
 
-    // Claude  Date 06/16/2026
-    // Thin theme-accent bar that grows left→right with the rest progress (elapsed ÷
-    // total), like a track scrubber. Shows full while the brief "Rest complete"
-    // message is up, then disappears with the bar. GeometryReader is bounded by the
-    // overlay (the row's frame), so it isn't greedy.
+    // Claude  Date 06/16/2026 last changed: 09/17/2026 by: CLAUDE
+    // The rest countdown, as a faint accent fill crossing the bar left→right (elapsed ÷
+    // total). Full while the brief "Rest complete" message is up, then gone with the bar.
+    // Transparent enough to read the row straight through it. GeometryReader is bounded by
+    // the overlay (the row's frame), so it isn't greedy.
     @ViewBuilder
-    private var progressBar: some View {
+    private var progressWash: some View {
         if session.isResting || session.showRestComplete {
             GeometryReader { geo in
                 Rectangle()
-                    .fill(theme.current.accent)
-                    .frame(width: geo.size.width * (session.showRestComplete ? 1 : session.restProgress),
-                           height: 3)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                    .fill(theme.current.accent.opacity(0.18))
+                    .frame(width: geo.size.width * (session.showRestComplete ? 1 : session.restProgress))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             }
             .animation(.linear(duration: 0.3), value: session.restProgress)
         }
     }
 
-    private var leadingIcon: String {
-        if session.isResting { return "timer" }
-        if session.showRestComplete { return "checkmark.circle.fill" }
-        return "figure.strengthtraining.traditional"
-    }
-
-    private var title: String {
-        if session.isResting { return "Resting \(RestDuration.label(session.restRemaining))" }
-        if session.showRestComplete { return "Rest complete" }
-        return "Workout in progress"
-    }
-
+    // CLAUDE  Date 09/17/2026 — the same line whether you're resting or lifting; the wash
+    // and the countdown beside Skip are what change.
     private func subtitle(for active: Workout) -> String {
-        if session.isResting { return "Tap to view timer" }
-        if session.showRestComplete { return "Back to it — tap to view" }
         let exercises = active.exercises.count
         let done = active.completedSets
         let exPart = "\(exercises) exercise\(exercises == 1 ? "" : "s")"
