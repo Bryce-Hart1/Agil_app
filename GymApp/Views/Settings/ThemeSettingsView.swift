@@ -26,7 +26,7 @@ struct ThemeSettingsView: View {
                 Text("Your Themes")
             } footer: {
                 // CLAUDE  Date 09/03/2026 — say that the icon comes with the theme.
-                Text("Each theme brings its own app icon. Unlock more themes in the Shop (Profile → Shop).")
+                Text("Each theme comes with its own app icon. Find more in the Shop.")
             }
         }
         .navigationTitle("Theme")

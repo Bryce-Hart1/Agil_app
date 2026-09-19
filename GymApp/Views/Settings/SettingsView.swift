@@ -34,11 +34,6 @@ struct SettingsView: View {
     // first — the tour spotlights root-level chrome (ModeNotch, tab bar) that a
     // pushed screen covers.
     @Environment(\.dismiss) private var dismiss
-    // Claude  Date 08/13/2026
-    // Drives the "Ask screens (debug)" section — the review and notification asks
-    // have no trigger of their own yet, so this is the only way to look at them.
-    @State private var showReviewAsk = false
-    @State private var showNotificationAsk = false
     // Claude  Date 09/06/2026
     // Gates the "are you sure" alert before Friends → Ghost, which schedules a
     // permanent server-side wipe of the shared card + friends graph.
@@ -61,12 +56,11 @@ struct SettingsView: View {
 
     var body: some View {
         List {
-            // Claude  Date 06/09/2026 last changed: 07/22/2026 by: Claude
-            // (07/22) The display name is no longer freely editable from the profile
-            // card — renaming carries backend/identity weight, so it's a deliberate
-            // action here: a "Change Name" screen with an explicit Save (the commit
-            // point where the backend rename request will be wired in).
-            Section("Profile") {
+            // Claude  Date 06/09/2026 last changed: 09/19/2026 by: Claude
+            // Profile: name (a deliberate rename screen, since it carries backend weight)
+            // and identity. Identity is on-device only and just calibrates strength-badge
+            // thresholds; changing it quietly re-checks achievements (see identityBinding).
+            Section {
                 NavigationLink {
                     ChangeNameView()
                 } label: {
@@ -79,29 +73,26 @@ struct SettingsView: View {
                             .truncationMode(.tail)
                     }
                 }
-            }
-            // Claude  Date 07/14/2026
-            // Identity (from onboarding, editable here). On-device only; its sole
-            // purpose is calibrating strength-badge thresholds. Changing it silently
-            // re-evaluates achievements — see identityBinding. The footer restates
-            // the privacy contract and the sticky-badge guarantee.
-            Section {
                 Picker("Identify as", selection: identityBinding) {
                     Text("Male").tag(Gender.male)
                     Text("Female").tag(Gender.female)
                     Text("Prefer not to say").tag(Gender.unspecified)
                 }
                 // Claude  Date 07/16/2026
-                // retintOnThemeChange (here + the Units picker below): Settings sits
-                // directly beneath the Theme screen on the Profile stack, so its menu
-                // pickers are always alive during a theme swap and kept the old accent
-                // baked into their value labels. Rebuilding re-reads the new tint.
+                // retintOnThemeChange (on every menu picker here): Settings stays alive
+                // under the Theme screen, so its pickers would keep the old accent after
+                // a theme swap. Rebuilding them re-reads the new tint.
                 .retintOnThemeChange(theme.current, salt: "identity")
             } header: {
-                Text("Identity")
+                Text("Profile")
             } footer: {
-                Text("Stays on this device — never shared or uploaded. Used only to calibrate strength-badge thresholds. Badges you've already earned always stay earned.")
+                Text("Identity only helps set fair badge goals. It never leaves your phone.")
             }
+
+            // Claude  Date 09/18/2026 last changed: 09/19/2026 by: Claude
+            // Everything visual in one place: theme, the system-font override (see
+            // ThemeManager.fontDesign) and the rest timer's face (same key
+            // RestTimerFullScreenView reads).
             Section {
                 NavigationLink {
                     ThemeSettingsView()
@@ -112,34 +103,21 @@ struct SettingsView: View {
                         Text(theme.current.name).foregroundStyle(.secondary)
                     }
                 }
-                // Claude  Date 09/18/2026
-                // Accessibility override: every screen, the nav bars and the widget drop the
-                // theme's typeface for Apple's default (see ThemeManager.fontDesign). Colors,
-                // sizes and wording are untouched; flips live, no relaunch.
                 Toggle(isOn: $theme.usesSystemFont) {
                     Label("Use system font", systemImage: "textformat")
+                }
+                Toggle(isOn: $restTimerAnalogStyle) {
+                    Label("Analog rest timer", systemImage: "stopwatch")
                 }
             } header: {
                 Text("Appearance")
             } footer: {
-                Text("Shows all text in Apple's standard font instead of your theme's typeface.")
-            }
-            // Fable  Date 07/13/2026
-            // Opt-in analog stopwatch face for the full-screen rest timer; lives right
-            // under Appearance since it's a purely visual preference.
-            Section {
-                Toggle("Analog stopwatch", isOn: $restTimerAnalogStyle)
-            } header: {
-                Text("Rest timer")
-            } footer: {
-                Text("Shows the full-screen rest timer as an analog stopwatch face instead of the progress ring.")
+                Text("System font swaps your theme's font for Apple's standard one.")
             }
 
-            // Claude  Date 06/18/2026 last changed: 09/06/2026 by: Claude
-            // Friends: the non-destructive half of the old Ghost Mode section — your
-            // shareable code and the friends manager. The switch itself moved to the
-            // Danger section at the bottom (09/06), because flipping it schedules a
-            // permanent server-side wipe and doesn't belong next to a copy button.
+            // Claude  Date 06/18/2026 last changed: 09/19/2026 by: Claude
+            // Friends: your shareable code and the friends manager. The Ghost Mode switch
+            // lives in Danger, since flipping it schedules a server-side wipe.
             Section {
                 if store.profile.dataMode == .friends, let code = cardSync.myFriendCode {
                     HStack(spacing: 12) {
@@ -173,34 +151,19 @@ struct SettingsView: View {
                 Text("Friends")
             } footer: {
                 Text(store.profile.dataMode == .friends
-                     ? "Friends shares only your profile card: display name, card style, equipped rank, and featured badges. Your workouts, nutrition, water, and everything else never leave this device. The Ghost Mode switch is in Danger, at the bottom of this screen."
-                     : "Ghost Mode is on, so nothing is shared and you can't add friends. The switch to turn it off is in Danger, at the bottom of this screen.")
+                     ? "Friends only see your profile card. Your workouts and meals stay on your phone."
+                     : "Ghost Mode is on, so sharing is off. You can change that under Danger.")
             }
 
-            // Claude  Date 06/18/2026 last changed: 07/23/2026 by: Claude
-            // Local-only food lookups: gate Open Food Facts lookups (search + barcode)
-            // behind an explicit opt-in, so the app stays local-first. (Relabeled from
-            // "Offline mode" so it doesn't collide with the Ghost Mode privacy feature —
-            // storage key `offlineFoodMode` is unchanged.)
+            // Claude  Date 07/16/2026 last changed: 09/19/2026 by: Claude
+            // Food and water. Local lookups gate Open Food Facts (search + barcode) behind
+            // an opt-in (key `offlineFoodMode`). Water is opt-out and stored in ml, so the
+            // units picker is display only; it hides along with the tracker.
             Section {
                 Toggle("Local food lookups only", isOn: $offlineFoodMode)
-            } header: {
-                Text("Food lookups")
-            } footer: {
-                Text("When on, food search and barcode scans only use foods saved on this device. If something isn't found, you'll be asked to enter it yourself or search online just for that lookup.")
-            }
-
-            // Claude  Date 07/16/2026
-            // Water display unit: ml or US fl oz, applied wherever water amounts show
-            // (diary tracker, water goal). Logged history is canonical ml, so this is
-            // safe to flip back and forth.
-            Section {
-                // Claude  Date 08/07/2026 — water tracking is opt-out: not everyone who
-                // logs food wants a hydration tracker sitting in their journal. The units
-                // picker is moot when the tracker is hidden, so it goes with it.
                 Toggle("Track water", isOn: $trackWater)
                 if trackWater {
-                    Picker("Units", selection: $waterUnitRaw) {
+                    Picker("Water units", selection: $waterUnitRaw) {
                         ForEach(WaterUnit.allCases) { unit in
                             Text(unit.label).tag(unit.rawValue)
                         }
@@ -208,17 +171,15 @@ struct SettingsView: View {
                     .retintOnThemeChange(theme.current, salt: "waterUnits")
                 }
             } header: {
-                Text("Water")
+                Text("Nutrition")
             } footer: {
-                Text(trackWater
-                     ? "Used wherever water amounts appear — the diary tracker and your daily goal. Logged water is stored in milliliters, so switching units never changes your history."
-                     : "The water tracker is hidden from your journal. Anything you've already logged is kept, and turning this back on brings it right back.")
+                Text("Local lookups only search foods saved on your phone.")
             }
 
-            // Claude  Date 09/07/2026
-            // Cardio: the bodyweight the MET calorie estimate needs, and the display unit
-            // for distance. Both are display/estimate inputs only — logged bouts are stored
-            // as seconds and canonical meters, so flipping the unit never rewrites history.
+            // Claude  Date 09/07/2026 last changed: 09/19/2026 by: Claude
+            // Cardio: bodyweight for the MET calorie estimate (optional, on-device) and
+            // the distance display unit. Bouts are stored in seconds and meters, so
+            // flipping the unit never rewrites history.
             Section {
                 HStack {
                     Text("Bodyweight")
@@ -238,13 +199,12 @@ struct SettingsView: View {
             } header: {
                 Text("Cardio")
             } footer: {
-                Text("Your weight is only used to estimate calories burned on cardio machines. It stays on this device — it is never synced, shared, or sent with your profile card. Leave it blank and cardio still tracks time and distance; you just won't see a calorie estimate.")
+                Text("Your weight is only used to estimate calories burned. It stays on your phone.")
             }
 
-            // Claude  Date 07/14/2026
-            // Replay the first-boot spotlight tour. Pops Settings first (see the
-            // dismiss note above); the short delay lets the pop animation land before
-            // the overlay appears and starts driving tabs/modes itself.
+            // Claude  Date 07/14/2026 last changed: 09/19/2026 by: Claude
+            // Help + About together. Replay pops Settings first (the tour spotlights root
+            // chrome a pushed screen covers); the delay lets the pop land before it starts.
             Section {
                 Button {
                     dismiss()
@@ -254,180 +214,35 @@ struct SettingsView: View {
                 } label: {
                     Label("Replay app tour", systemImage: "sparkles.rectangle.stack")
                 }
-                // Claude  Date 08/23/2026
-                // The written walkthroughs (also a row on the Profile hub). Listed
-                // here too because Settings' Help section is where people look by
-                // habit — and it's the natural companion to the tour above: the tour
-                // walks you around once, these you read whenever you're stuck.
                 NavigationLink {
                     HelpGuidesView()
                 } label: {
                     Label("Help & Demos", systemImage: "questionmark.circle")
                 }
-            } header: {
-                Text("Help")
-            } footer: {
-                Text("Replays the guided tour of the app's main screens, or read step-by-step guides.")
-            }
-
-            Section("About") {
-                LabeledContent("App", value: "Agil")
-                LabeledContent("Tagline", value: "Your Bench & Marking App")
                 LabeledContent("Version", value: "0.1.0")
-            }
-            Section("Stored data") {
-                LabeledContent("Exercises", value: "\(store.exercises.count)")
-                LabeledContent("Workouts", value: "\(store.workouts.count)")
-                LabeledContent("Presets", value: "\(store.presets.count)")
-            }
-            // Claude  Date 06/13/2026 last changed: 08/24/2026 by: Claude
-            // Beta-only helpers for trying the achievement-unlock celebration, plus the
-            // full shop catalogue. Renamed alpha → beta on 8/24/26 (Bryce).
-            Section {
-                NavigationLink {
-                    BadgeGalleryView()
-                } label: {
-                    Label("Badge gallery", systemImage: "square.grid.3x3.fill")
-                }
-                // Claude  Date 07/25/2026
-                // Per-achievement forcing, for when "unlock everything" is too blunt —
-                // e.g. checking one new badge's art and scoring in isolation.
-                NavigationLink {
-                    AchievementForceView()
-                } label: {
-                    Label("Force achievements", systemImage: "switch.2")
-                }
-                Button("Unlock all achievements") {
-                    store.unlockAllAchievements()
-                }
-                // Claude  Date 07/24/2026
-                // Was "Replay achievement unlocks", which queued a wall of overlays.
-                // Now that unlocks wait in the Achievement Book, the useful test
-                // action is to make every earned badge NEW again — that refills the
-                // book with sealed slots and lights the Profile tab count.
-                Button("Mark all achievements unopened") {
-                    store.markAllUnopened()
-                }
-                Button("Reset achievements", role: .destructive) {
-                    store.resetAchievements()
-                }
-                // Claude  Date 07/12/2026
-                // Previews the future IAP "Founders Edition" purchase moment: grants the
-                // founders cards (idempotent — they're auto-granted on launch too) and
-                // plays the unlock celebration. Replayable any time.
-                Button("Unlock Founders cards") {
-                    theme.grantFoundersCards()
-                    store.celebrateFoundersUnlock()
-                }
-                // Claude  Date 08/24/2026
-                // Was the Shop's "Browse all items" drawer (Bryce, 8/24/26). Players now
-                // only ever see the rotation; this is the way to reach a specific item
-                // without waiting for it to be featured.
-                NavigationLink {
-                    ShopCatalogView()
-                } label: {
-                    Label("Browse all shop items", systemImage: "bag")
-                }
             } header: {
-                Text("Developer (beta)")
+                Text("Help & About")
             } footer: {
-                Text("Gallery previews every badge + rank (tap to play its celebration). Force achievements toggles any badge on or off individually, bypassing your real progress. Unlock all fills in every badge so the card and book populate. Mark all unopened resets which badges you've watched, so they queue up as new in the Achievement Book; Reset wipes progress and re-earns it from your history. Unlock Founders cards plays the founders unlock celebration (a preview of the future in-app purchase). Browse all shop items lists every purchasable theme and card — the Shop itself now shows only the daily and weekly rotation.")
+                Text("Agil: Your Bench & Marking App")
             }
-
-            // Claude  Date 06/16/2026 last changed: 08/24/2026 by: Claude
-            // Beta dev-only coin grants, so the wallet can be topped up to test the
-            // shop + animated card purchases without grinding workouts.
-            //
-            // 08/03: now #if DEBUG. Coins are sold for real money as of this build, so
-            // a free "Add 2,000 coins" button in a shipped app is both a giveaway of
-            // the thing being sold and something App Review would reasonably object to.
-            #if DEBUG
-            Section {
-                LabeledContent("Coins") {
-                    Text("\(theme.balance)")
-                        .monospacedDigit()
-                        .foregroundStyle(theme.current.accent)
-                }
-                Button("Add 500 coins") { store.grantDevCoins(500) }
-                Button("Add 2,000 coins") { store.grantDevCoins(2_000) }
-                // Clears the wallet too — the earned high-water mark means dropping
-                // the dev grant alone would no longer bring the balance back down.
-                Button("Reset dev coins", role: .destructive) {
-                    store.resetDevCoins()
-                    theme.debugResetWallet()
-                }
-                // Claude  Date 08/23/2026
-                // The daily check-in pays once per calendar day, so without this the
-                // only way to see the reward toast a second time is to wait until
-                // tomorrow. Resetting the log replays it on the next foreground.
-                LabeledContent("Check-ins this week") {
-                    Text("\(store.checkInWeek.claimed) / \(store.checkInWeek.cap)")
-                        .monospacedDigit()
-                        .foregroundStyle(theme.current.accent)
-                }
-                Button("Reset daily check-ins", role: .destructive) {
-                    store.debugResetCheckIns()
-                }
-            } header: {
-                Text("Developer coins (beta)")
-            } footer: {
-                Text("Adds free coins to the spendable balance for testing the Shop and animated profile cards. Reset clears only the dev grant, coins earned from workouts and achievements are untouched. Reset daily check-ins wipes the record of which days you opened the app, so the +\(DailyCheckIn.coinsPerDay) bonus and its toast replay on the next foreground; it does not lower the balance, since the wallet's earned total is a high-water mark. Debug builds only.")
-            }
-            #endif
-
-            #if DEBUG
-            // Claude  Date 07/09/2026
-            // Live playground for the rank ring + promotion animations (see RankRingLabView).
-            Section {
-                NavigationLink { RankRingLabView() } label: {
-                    Label("Rank ring lab", systemImage: "circle.hexagongrid.fill")
-                }
-            } header: {
-                Text("Rank ring (debug)")
-            } footer: {
-                Text("Scrub every rank, size, and the segment-reveal sweep live, and fire the real promotion overlay for any rank.")
-            }
-
-            // Claude  Date 06/17/2026
-            // Temporary verification for the barcode cache (no scanner UI yet).
-            // Resolves a known barcode twice through CachedFoodService and prints the
-            // paths to the Xcode console. Remove once the real scanner exercises it.
-            Section {
-                LabeledContent("Cached barcodes", value: "\(store.barcodeCache.entries.count)")
-                Button("Test barcode cache") { runBarcodeCacheTest() }
-            } header: {
-                Text("Barcode cache (debug)")
-            } footer: {
-                Text("Resolves Nutella (3017620422003) twice: 1st hits Open Food Facts and caches it, 2nd returns from cache. Watch the Xcode console; also runs the LRU cap check.")
-            }
-            // Claude  Date 08/13/2026
-            // Preview the two full-screen ask pages (ReviewRequestView,
-            // NotificationRequestView). Neither has a real trigger yet — this is the
-            // only way to look at them, and it's how the copy gets iterated on.
-            //
-            // #if DEBUG on purpose: a button that fires the App Store review prompt
-            // on demand is exactly the kind of thing App Review objects to, and both
-            // buttons here have real side effects (see the footer).
-            Section {
-                Button("Show review ask") { showReviewAsk = true }
-                Button("Show notification ask") { showNotificationAsk = true }
-            } header: {
-                Text("Ask screens (debug)")
-            } footer: {
-                Text("Previews the two full-screen ask pages. These fire the real actions: \"Leave a review\" calls Apple's review prompt (which is rate-limited and usually shows nothing), and \"Turn on notifications\" triggers the iOS permission dialog — which iOS only ever shows once per install, so after the first time the notification page will show its already-granted or denied state instead.")
-            }
-            #endif
 
             dangerSection
+
+            // Claude  Date 09/19/2026
+            // Every beta/debug tool lives one level down in DevToolsView, last on the
+            // list, so the main screen stays about settings.
+            Section {
+                NavigationLink {
+                    DevToolsView()
+                } label: {
+                    Label("Dev", systemImage: "hammer")
+                }
+            } footer: {
+                Text("Beta testing tools.")
+            }
         }
         .navigationTitle("Settings")
         .themed(theme.current)
-        // Claude  Date 08/13/2026
-        // Attached unconditionally (not inside #if DEBUG) — the modifiers are cheap
-        // no-ops while their bindings are false, and keeping them out of the
-        // conditional means the release build still compiles the ask pages.
-        .reviewAsk(isPresented: $showReviewAsk)
-        .notificationAsk(isPresented: $showNotificationAsk)
         // Claude  Date 09/06/2026
         // Confirm before Friends → Ghost. The switch doesn't flip until "Turn on
         // Ghost Mode" is tapped (see ghostModeBinding); the actual server wipe is
@@ -482,11 +297,10 @@ struct SettingsView: View {
         }
     }
 
-    // Claude  Date 09/06/2026
-    // The Danger zone, pinned to the very bottom of Settings: the two controls that
-    // destroy data the user can't get back. Tinted with a fixed red (see `danger`)
-    // and given a red leading edge on every row so it reads as a hazard band in any
-    // theme, over the theme's own surface colour rather than instead of it.
+    // Claude  Date 09/06/2026 last changed: 09/19/2026 by: Claude
+    // The Danger zone: the two controls that destroy data the user can't get back.
+    // Last of the real settings (only the Dev link sits below). Fixed red tint and a
+    // red leading edge so it reads as a hazard band in any theme.
     private var dangerSection: some View {
         Section {
             Toggle("Ghost Mode", isOn: ghostModeBinding)
@@ -495,10 +309,10 @@ struct SettingsView: View {
             // Spell out the deadline and how to reverse it.
             if let due = cardSync.pendingCardDeletionDate {
                 VStack(alignment: .leading, spacing: 4) {
-                    Label("Server data deletion scheduled", systemImage: "clock.badge.exclamationmark")
+                    Label("Deletion scheduled", systemImage: "clock.badge.exclamationmark")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(Self.danger)
-                    Text("Your shared card, friend code, and friends list will be permanently deleted on \(due.formatted(date: .abbreviated, time: .shortened)). Turn Ghost Mode off before then to cancel and keep everything.")
+                    Text("Your shared card and friends list will be deleted on \(due.formatted(date: .abbreviated, time: .shortened)). Turn Ghost Mode off before then to keep them.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -521,7 +335,7 @@ struct SettingsView: View {
             Text("Danger")
                 .foregroundStyle(Self.danger)
         } footer: {
-            Text("Ghost Mode keeps everything on this device — no friends, no sharing. Turning it on deletes your shared card and friends list from the server, with 24 hours to undo it.\n\nDelete Account erases everything, everywhere, straight away: your account on the server, every workout, meal and badge on this device, and every coin — including coins you paid for. It cannot be undone.")
+            Text("Ghost Mode turns off sharing and removes your card from our server. You have 24 hours to undo it.\n\nDelete Account erases everything, including coins you bought. This can't be undone.")
         }
         // Fixed red regardless of the equipped theme: tints the switch and the
         // ProgressView, and paints the hazard band over the theme's surface.
@@ -610,25 +424,6 @@ struct SettingsView: View {
             }
         )
     }
-
-    #if DEBUG
-    // Claude  Date 06/17/2026
-    // Drives the "Barcode cache (debug)" section: a cold lookup should hit the
-    // network and grow the cache by one; the second should resolve from cache.
-    private func runBarcodeCacheTest() {
-        let service = CachedFoodService(base: BackendFoodClient(), store: store)
-        let barcode = "3017620422003" // Nutella — well-populated on Open Food Facts.
-        print("🔖 [barcode cache] \(BarcodeCache.debugRunLRUCheck())")
-        Task { @MainActor in
-            let before = store.barcodeCache.entries.count
-            let wasCached = store.barcodeCache.contains(barcode)
-            let first = try? await service.lookup(barcode: barcode)
-            print("🔖 [barcode cache] 1st lookup (\(wasCached ? "already cached" : "cold → network")): \(first?.name ?? "nil") · entries \(before)→\(store.barcodeCache.entries.count)")
-            let second = try? await service.lookup(barcode: barcode)
-            print("🔖 [barcode cache] 2nd lookup (from cache): \(second?.name ?? "nil") · entries \(store.barcodeCache.entries.count)")
-        }
-    }
-    #endif
 }
 
 // Claude  Date 07/22/2026

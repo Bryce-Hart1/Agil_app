@@ -55,7 +55,7 @@ struct ThemeEditorView: View {
                     // The Font pick is still saved and previewed below, but the live app
                     // ignores it while "Use system font" is on — say so, or it looks broken.
                     if themeManager.usesSystemFont {
-                        Text("\"Use system font\" is on in Settings, so the app shows Apple's standard font instead of this one.")
+                        Text("System font is on in Settings, so the app won't use this font.")
                     }
                 }
                 Section("Preview") {
