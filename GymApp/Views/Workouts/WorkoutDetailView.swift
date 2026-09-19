@@ -86,6 +86,9 @@ private struct WorkoutEditor: View {
     @State private var showingMissedSetsAlert = false
     @State private var flaggedSetIDs: Set<UUID> = []
     @State private var missedSetScrollTarget: UUID?
+    // CLAUDE  Date 09/18/2026
+    // The last removed exercise, still restorable for ~10s via the undo popup (nil = none).
+    @State private var pendingUndo: PendingUndo?
 
     // Claude  Date 09/16/2026
     // Every set not yet checked off, in on-screen order (exercise, then set), so `.last` is
@@ -281,6 +284,8 @@ private struct WorkoutEditor: View {
                 // field) so it holds whether a number field commits per keystroke or on blur.
                 .onChange(of: focusedField) { _ in session.unilateralFills.settle() }
         }
+        // CLAUDE  Date 09/18/2026 — the "Removed X · Undo" popup after removing an exercise.
+        .undoToast($pendingUndo, accent: theme.current.accent, surface: theme.current.surface)
         // Claude  Date 09/16/2026
         // Raised by Complete Workout when sets are unchecked. Go Back is the cancel role, so
         // it's the bold, default choice; Finish Anyway credits only what's checked off.
@@ -326,13 +331,7 @@ private struct WorkoutEditor: View {
                         logged.noteIsCarriedForward = nil
                         logged.adaptive = nil
                     } onRemove: {
-                        // Claude  Date 08/07/2026 — animated so the section visibly
-                        // collapses out. Removing a lift mid-workout used to happen
-                        // instantly, which left you unsure whether the tap registered or
-                        // which entry actually went.
-                        withAnimation(.easeInOut(duration: 0.25)) {
-                            workout.exercises.removeAll { $0.id == logged.id }
-                        }
+                        removeExercise(logged.id)
                     }
                 } header: {
                     // Claude  Date 09/01/2026
@@ -648,6 +647,23 @@ private struct WorkoutEditor: View {
         hideKeyboard()
     }
 
+    // CLAUDE  Date 09/18/2026
+    // Remove a lift (running or history workout) and offer ~10s to take it back. Undo puts
+    // the same entry — sets, notes, ids — back in its old slot. Animated so the section
+    // visibly collapses; an instant removal left you unsure which entry went (08/07).
+    private func removeExercise(_ id: UUID) {
+        guard let index = workout.exercises.firstIndex(where: { $0.id == id }) else { return }
+        let removed = workout.exercises[index]
+        let name = store.exercise(for: removed.exerciseId)?.displayLabel ?? "exercise"
+        withAnimation(.easeInOut(duration: 0.25)) {
+            workout.exercises.remove(at: index)
+            pendingUndo = PendingUndo(message: "Removed \(name)") {
+                guard !workout.exercises.contains(where: { $0.id == removed.id }) else { return }
+                workout.exercises.insert(removed, at: min(index, workout.exercises.count))
+            }
+        }
+    }
+
     // MARK: - Missed sets
 
     // Claude  Date 09/16/2026
@@ -841,10 +857,14 @@ private struct ExerciseLogSection: View {
     // Drag-reorder sheet for this exercise's sets, opened from a set's long-press menu.
     @State private var showingReorderSets = false
 
-    // Claude  Date 09/01/2026
-    // App-wide, one-time: the swipe replaced a visible checkmark button, so the gesture
-    // has to be taught once. Cleared the first time any set is checked off.
-    @AppStorage("hasSeenSetSwipeHint") private var hasSeenSetSwipeHint = false
+    // Claude  Date 09/01/2026 last changed: 09/18/2026 by: CLAUDE
+    // App-wide, one flag per set gesture: each tip drops off once that gesture is used, and ✕
+    // hides them all. The finish flag keeps its original key, so anyone who already swiped
+    // a set done is only shown delete/reorder — the two that were never taught.
+    @AppStorage("hasSeenSetSwipeHint") private var usedSwipeToFinish = false
+    @AppStorage("hasUsedSetSwipeDelete") private var usedSwipeToDelete = false
+    @AppStorage("hasUsedSetHoldReorder") private var usedHoldToReorder = false
+    @AppStorage("setGestureTipsDismissed") private var setTipsDismissed = false
 
     var body: some View {
         // Claude  Date 09/07/2026 — a bout has no reps, so no range to aim at.
@@ -912,6 +932,8 @@ private struct ExerciseLogSection: View {
                     .swipeActions(edge: .leading, allowsFullSwipe: true) {
                         completeSwipeButton(for: [set.id])
                     }
+                    // CLAUDE  Date 09/18/2026 — long-press fallback for the swipe.
+                    .contextMenu { markDoneMenuButton(for: [set.id]) }
                     // Claude  Date 09/16/2026 — scroll anchor for the missed-set alert's Go Back.
                     .id(set.id)
             }
@@ -933,16 +955,22 @@ private struct ExerciseLogSection: View {
                     // edges are declared here; a unilateral pair is one row, so it goes whole.
                     .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                         Button(role: .destructive) {
+                            usedSwipeToDelete = true
                             deleteSets(group.setIDs)
                         } label: {
                             Label("Delete", systemImage: "trash")
                         }
                     }
-                    // Claude  Date 09/01/2026
+                    // Claude  Date 09/01/2026 last changed: 09/18/2026 by: CLAUDE
                     // Long-press to reorder: deliberate enough that it can't fire by accident,
                     // and it avoids edit mode, which would disable the reps/weight fields.
-                    // Moves act on LOGICAL sets, so a unilateral L/R pair travels as one.
+                    // (09/18) Also spells out Mark Done and Delete Set for anyone who holds
+                    // a row instead of swiping it. Moves carry a unilateral pair as one.
                     .contextMenu {
+                        markDoneMenuButton(for: group.setIDs)
+
+                        Divider()
+
                         Button {
                             moveGroup(group.id, by: -1)
                         } label: {
@@ -960,32 +988,44 @@ private struct ExerciseLogSection: View {
                         Divider()
 
                         Button {
+                            usedHoldToReorder = true
                             showingReorderSets = true
                         } label: {
                             Label("Reorder Sets…", systemImage: "arrow.up.arrow.down")
                         }
                         .disabled(rowGroups.count < 2)
+
+                        Divider()
+
+                        Button(role: .destructive) {
+                            deleteSets(group.setIDs)
+                        } label: {
+                            Label("Delete Set", systemImage: "trash")
+                        }
                     }
                     .id(group.id)
             }
         }
 
-        // Claude  Date 09/01/2026
-        // One-time teaching row for the gestures that replaced the check button. Shown
-        // only on the first exercise, and only until the first set is checked off.
-        if isFirst && !hasSeenSetSwipeHint && !logged.sets.isEmpty {
-            Label(isCardio ? "Swipe right to mark it done."
-                           : "Swipe a set right to finish it. Long-press to reorder.",
-                  systemImage: "hand.draw")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+        // Claude  Date 09/01/2026 last changed: 09/18/2026 by: CLAUDE
+        // The set-gesture tips, on the first exercise only. (09/18) Lists just the gestures not
+        // yet used, so it shrinks as they're learned and is gone once all are; ✕ hides it early.
+        if isFirst && !setTipsDismissed && !logged.sets.isEmpty
+            && (tipFinish || tipDelete || tipReorder) {
+            SetGestureTips(showFinish: tipFinish, showDelete: tipDelete, showReorder: tipReorder,
+                           accent: accent) {
+                withAnimation(.easeInOut(duration: 0.25)) { setTipsDismissed = true }
+            }
         }
 
         if !isCardio {
+            // CLAUDE  Date 09/18/2026 — filled + semibold while the lift has no sets, so the
+            // first step on an empty exercise stands out; plain again once there's a set.
             Button {
                 addSet()
             } label: {
-                Label("Add Set", systemImage: "plus.circle")
+                Label("Add Set", systemImage: logged.sets.isEmpty ? "plus.circle.fill" : "plus.circle")
+                    .fontWeight(logged.sets.isEmpty ? .semibold : .regular)
             }
             // Claude  Date 09/01/2026
             // Hung here rather than on a set row so it survives that row being reordered out
@@ -1127,6 +1167,7 @@ private struct ExerciseLogSection: View {
     private func completeSwipeButton(for ids: [UUID]) -> some View {
         let done = isCompleted(ids)
         return Button {
+            usedSwipeToFinish = true
             toggleComplete(ids)
         } label: {
             Label(done ? "Undo" : "Done",
@@ -1134,6 +1175,26 @@ private struct ExerciseLogSection: View {
         }
         .tint(done ? .gray : accent)
     }
+
+    // CLAUDE  Date 09/18/2026
+    // The long-press menu's spelled-out version of the finish swipe. Deliberately leaves the
+    // swipe tip up: using the menu means the swipe itself still hasn't been learned.
+    private func markDoneMenuButton(for ids: [UUID]) -> some View {
+        let done = isCompleted(ids)
+        return Button {
+            toggleComplete(ids)
+        } label: {
+            Label(done ? "Mark Not Done" : "Mark Done",
+                  systemImage: done ? "arrow.uturn.backward" : "checkmark")
+        }
+    }
+
+    // CLAUDE  Date 09/18/2026
+    // Which gestures the tip row still names. Cardio only finishes; reorder waits until there
+    // are two sets to reorder, so the tip never describes something the user can't do yet.
+    private var tipFinish: Bool { !usedSwipeToFinish }
+    private var tipDelete: Bool { !isCardio && !usedSwipeToDelete }
+    private var tipReorder: Bool { !isCardio && !usedHoldToReorder && rowGroups.count >= 2 }
 
     /// Adds a set, defaulting to the previous set's reps/weight (or the low end of
     /// the target rep range) for fast entry. Unilateral exercises add a matched
@@ -1189,10 +1250,10 @@ private struct ExerciseLogSection: View {
         return !matched.isEmpty && matched.allSatisfy { $0.completedAt != nil }
     }
 
-    // Claude  Date 09/01/2026 last changed: 09/16/2026 by: Claude
-    // Check a row off / undo it, from the leading swipe. Only stamps completedAt — credit is
-    // still granted in one batch by AppStore.finishWorkout. Side effects: a graded haptic, and
-    // it retires the one-time swipe hint. (09/16) Acts on every set in the row (both sides).
+    // Claude  Date 09/01/2026 last changed: 09/18/2026 by: CLAUDE
+    // Check a row off / undo it, from the leading swipe or the long-press menu. Only stamps
+    // completedAt — credit is still granted in one batch by AppStore.finishWorkout. Side effect:
+    // a graded haptic. (09/16) Acts on every set in the row. (09/18) Tips retire at the swipe.
     private func toggleComplete(_ ids: [UUID]) {
         let indices = logged.sets.indices.filter { ids.contains(logged.sets[$0].id) }
         guard !indices.isEmpty else { return }
@@ -1233,7 +1294,6 @@ private struct ExerciseLogSection: View {
         // finishing a set feel like a physical action instead of a state flag flipping.
         withAnimation(.spring(response: 0.34, dampingFraction: 0.62)) {
             logged.sets = sets
-            hasSeenSetSwipeHint = true
         }
     }
 
@@ -1266,11 +1326,81 @@ private struct ExerciseLogSection: View {
         all.swapAt(position, position + delta)
         // A crisp detent click, not the generic tap — the set snapped into a new slot.
         Haptics.click()
+        usedHoldToReorder = true   // CLAUDE 09/18/2026 — the long-press is learned; drop its tip
         withAnimation(.spring(response: 0.38, dampingFraction: 0.78)) {
             logged.sets = all.flatMap(\.sets)
         }
     }
 
+}
+
+// CLAUDE  Date 09/18/2026
+// The set-gesture tip row: "Swipe → done ← delete · Hold to reorder", naming only what's
+// passed in. Kept short enough for one line on small phones; at large text sizes it stacks
+// and wraps instead of clipping. ✕ is its own borderless button so the row isn't one tap.
+private struct SetGestureTips: View {
+    let showFinish: Bool
+    let showDelete: Bool
+    let showReorder: Bool
+    let accent: Color
+    let onDismiss: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) { swipeTip; reorderTip }
+                    .lineLimit(1)
+                VStack(alignment: .leading, spacing: 4) { swipeTip; reorderTip }
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(spokenTip)
+
+            Spacer(minLength: 0)
+
+            Button(action: onDismiss) {
+                Image(systemName: "xmark")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+                    .padding(4)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel("Hide set tips")
+        }
+    }
+
+    @ViewBuilder
+    private var swipeTip: some View {
+        if showFinish || showDelete {
+            HStack(spacing: 6) {
+                Text("Swipe")
+                if showFinish { arrow("arrow.right", "done", accent) }
+                if showDelete { arrow("arrow.left", "delete", .red) }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var reorderTip: some View {
+        if showReorder { Text("Hold to reorder") }
+    }
+
+    private func arrow(_ symbol: String, _ word: String, _ tint: Color) -> some View {
+        HStack(spacing: 2) {
+            Image(systemName: symbol).foregroundStyle(tint)
+            Text(word)
+        }
+    }
+
+    private var spokenTip: String {
+        var parts: [String] = []
+        if showFinish { parts.append("swipe right on a set to finish it") }
+        if showDelete { parts.append("swipe left to delete it") }
+        if showReorder { parts.append("touch and hold to reorder") }
+        return "Tip: " + parts.joined(separator: ", ")
+    }
 }
 
 // Claude  Date 09/01/2026 last changed: 09/16/2026 by: Claude

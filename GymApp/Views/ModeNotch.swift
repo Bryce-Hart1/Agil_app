@@ -506,10 +506,10 @@ struct ModeNotch: View {
 // repeatForever animation for other state changes to hijack; `paused` freezes
 // the timeline entirely for off-screen instances.
 //
-// CLAUDE  Date 09/17/2026
-// A ONE-TIME intro now (Bryce, 9/17/26), not a loop: ~20s forward, ~20s back, ~20s
-// forward — easing to a stop and away again at each turn — then it slows, fills the
-// whole rim, and stays lit for the rest of the session. A fresh launch plays it again.
+// CLAUDE  Date 09/17/2026 last changed: 09/18/2026 by: CLAUDE
+// A ONE-TIME intro (Bryce, 9/17/26), not a loop: ~6.5s forward, back, forward — easing to
+// a stop and away at each turn — then it fills the whole rim and stays lit for the session.
+// (09/18) Every timing cut to a third, ~59s → ~20s: same laps and turns at 3x the speed.
 private struct RimTrace: View {
     let color: Color
     let paused: Bool
@@ -518,20 +518,19 @@ private struct RimTrace: View {
     // the settled look with no motion at all rather than a bare pill.
     var settled: Bool = false
 
-    // CLAUDE  Date 09/17/2026
+    // CLAUDE  Date 09/17/2026 last changed: 09/18/2026 by: CLAUDE
     // The intro's legs: laps travelled (sign = direction) and seconds taken. They net +6
     // laps, so the streak finishes where it started — top-centre — and the fill can spread
-    // from there symmetrically, meeting at the bottom. The quarter-lap in leg 2 is what
-    // puts the two turns at different places on the rim instead of both at the bottom.
+    // from there symmetrically. Leg 2's quarter-lap puts the two turns at different places.
     private struct Leg { let laps, duration: Double }
-    private static let legs: [Leg] = [Leg(laps:  5.50, duration: 19.5),
-                                      Leg(laps: -5.25, duration: 18.5),
-                                      Leg(laps:  5.75, duration: 20.0)]
+    private static let legs: [Leg] = [Leg(laps:  5.50, duration: 6.5),
+                                      Leg(laps: -5.25, duration: 6.2),
+                                      Leg(laps:  5.75, duration: 6.7)]
 
     /// Ramp at each end of every leg: the brake into a turn, the pull away out of it.
-    private static let ease: TimeInterval = 1.1
+    private static let ease: TimeInterval = 0.37
     /// Seconds for the streak to grow from its resting length to the whole rim.
-    private static let fill: TimeInterval = 1.4
+    private static let fill: TimeInterval = 0.47
     /// The moving streak's length, as a fraction of the rim.
     private static let streak: CGFloat = 0.3
     private static let runtime: TimeInterval = legs.reduce(0) { $0 + $1.duration }

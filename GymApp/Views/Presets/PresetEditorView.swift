@@ -45,6 +45,9 @@ private struct PresetEditor: View {
     // The rep-range bound that has the keyboard (nil = none, or the name/notes field), as
     // reported by each RepRangeRow. Drives the same keyboard bar the workout editor uses.
     @State private var repRangeFocus: SetEntryField?
+    // CLAUDE  Date 09/18/2026
+    // The last removed exercise, still restorable for ~10s via the undo popup (nil = none).
+    @State private var pendingUndo: PendingUndo?
 
     /// The lift currently being swapped out, if any — what the picker ranks against.
     private var swappingExercise: Exercise? {
@@ -181,12 +184,7 @@ private struct PresetEditor: View {
                     ExerciseActionsRow {
                         swappingItemID = item.id
                     } onRemove: {
-                        // Claude  Date 08/07/2026 — animated so the section visibly
-                        // collapses out; a Remove that just blinked the row away read
-                        // as "did that work?". Same curve as the workout editor.
-                        withAnimation(.easeInOut(duration: 0.25)) {
-                            preset.items.removeAll { $0.id == item.id }
-                        }
+                        removeItem(item.id)
                     }
                 } header: {
                     HStack {
@@ -253,6 +251,8 @@ private struct PresetEditor: View {
         .navigationTitle(preset.name.isEmpty ? "Preset" : preset.name)
         .navigationBarTitleDisplayMode(.inline)
         .themed(theme.current)
+        // CLAUDE  Date 09/18/2026 — the "Removed X · Undo" popup after removing an exercise.
+        .undoToast($pendingUndo, accent: theme.current.accent, surface: theme.current.surface)
         .toolbar {
             if preset.items.count > 1 {
                 ToolbarItem(placement: .primaryAction) {
@@ -362,6 +362,23 @@ private struct PresetEditor: View {
     // both); dismissing clears it so a later Finish can raise it again.
     private var duplicateAlertBinding: Binding<Bool> {
         Binding(get: { duplicate != nil }, set: { if !$0 { duplicate = nil } })
+    }
+
+    // CLAUDE  Date 09/18/2026
+    // Remove an exercise from the preset and offer ~10s to take it back. Undo restores the
+    // same item — rep range, sets, rest, weight step — to its old slot. Animated so the
+    // section visibly collapses, same curve as the workout editor.
+    private func removeItem(_ id: UUID) {
+        guard let index = preset.items.firstIndex(where: { $0.id == id }) else { return }
+        let removed = preset.items[index]
+        let name = store.exercise(for: removed.exerciseId)?.displayLabel ?? "exercise"
+        withAnimation(.easeInOut(duration: 0.25)) {
+            preset.items.remove(at: index)
+            pendingUndo = PendingUndo(message: "Removed \(name)") {
+                guard !preset.items.contains(where: { $0.id == removed.id }) else { return }
+                preset.items.insert(removed, at: min(index, preset.items.count))
+            }
+        }
     }
 
     // CLAUDE  Date 09/17/2026
