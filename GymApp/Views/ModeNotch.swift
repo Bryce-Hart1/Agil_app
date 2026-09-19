@@ -509,7 +509,7 @@ struct ModeNotch: View {
 // CLAUDE  Date 09/17/2026 last changed: 09/18/2026 by: CLAUDE
 // A ONE-TIME intro (Bryce, 9/17/26), not a loop: ~6.5s forward, back, forward — easing to
 // a stop and away at each turn — then it fills the whole rim and stays lit for the session.
-// (09/18) Every timing cut to a third, ~59s → ~20s: same laps and turns at 3x the speed.
+// (09/19) ~59s → ~21s by running a third as many laps at about the original speed.
 private struct RimTrace: View {
     let color: Color
     let paused: Bool
@@ -518,19 +518,19 @@ private struct RimTrace: View {
     // the settled look with no motion at all rather than a bare pill.
     var settled: Bool = false
 
-    // CLAUDE  Date 09/17/2026 last changed: 09/18/2026 by: CLAUDE
-    // The intro's legs: laps travelled (sign = direction) and seconds taken. They net +6
+    // CLAUDE  Date 09/17/2026 last changed: 09/19/2026 by: CLAUDE
+    // The intro's legs: laps travelled (sign = direction) and seconds taken. They net +2
     // laps, so the streak finishes where it started — top-centre — and the fill can spread
-    // from there symmetrically. Leg 2's quarter-lap puts the two turns at different places.
+    // from there symmetrically. The turns land on opposite ends of the pill (left, then right).
     private struct Leg { let laps, duration: Double }
-    private static let legs: [Leg] = [Leg(laps:  5.50, duration: 6.5),
-                                      Leg(laps: -5.25, duration: 6.2),
-                                      Leg(laps:  5.75, duration: 6.7)]
+    private static let legs: [Leg] = [Leg(laps:  1.75, duration: 6.5),
+                                      Leg(laps: -1.50, duration: 6.2),
+                                      Leg(laps:  1.75, duration: 6.7)]
 
     /// Ramp at each end of every leg: the brake into a turn, the pull away out of it.
-    private static let ease: TimeInterval = 0.37
+    private static let ease: TimeInterval = 1.1
     /// Seconds for the streak to grow from its resting length to the whole rim.
-    private static let fill: TimeInterval = 0.47
+    private static let fill: TimeInterval = 1.4
     /// The moving streak's length, as a fraction of the rim.
     private static let streak: CGFloat = 0.3
     private static let runtime: TimeInterval = legs.reduce(0) { $0 + $1.duration }
