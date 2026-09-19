@@ -102,14 +102,15 @@ struct RootTabView: View {
         // whether it's the visible instance before reporting its frame to the tour.
         .environment(\.activeTabTag, selection)
         .tint(theme.current.accent)
-        // Claude  Date 07/21/2026
+        // Claude  Date 07/21/2026 last changed: 09/18/2026 by: Claude
         // The app's typeface, carried by the theme (all built-ins are monospaced
         // today). One modifier is enough: SwiftUI cascades a font design over every
         // system font in the subtree, including views that set their own .font(...),
         // and presentations inherit it — so the sheets and fullScreenCovers below come
         // along too, as do both bottom bars. The UIKit-drawn navigation chrome can't
         // be reached this way; ChromeFontAppearance handles that (below).
-        .fontDesign(theme.current.fontDesign.design)
+        // (09/18) Reads the EFFECTIVE face, so Settings' "Use system font" overrides it.
+        .fontDesign(theme.fontDesign.design)
         .preferredColorScheme(theme.current.preferredColorScheme)
         .fullScreenCover(isPresented: showOnboarding) {
             OnboardingView()
@@ -302,15 +303,15 @@ struct RootTabView: View {
             // reveal for history (mirrors evaluateAchievements' announce: false pass).
             syncRewardCards(reveal: false)
         }
-        // Claude  Date 07/21/2026
+        // Claude  Date 07/21/2026 last changed: 09/18/2026 by: Claude
         // Mirror the theme's typeface onto the UIKit-drawn navigation chrome (titles
         // and bar-button labels), which .fontDesign above can't reach. Once at launch,
-        // then on any change to the active theme's font — selecting a different theme
-        // or editing the current custom one both land here, since the raw design of
-        // `theme.current` is what's being watched.
-        .onAppear { ChromeFontAppearance.apply(theme.current.fontDesign) }
-        .onChange(of: theme.current.fontDesignRaw) { _ in
-            ChromeFontAppearance.apply(theme.current.fontDesign)
+        // then on any change to the effective font — selecting a different theme,
+        // editing the current custom one, or flipping "Use system font" (09/18) all
+        // land here, since ThemeManager.fontDesign folds in all three.
+        .onAppear { ChromeFontAppearance.apply(theme.fontDesign) }
+        .onChange(of: theme.fontDesign) { design in
+            ChromeFontAppearance.apply(design)
         }
         // CLAUDE  Date 09/03/2026
         // Equipping a theme equips its home-screen icon too (AppIconManager). Here rather

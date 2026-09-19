@@ -102,7 +102,7 @@ struct SettingsView: View {
             } footer: {
                 Text("Stays on this device — never shared or uploaded. Used only to calibrate strength-badge thresholds. Badges you've already earned always stay earned.")
             }
-            Section("Appearance") {
+            Section {
                 NavigationLink {
                     ThemeSettingsView()
                 } label: {
@@ -112,6 +112,17 @@ struct SettingsView: View {
                         Text(theme.current.name).foregroundStyle(.secondary)
                     }
                 }
+                // Claude  Date 09/18/2026
+                // Accessibility override: every screen, the nav bars and the widget drop the
+                // theme's typeface for Apple's default (see ThemeManager.fontDesign). Colors,
+                // sizes and wording are untouched; flips live, no relaunch.
+                Toggle(isOn: $theme.usesSystemFont) {
+                    Label("Use system font", systemImage: "textformat")
+                }
+            } header: {
+                Text("Appearance")
+            } footer: {
+                Text("Shows all text in Apple's standard font instead of your theme's typeface.")
             }
             // Fable  Date 07/13/2026
             // Opt-in analog stopwatch face for the full-screen rest timer; lives right

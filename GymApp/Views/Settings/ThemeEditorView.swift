@@ -35,7 +35,7 @@ struct ThemeEditorView: View {
                 Section("Name") {
                     TextField("Theme name", text: $name)
                 }
-                Section("Appearance") {
+                Section {
                     Toggle("Dark mode", isOn: $isDark)
                     ColorPicker("Accent", selection: $accent, supportsOpacity: false)
                     ColorPicker("Background", selection: $background, supportsOpacity: false)
@@ -47,6 +47,15 @@ struct ThemeEditorView: View {
                         ForEach(AppFontDesign.allCases) { design in
                             Text(design.label).fontDesign(design.design).tag(design)
                         }
+                    }
+                } header: {
+                    Text("Appearance")
+                } footer: {
+                    // Claude  Date 09/18/2026
+                    // The Font pick is still saved and previewed below, but the live app
+                    // ignores it while "Use system font" is on — say so, or it looks broken.
+                    if themeManager.usesSystemFont {
+                        Text("\"Use system font\" is on in Settings, so the app shows Apple's standard font instead of this one.")
                     }
                 }
                 Section("Preview") {

@@ -43,6 +43,18 @@ final class ThemeManager: ObservableObject {
     // telling the user something is broken.
     @Published private(set) var isSafeMode = false
 
+    // Claude  Date 09/18/2026
+    // Settings' "Use system font": swaps the theme's typeface for Apple's default app-wide
+    // (read through `fontDesign` below). A display pref, so it lives in UserDefaults rather
+    // than theme.json (the wallet / iCloud payload). Side effect: re-pushes the widget snapshot.
+    @Published var usesSystemFont: Bool {
+        didSet {
+            UserDefaults.standard.set(usesSystemFont, forKey: Self.usesSystemFontKey)
+            syncWidgetSnapshot()
+        }
+    }
+    private static let usesSystemFontKey = "useSystemFont"
+
     private let persistence: PersistenceService
     private static let file = "theme.json"
 
@@ -118,6 +130,7 @@ final class ThemeManager: ObservableObject {
         self.unlockedThemeIDs = stored.unlockedThemeIDs
         self.unlockedCardStyleIDs = stored.unlockedCardStyleIDs
         self.isSafeMode = safeMode
+        self.usesSystemFont = UserDefaults.standard.bool(forKey: Self.usesSystemFontKey)
 
         // Claude  Date 08/03/2026
         // One-time migration for files written before the wallet existed: rebuild a
@@ -176,6 +189,12 @@ final class ThemeManager: ObservableObject {
     var current: AppTheme {
         allThemes.first { $0.id == selectedID } ?? AppTheme.classic
     }
+
+    // Claude  Date 09/18/2026
+    // The typeface the app actually renders in: the theme's, unless "Use system font" is on.
+    // Everything that draws live app text reads this, not current.fontDesign; theme previews
+    // (Shop showcase, theme editor) deliberately keep the theme's own face.
+    var fontDesign: AppFontDesign { usesSystemFont ? .system : current.fontDesign }
 
     // Claude  Date 06/13/2026 last changed: 06/13/2026 by: Claude
     // Refuse to select a theme that hasn't been unlocked (bought) yet.
@@ -384,13 +403,16 @@ final class ThemeManager: ObservableObject {
     // iCloud exists (and so tests can leave it nil).
     var onWalletChanged: ((ThemeManager) -> Void)?
 
-    // Claude  Date 07/16/2026
+    // Claude  Date 07/16/2026 last changed: 09/18/2026 by: Claude
     // Push the active theme into the widget's shared snapshot (App Group) so the
     // home-screen widget re-tints itself. Called from save() (any selection /
     // custom-theme edit lands there) and once at launch from GymAppApp — didSets
     // don't fire during init, so a launch call is needed for the first write.
+    // (09/18) Ships the effective typeface, so the widget honors "Use system font".
     func syncWidgetSnapshot() {
-        WidgetSnapshot.update { $0.theme = current }
+        var widgetTheme = current
+        widgetTheme.fontDesignRaw = fontDesign.rawValue
+        WidgetSnapshot.update { $0.theme = widgetTheme }
         WidgetCenter.shared.reloadAllTimelines()
     }
 }

@@ -190,7 +190,10 @@ private struct WorkoutEditor: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .fontDesign(theme.current.fontDesign.design)
+        // Claude  Date 09/18/2026
+        // Effective face, not the raw theme's: with "Use system font" on, this island
+        // must drop to SF Pro like the rest of the app instead of staying mono.
+        .fontDesign(theme.fontDesign.design)
         .accessibilityLabel("Workout date")
         // Claude  Date 08/21/2026
         // The duration rides along in the value — it's drawn inside this button, so
@@ -453,7 +456,9 @@ private struct WorkoutEditor: View {
                             .lineLimit(1)
                     }
                 }
-                .fontDesign(theme.current.fontDesign.design)
+                // Claude  Date 09/18/2026 — effective face, so it tracks "Use system font"
+                // and keeps matching the ChromeFontAppearance nav titles on other screens.
+                .fontDesign(theme.fontDesign.design)
             }
         }
         // Claude  Date 07/21/2026
