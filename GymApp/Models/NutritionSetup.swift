@@ -12,9 +12,9 @@ import Foundation
 // because there's nothing to cheat: the reward for setting your own calorie goal is
 // a welcome badge, not progress that competes with anyone.
 struct NutritionSetup: Codable, Hashable {
-    /// The user committed an edit to the calorie goal in NutritionGoalsView.
+    /// The user committed an edit to the calorie goal (Body & plan, or a plan set it).
     var calorieGoalSet = false
-    /// The user committed an edit to the water goal in NutritionGoalsView.
+    /// The user committed an edit to the water goal (Body & plan).
     var waterGoalSet = false
     // The bonus item: they opened the focus-goals editor at least once. Tracked so
     // the checklist can tick it off, but deliberately NOT part of isComplete — the

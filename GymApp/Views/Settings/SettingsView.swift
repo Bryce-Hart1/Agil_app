@@ -11,6 +11,11 @@ struct SettingsView: View {
     // Claude  Date 06/18/2026
     // Shared-card sync, for the Friends section (friend code + look up a friend).
     @EnvironmentObject private var cardSync: CardSyncService
+    // CLAUDE  Date 09/19/2026 — weight, body metrics and the calorie plan (encrypted vault).
+    @EnvironmentObject private var bodyStore: BodyStore
+    @AppStorage(BodyUnits.storageKey) private var bodyUnitsRaw = BodyUnits.defaultValue.rawValue
+    @AppStorage(BodyPlanCard.showWeightKey) private var showWeightOnJournal = true
+    @State private var showEraseBodyConfirm = false
     // Claude  Date 06/18/2026
     // Offline food mode (same key the food search + barcode scanner read): keeps food
     // lookups local unless the user explicitly chooses to go online for a given search.
@@ -199,8 +204,14 @@ struct SettingsView: View {
             } header: {
                 Text("Cardio")
             } footer: {
-                Text("Your weight is only used to estimate calories burned. It stays on your phone.")
+                // CLAUDE  Date 09/19/2026 — weigh-ins, when there are any, now take over from
+                // this field for calorie estimates; it stays as the answer for everyone else.
+                Text(bodyStore.latestWeightLb == nil
+                     ? "Your weight is only used to estimate calories burned. It stays on your phone."
+                     : "Calorie estimates use your latest weigh-in. This is the fallback if you stop logging.")
             }
+
+            bodySection
 
             // Claude  Date 07/14/2026 last changed: 09/19/2026 by: Claude
             // Help + About together. Replay pops Settings first (the tour spotlights root
@@ -218,6 +229,13 @@ struct SettingsView: View {
                     HelpGuidesView()
                 } label: {
                     Label("Help & Demos", systemImage: "questionmark.circle")
+                }
+                // CLAUDE  Date 09/19/2026 — what the calorie plan is and isn't, how it's
+                // worked out, and where the body data lives. Readable without a plan.
+                NavigationLink {
+                    HealthSafetyView()
+                } label: {
+                    Label("Health & safety", systemImage: "heart.text.square")
                 }
                 LabeledContent("Version", value: "0.1.0")
             } header: {
@@ -266,7 +284,7 @@ struct SettingsView: View {
                 showDeleteAccountConfirm = true
             }
         } message: {
-            Text("This erases everything, immediately and permanently:\n\n• Your account, shared card, friend code, and friends list on the server\n• Every workout, exercise, meal, water and supplement log on this device\n• Every badge, rank and theme you've unlocked\n• Your entire coin balance, including coins you purchased\n\nThere is no undo and no grace period. Agil will restart at the welcome screen.")
+            Text("This erases everything, immediately and permanently:\n\n• Your account, shared card, friend code, and friends list on the server\n• Every workout, exercise, meal, water and supplement log on this device\n• Every badge, rank and theme you've unlocked\n• Your weight history, body details and calorie plan\n• Your entire coin balance, including coins you purchased\n\nThere is no undo and no grace period. Agil will restart at the welcome screen.")
         }
         // Claude  Date 09/06/2026
         // Step 2: the typing gate. Alert buttons can't be reactively disabled from a
@@ -349,6 +367,43 @@ struct SettingsView: View {
         )
     }
 
+    // CLAUDE  Date 09/19/2026
+    // Body & Plan: display units, whether the Journal card shows the number, and the erase.
+    // The plan's own settings (phase, pace, check-in day) live in the hub, not here — this is
+    // for the handful of choices that outlive any one plan.
+    private var bodySection: some View {
+        Section {
+            Picker("Body units", selection: $bodyUnitsRaw) {
+                ForEach(BodyUnits.allCases) { unit in
+                    Text(unit.label).tag(unit.rawValue)
+                }
+            }
+            .retintOnThemeChange(theme.current, salt: "bodyUnits")
+
+            Toggle("Show weight in the Journal", isOn: $showWeightOnJournal)
+
+            Button(role: .destructive) {
+                showEraseBodyConfirm = true
+            } label: {
+                Label("Erase body data", systemImage: "trash")
+            }
+        } header: {
+            Text("Body & Plan")
+        } footer: {
+            Text("Your weight, body details and plan are stored only on this iPhone, encrypted, and only an encrypted backup can carry them to a new phone. Turning off the Journal number hides it without hiding the plan.")
+        }
+        .confirmationDialog("Erase body data?", isPresented: $showEraseBodyConfirm,
+                            titleVisibility: .visible) {
+            Button("Erase", role: .destructive) {
+                bodyStore.eraseAll()
+                store.profile.bodyweightLb = nil
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("Deletes every weigh-in, your body details, your plan and its check-ins, plus the cardio bodyweight. Your calorie and macro goals stay as they are. This can't be undone.")
+        }
+    }
+
     // Claude  Date 09/06/2026
     // Step 3 of Delete Account (the typed DELETE matched). Runs the full teardown,
     // then pops Settings — RootTabView re-presents onboarding on its own once
@@ -356,7 +411,8 @@ struct SettingsView: View {
     private func runAccountDeletion() {
         isDeleting = true
         Task { @MainActor in
-            await AccountDeletion.eraseEverything(store: store, theme: theme, cardSync: cardSync)
+            await AccountDeletion.eraseEverything(store: store, theme: theme,
+                                                  cardSync: cardSync, body: bodyStore)
             isDeleting = false
             dismiss()
         }

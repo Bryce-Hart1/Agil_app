@@ -16,6 +16,9 @@ final class NotificationRouter: ObservableObject {
     enum Route: Equatable {
         /// The supplement checklist — i.e. the Journal, where the day gets checked off.
         case supplements
+        // CLAUDE  Date 09/19/2026
+        // The weekly body check-in. Also the Journal, but it opens the check-in sheet on top.
+        case bodyCheckIn
     }
 
     /// A singleton because AppDelegate has no way to reach the SwiftUI environment.
@@ -29,6 +32,8 @@ final class NotificationRouter: ObservableObject {
     func handleTap(identifier: String) {
         if SupplementNotifications.handles(identifier: identifier) {
             route = .supplements
+        } else if BodyCheckInNotifications.handles(identifier: identifier) {
+            route = .bodyCheckIn
         }
     }
 }

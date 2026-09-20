@@ -45,4 +45,32 @@ struct KeychainStore {
     func delete(_ key: String) {
         SecItemDelete(baseQuery(key) as CFDictionary)
     }
+
+    // CLAUDE  Date 09/19/2026
+    // The status-reporting twin of `get`. `get` folds every failure into nil, which is fine
+    // for the card key (a failed sync retries) and wrong for the body vault: a locked device
+    // would read as "key gone", and the UI would offer to erase data that is perfectly fine.
+    enum Lookup {
+        case found(String)
+        case notFound
+        case failed(OSStatus)
+    }
+
+    func lookup(_ key: String) -> Lookup {
+        var query = baseQuery(key)
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        switch status {
+        case errSecSuccess:
+            guard let data = item as? Data,
+                  let string = String(data: data, encoding: .utf8) else { return .failed(errSecDecode) }
+            return .found(string)
+        case errSecItemNotFound:
+            return .notFound
+        default:
+            return .failed(status)
+        }
+    }
 }

@@ -204,82 +204,22 @@ struct OnboardingView: View {
         StepHeader(icon: icon, title: title, subtitle: subtitle, accent: accent)
     }
 
-    // Claude  Date 07/12/2026 last changed: 07/23/2026 by: Claude
-    // A selectable option card. (Generalized from the DataMode-only version so the
-    // identity and data steps share one card style: selection state and the action
-    // are now passed in instead of being hardwired to `dataMode`.)
-    // (Split the icon out into a ViewBuilder core so cards can use either an SF Symbol
-    // or a custom asset-catalog glyph — e.g. ghost.svg for the Ghost Mode card.)
+    // Claude  Date 07/12/2026 last changed: 09/19/2026 by: CLAUDE
+    // A selectable option card, in two flavors: SF Symbol or asset-catalog glyph.
+    // (09/19) The body moved to OnboardingChrome.ChoiceCard so the body-plan wizard shares
+    // it; these wrappers keep the call sites below reading exactly as before.
     private func choiceCard(isSelected: Bool, systemImage: String,
                             title: String, description: String,
                             action: @escaping () -> Void) -> some View {
-        choiceCard(isSelected: isSelected, title: title, description: description, action: action) {
-            Image(systemName: systemImage)
-                .font(.title3)
-                .foregroundStyle(isSelected ? accent : .secondary)
-        }
+        ChoiceCard(isSelected: isSelected, systemImage: systemImage, title: title,
+                   description: description, accent: accent, surface: surface, action: action)
     }
 
-    // Claude  Date 07/23/2026
-    // Variant taking a custom asset-catalog glyph (template-tinted to match the
-    // SF-Symbol cards) instead of an SF Symbol — used by the Ghost Mode card (ghost).
     private func choiceCard(isSelected: Bool, assetImage: String,
                             title: String, description: String,
                             action: @escaping () -> Void) -> some View {
-        choiceCard(isSelected: isSelected, title: title, description: description, action: action) {
-            Image(assetImage)
-                .renderingMode(.template)
-                .resizable()
-                .scaledToFit()
-                .frame(width: 26, height: 26)
-                .foregroundStyle(isSelected ? accent : .secondary)
-        }
-    }
-
-    // Claude  Date 07/23/2026
-    // Shared card body — accepts any icon view so both the SF-Symbol and custom-asset
-    // variants above can reuse it.
-    private func choiceCard<Icon: View>(isSelected: Bool, title: String, description: String,
-                                        action: @escaping () -> Void,
-                                        @ViewBuilder icon: () -> Icon) -> some View {
-        Button {
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) { action() }
-            tapHaptic()
-        } label: {
-            HStack(spacing: 14) {
-                // Claude  Date 07/12/2026
-                // Icon in a tinted rounded tile so the selected card reads instantly.
-                ZStack {
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(isSelected ? accent.opacity(0.18) : Color.secondary.opacity(0.1))
-                        .frame(width: 46, height: 46)
-                    icon()
-                }
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(title).font(.headline)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text(description)
-                        .font(.caption).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 8)
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .font(.title3)
-                    .foregroundStyle(isSelected ? accent : Color.secondary.opacity(0.5))
-            }
-            .padding()
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(surface, in: RoundedRectangle(cornerRadius: 16))
-            .overlay(
-                RoundedRectangle(cornerRadius: 16)
-                    .stroke(isSelected ? accent : Color.secondary.opacity(0.15),
-                            lineWidth: isSelected ? 2 : 1)
-            )
-            .shadow(color: isSelected ? accent.opacity(0.25) : .clear, radius: 10, y: 4)
-            .scaleEffect(isSelected ? 1.02 : 1)
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(.primary)
+        ChoiceCard(isSelected: isSelected, assetImage: assetImage, title: title,
+                   description: description, accent: accent, surface: surface, action: action)
     }
 
     // Claude  Date 08/13/2026

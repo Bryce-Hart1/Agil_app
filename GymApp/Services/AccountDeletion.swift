@@ -23,7 +23,8 @@ enum AccountDeletion {
     // undeletable row on the backend with no device able to authenticate against it.
     static func eraseEverything(store: AppStore,
                                 theme: ThemeManager,
-                                cardSync: CardSyncService) async {
+                                cardSync: CardSyncService,
+                                body: BodyStore) async {
         // 1. Backend: delete the card + friends graph, then burn the identity/secret.
         await cardSync.eraseAccount()
 
@@ -31,6 +32,11 @@ enum AccountDeletion {
         //    now rather than at the next launch.
         store.eraseAllData()
         theme.eraseAllData()
+        // CLAUDE  Date 09/19/2026
+        // The body vault and its Keychain key. It has to be named explicitly: it isn't a
+        // *.json file, so the blunt sweep in step 4 would walk straight past it and leave
+        // weight history and body metrics behind on a "delete everything".
+        body.eraseAll()
 
         // 3. The copies that live outside this app's sandbox. iCloud must be cleared
         //    or the max/union merge would hand the wallet straight back (see

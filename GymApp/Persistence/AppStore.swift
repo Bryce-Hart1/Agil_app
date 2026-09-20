@@ -38,6 +38,13 @@ final class AppStore: ObservableObject {
     // Claude  Date 06/09/2026
     // Local user profile (display name). Persisted like everything else.
     @Published var profile: UserProfile { didSet { persistence.save(profile, to: Self.profileFile) } }
+    // CLAUDE  Date 09/19/2026
+    // The user's current weight for cardio estimates, preferring their weigh-ins over the one
+    // number typed in Settings. A closure because the weigh-ins live in BodyStore's encrypted
+    // vault and must never be copied into profile.json, which lands in every device backup.
+    // Set once at launch (GymAppApp); nil until then, which just means the typed value is used.
+    var bodyweightProvider: (() -> Double?)?
+    var effectiveBodyweightLb: Double? { bodyweightProvider?() ?? profile.bodyweightLb }
     // Claude  Date 06/16/2026
     // Nutrition tracking. Mirrors the workouts model: `foods` is the reusable food
     // library (seeded on first launch, like seedExercises; later augmented by the
@@ -1423,9 +1430,10 @@ final class AppStore: ObservableObject {
             workout: workouts[index],
             exercises: exercises,
             history: activityLog.filter { !ownSetIds.contains($0.setId) },
-            // Claude  Date 09/07/2026 — on-device only, and nil is fine: no weight simply
-            // means the card shows no calorie figure rather than a guessed one.
-            bodyweightLb: profile.bodyweightLb)
+            // Claude  Date 09/07/2026 last changed: 09/19/2026 by: CLAUDE — on-device only, and
+            // nil is fine: no weight simply means the card shows no calorie figure rather than
+            // a guessed one. (09/19) Now prefers the user's latest weigh-in when they have one.
+            bodyweightLb: effectiveBodyweightLb)
     }
 
     // Claude  Date 09/02/2026

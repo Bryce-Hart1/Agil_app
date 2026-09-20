@@ -22,12 +22,20 @@ enum ProgressCustomizationMode: Equatable {
         case .nutrition:
             return [.foodActivity, .proteinIntake, .proteinFoods,
                     .carbIntake, .carbFoods, .fatIntake, .fatFoods,
-                    .focusCompletion, .waterIntake]
+                    .focusCompletion, .waterIntake, .weightTrend]
         }
     }
 
+    // CLAUDE  Date 09/19/2026
+    // What a new user starts with, which is no longer simply "everything available": the
+    // weight card is opt-in, so someone who never builds a plan is never shown a bodyweight
+    // chart they didn't ask for.
+    var defaultWidgets: [ProgressWidgetKind] {
+        availableWidgets.filter { $0 != .weightTrend }
+    }
+
     var defaultStorageValue: String {
-        availableWidgets.map(\.rawValue).joined(separator: ",")
+        defaultWidgets.map(\.rawValue).joined(separator: ",")
     }
 }
 
@@ -48,6 +56,10 @@ enum ProgressWidgetKind: String, Identifiable, Equatable {
     case fatFoods
     case focusCompletion
     case waterIntake
+    // CLAUDE  Date 09/19/2026
+    // Bodyweight trend. Offered but deliberately NOT in the default layout — weight is the
+    // one number some people would rather not meet every time they open Progress.
+    case weightTrend
 
     var id: String { rawValue }
 
@@ -69,6 +81,7 @@ enum ProgressWidgetKind: String, Identifiable, Equatable {
         case .fatFoods: return "Top fat foods"
         case .focusCompletion: return "Focus goal completion"
         case .waterIntake: return "Daily water intake"
+        case .weightTrend: return "Weight trend"
         }
     }
 
@@ -90,6 +103,7 @@ enum ProgressWidgetKind: String, Identifiable, Equatable {
         case .fatFoods: return "The share of your fat that came from each food."
         case .focusCompletion: return "The share of your focus goals completed each tracked day."
         case .waterIntake: return "Water logged each day compared with your daily goal."
+        case .weightTrend: return "Your weigh-ins with the 7-day average drawn through them."
         }
     }
 
@@ -108,6 +122,7 @@ enum ProgressWidgetKind: String, Identifiable, Equatable {
         case .proteinFoods, .carbFoods, .fatFoods: return "fork.knife"
         case .focusCompletion: return "scope"
         case .waterIntake: return "drop.fill"
+        case .weightTrend: return "scalemass"
         }
     }
 }
@@ -283,6 +298,8 @@ private struct ProgressWidgetPreview: View {
             dailyBarsPreview(color: accent)
         case .waterIntake:
             dailyBarsPreview(color: accent)
+        case .weightTrend:
+            linePreview
         }
     }
 

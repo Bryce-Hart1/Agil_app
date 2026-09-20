@@ -14,7 +14,7 @@ struct NutritionGoals: Codable, Hashable {
 
     // Claude  Date 06/16/2026
     // Neutral starting targets for a new user (~2000 kcal, a balanced macro split,
-    // ~3 L water). Editable in NutritionGoalsView.
+    // ~3 L water). Editable in BodyPlanView, or set by a calorie plan.
     init(calories: Double = 2000, protein: Double = 150, carbs: Double = 200,
          fat: Double = 65, water: Double = 3000) {
         self.calories = calories
@@ -39,17 +39,10 @@ struct NutritionGoals: Codable, Hashable {
     static let kcalPerGramCarbs: Double = 4
     static let kcalPerGramFat: Double = 9
 
-    // Claude  Date 07/12/2026
-    // Back-fill the three macro gram goals from the calorie goal and a percentage
-    // split of calories (the three percentages should sum to ~100). Grams round to
-    // whole numbers, so the recomputed kcal total can drift a few kcal from the
-    // stated goal — fine for a daily target. Used by NutritionGoalsView's
-    // "calculate from calories" helper; manual gram entry remains untouched.
-    mutating func applyMacroSplit(proteinPct: Double, carbsPct: Double, fatPct: Double) {
-        protein = (calories * proteinPct / 100 / Self.kcalPerGramProtein).rounded()
-        carbs   = (calories * carbsPct   / 100 / Self.kcalPerGramCarbs).rounded()
-        fat     = (calories * fatPct     / 100 / Self.kcalPerGramFat).rounded()
-    }
+    // Claude  Date 07/12/2026 last changed: 09/20/2026 by: CLAUDE
+    // (09/20) The percentage-split helper that lived here is gone with NutritionGoalsView.
+    // Splitting calories into grams is now MacroPlanner's job, where the fat floor and the
+    // protein rules can be applied to it; the constants above are still shared.
 
     // Claude  Date 06/16/2026
     // Forgiving decode so goals saved before a field existed fall back to the

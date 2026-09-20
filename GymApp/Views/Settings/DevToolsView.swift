@@ -7,6 +7,8 @@ import SwiftUI
 struct DevToolsView: View {
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var theme: ThemeManager
+    // CLAUDE  Date 09/19/2026 — seeding weigh-ins/diary to exercise the check-in engine.
+    @EnvironmentObject private var bodyStore: BodyStore
     // Claude  Date 08/13/2026 last changed: 09/19/2026 by: Claude
     // The review and notification asks have no real trigger yet; these preview them.
     @State private var showReviewAsk = false
@@ -134,6 +136,25 @@ struct DevToolsView: View {
                 LabeledContent("Workouts", value: "\(store.workouts.count)")
                 LabeledContent("Presets", value: "\(store.presets.count)")
             }
+
+            #if DEBUG
+            // CLAUDE  Date 09/19/2026
+            // Three weeks of weigh-ins and diary days so a check-in can be driven without
+            // waiting a fortnight. Each variant exercises a different path: a clean logger
+            // (diary channel), a 25% under-logger (the ratio correction), and fabricated
+            // sessions (activity trust collapsing). Seeding replaces weigh-ins on those days.
+            Section {
+                Button("Seed 3 weeks — clean logger") { seedBody(underlogBy: 1.0) }
+                Button("Seed 3 weeks — 25% under-logger") { seedBody(underlogBy: 0.75) }
+                Button("Seed 3 weeks — fabricated sessions") {
+                    seedBody(underlogBy: 1.0, fakeSessions: true)
+                }
+            } header: {
+                Text("Body & plan")
+            } footer: {
+                Text("Weigh-ins drift down about 0.75% a week and the phase is back-dated, so the check-in is due right away.")
+            }
+            #endif
         }
         .navigationTitle("Dev")
         .themed(theme.current)
@@ -144,6 +165,38 @@ struct DevToolsView: View {
     }
 
     #if DEBUG
+    // CLAUDE  Date 09/19/2026
+    // Writes three weeks of weigh-ins on a steady cut and, unless `fakeSessions`, matching
+    // diary days. Side effects: replaces weigh-ins on those days, appends real food entries,
+    // and back-dates the plan's phase start so the check-in is immediately due.
+    private func seedBody(underlogBy: Double, fakeSessions: Bool = false) {
+        let start = 190.0
+        for daysAgo in 0...21 {
+            guard let key = DayKey.offset(DayKey.key(), byDays: -daysAgo) else { continue }
+            let weekly = start * 0.0075
+            let weight = start - weekly * Double(21 - daysAgo) / 7
+            // A little noise, so the weekly averages have something to smooth.
+            let jitter = Double((daysAgo * 37) % 9 - 4) / 10
+            bodyStore.logWeighIn(weightLb: weight + jitter, on: key)
+        }
+        if !fakeSessions {
+            let target = store.nutritionGoals.calories * underlogBy
+            for daysAgo in 0...14 {
+                guard let date = Calendar.current.date(byAdding: .day, value: -daysAgo, to: Date())
+                else { continue }
+                store.foodLog.append(FoodEntry(name: "Seeded day",
+                                               nutrients: Nutrients(calories: target, protein: 150,
+                                                                    carbs: 200, fat: 60),
+                                               mealType: .dinner, loggedAt: date))
+            }
+        }
+        if let plan = bodyStore.plan {
+            bodyStore.debugBackdatePhase(days: 21,
+                                         weekday: Calendar.current.component(.weekday, from: Date()),
+                                         remindersOn: plan.remindersOn)
+        }
+    }
+
     // Claude  Date 06/17/2026
     // A cold lookup should hit the network and grow the cache by one; the second
     // should resolve from cache.

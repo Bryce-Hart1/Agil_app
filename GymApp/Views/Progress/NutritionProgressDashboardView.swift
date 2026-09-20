@@ -7,6 +7,9 @@ import Charts
 struct NutritionProgressDashboardView: View {
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var theme: ThemeManager
+    // CLAUDE  Date 09/19/2026 — weigh-ins for the (opt-in) weight trend card.
+    @EnvironmentObject private var bodyStore: BodyStore
+    @AppStorage(BodyUnits.storageKey) private var bodyUnitsRaw = BodyUnits.defaultValue.rawValue
     @AppStorage("nutritionProgressTimeRange")
     private var selectedRange: ProgressTimeRange = .thirtyDays
     @AppStorage("nutritionProgressWidgetLayoutV2") private var storedWidgetLayout =
@@ -52,7 +55,7 @@ struct NutritionProgressDashboardView: View {
                 // destination can replace it later without moving the control.
                 ToolbarItem(placement: .primaryAction) {
                     NavigationLink {
-                        NutritionGoalsView()
+                        BodyPlanView()
                     } label: {
                         Image(systemName: "target")
                             .font(.system(size: 19))
@@ -119,6 +122,12 @@ struct NutritionProgressDashboardView: View {
                             color: MacroPalette.fat)
         case .focusCompletion:
             focusCompletionSection
+        // CLAUDE  Date 09/19/2026
+        // Weigh-ins from the encrypted body store, drawn with the same chart the plan hub
+        // uses. Renders nothing without a weigh-in, so an opted-in card on an empty history
+        // isn't a blank box.
+        case .weightTrend:
+            weightTrendSection
         case .waterIntake:
             if trackWater {
                 dailyIntakeSection(title: widget.title,
@@ -130,6 +139,23 @@ struct NutritionProgressDashboardView: View {
         case .workoutActivity, .recap, .summary, .oneRepMax,
                 .frequency, .muscleGroups, .personalRecords:
             EmptyView()
+        }
+    }
+
+    // CLAUDE  Date 09/19/2026
+    // The weight card. Opt-in from Edit Progress; the chart itself lives in Views/Body so the
+    // hub and this dashboard can't drift apart.
+    @ViewBuilder
+    private var weightTrendSection: some View {
+        if !bodyStore.data.weighIns.isEmpty {
+            Section {
+                WeightTrendChart(weighIns: bodyStore.data.weighIns,
+                                 goalWeightLb: bodyStore.plan?.targetWeightLb,
+                                 units: BodyUnits(rawValue: bodyUnitsRaw) ?? .defaultValue,
+                                 accent: theme.current.accent)
+            } header: {
+                Text("Weight trend")
+            }
         }
     }
 

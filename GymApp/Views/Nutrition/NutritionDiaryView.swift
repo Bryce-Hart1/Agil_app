@@ -73,6 +73,11 @@ struct NutritionJournalView: View {
                 // which is why the tracker had no journal surface at all; it decides
                 // its own five states (including drawing nothing).
                 SupplementCard(selectedDate: selectedDate)
+                // CLAUDE  Date 09/19/2026
+                // Weight, plan and the weekly check-in, directly above Summary — the targets
+                // Summary measures against are the ones this plan sets, so it reads in that
+                // order. Draws nothing when there's no plan and the invitation was dismissed.
+                BodyPlanCard()
                 summarySection
                 if !store.focusGoals.isEmpty {
                     focusSection
@@ -95,9 +100,12 @@ struct NutritionJournalView: View {
                         Image(systemName: "scope")
                     }
                 }
+                // CLAUDE  Date 09/20/2026
+                // The target button now opens Body & plan, which owns the daily targets since
+                // the separate Goals screen was retired — one destination, not two.
                 ToolbarItem(placement: .primaryAction) {
                     NavigationLink {
-                        NutritionGoalsView()
+                        BodyPlanView()
                     } label: {
                         Image(systemName: "target")
                     }

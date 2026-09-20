@@ -140,6 +140,120 @@ struct AskBullet: View {
     }
 }
 
+// MARK: - Progress
+
+// CLAUDE  Date 09/19/2026
+// The wizard's progress capsules, counted rather than tied to one screen's Step enum, so any
+// multi-step ask can use them. OnboardingView keeps its own copy for now — its version is
+// wired to Step.allCases and isn't worth disturbing.
+struct StepDots: View {
+    let count: Int
+    let index: Int
+    let accent: Color
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ForEach(0..<count, id: \.self) { i in
+                Capsule()
+                    .fill(i <= index
+                          ? AnyShapeStyle(LinearGradient(colors: [accent, accent.opacity(0.7)],
+                                                         startPoint: .leading, endPoint: .trailing))
+                          : AnyShapeStyle(Color.secondary.opacity(0.25)))
+                    .frame(width: i == index ? 26 : 8, height: 8)
+                    .shadow(color: i == index ? accent.opacity(0.5) : .clear, radius: 4)
+            }
+        }
+        .animation(.spring(response: 0.4, dampingFraction: 0.8), value: index)
+    }
+}
+
+// MARK: - Choice card
+
+// CLAUDE  Date 09/19/2026
+// A selectable option card: tinted icon tile, title, description, and a check circle, with
+// an accent border when chosen. Was private inside OnboardingView; lifted here unchanged so
+// the body-plan wizard asks its questions in the same shape. Takes accent and surface as
+// parameters, like everything else in this file, so it still owns no state.
+struct ChoiceCard<Icon: View>: View {
+    let isSelected: Bool
+    let title: String
+    let description: String
+    let accent: Color
+    let surface: Color
+    let action: () -> Void
+    @ViewBuilder let icon: () -> Icon
+
+    var body: some View {
+        Button {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) { action() }
+            tapHaptic()
+        } label: {
+            HStack(spacing: 14) {
+                // Claude  Date 07/12/2026
+                // Icon in a tinted rounded tile so the selected card reads instantly.
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(isSelected ? accent.opacity(0.18) : Color.secondary.opacity(0.1))
+                        .frame(width: 46, height: 46)
+                    icon()
+                }
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title).font(.headline)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(description)
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.title3)
+                    .foregroundStyle(isSelected ? accent : Color.secondary.opacity(0.5))
+            }
+            .padding()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(surface, in: RoundedRectangle(cornerRadius: 16))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(isSelected ? accent : Color.secondary.opacity(0.15),
+                            lineWidth: isSelected ? 2 : 1)
+            )
+            .shadow(color: isSelected ? accent.opacity(0.25) : .clear, radius: 10, y: 4)
+            .scaleEffect(isSelected ? 1.02 : 1)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.primary)
+    }
+}
+
+// CLAUDE  Date 09/19/2026
+// The two icon flavors the cards actually use: an SF Symbol, or a template-tinted glyph from
+// the asset catalog (Ghost Mode's ghost). AnyView keeps the convenience inits readable —
+// these are two fixed shapes, not a hot path.
+extension ChoiceCard where Icon == AnyView {
+    init(isSelected: Bool, systemImage: String, title: String, description: String,
+         accent: Color, surface: Color, action: @escaping () -> Void) {
+        self.init(isSelected: isSelected, title: title, description: description,
+                  accent: accent, surface: surface, action: action) {
+            AnyView(Image(systemName: systemImage)
+                .font(.title3)
+                .foregroundStyle(isSelected ? accent : .secondary))
+        }
+    }
+
+    init(isSelected: Bool, assetImage: String, title: String, description: String,
+         accent: Color, surface: Color, action: @escaping () -> Void) {
+        self.init(isSelected: isSelected, title: title, description: description,
+                  accent: accent, surface: surface, action: action) {
+            AnyView(Image(assetImage)
+                .renderingMode(.template)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 26, height: 26)
+                .foregroundStyle(isSelected ? accent : .secondary))
+        }
+    }
+}
+
 // MARK: - Buttons
 
 // Claude  Date 07/12/2026 last changed: 08/13/2026 by: Claude

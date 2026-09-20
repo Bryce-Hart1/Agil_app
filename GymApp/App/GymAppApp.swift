@@ -26,6 +26,11 @@ struct GymAppApp: App {
     // Not a @StateObject — it publishes nothing, it just bridges ThemeManager and
     // NSUbiquitousKeyValueStore.
     @State private var cloudWallet = CloudWalletSync()
+    // CLAUDE  Date 09/19/2026
+    // Weight, body metrics and the calorie plan. Its own store, not part of AppStore, because
+    // it is the one thing in the app that never leaves the device — see BodyStore's contract.
+    // It loads lazily, so nothing here touches the Keychain before a body screen opens.
+    @StateObject private var bodyStore = BodyStore()
 
     var body: some Scene {
         WindowGroup {
@@ -40,6 +45,7 @@ struct GymAppApp: App {
                 .environmentObject(session)
                 .environmentObject(cardSync)
                 .environmentObject(coinStore)
+                .environmentObject(bodyStore)
                 // Claude  Date 07/16/2026 last changed: 08/03/2026 by: Claude
                 // Seed the home-screen widget's shared snapshot on launch. The
                 // didSet-driven syncs in AppStore/ThemeManager don't fire during
@@ -58,6 +64,15 @@ struct GymAppApp: App {
                 // doing it after would leave today's +20 sitting outside the wallet
                 // until something else happened to republish the earned total.
                 .task {
+                    // CLAUDE  Date 09/19/2026
+                    // Cardio calorie estimates follow the user's weigh-ins once they have any.
+                    // A closure rather than a stored copy, so the weight never lands in
+                    // profile.json — that file is plaintext and goes into every backup.
+                    // Loaded here rather than lazily so a finished workout can price its cardio
+                    // against the user's real weight. Before first unlock the read simply
+                    // defers (see BodyStore.retryIfUnavailable).
+                    bodyStore.loadIfNeeded()
+                    store.bodyweightProvider = { [weak bodyStore] in bodyStore?.latestWeightLb }
                     store.syncWidgetSnapshot()
                     theme.syncWidgetSnapshot()
                     cloudWallet.start(theme: theme)

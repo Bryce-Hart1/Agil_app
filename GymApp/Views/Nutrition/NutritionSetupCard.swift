@@ -70,11 +70,11 @@ struct NutritionSetupCard: View {
         // Both goals live on the same screen, so both rows push it. That's fine —
         // the row you tapped tells you which field to look for.
         NavigationLink {
-            NutritionGoalsView()
+            BodyPlanView()
         } label: {
             checklistRow(
                 title: "Set your calorie goal",
-                detail: "Your daily target, so the Summary above means something.",
+                detail: "Your daily target, so the Summary above means something. A plan can work it out for you.",
                 done: setup.calorieGoalSet
             )
         }
@@ -82,7 +82,7 @@ struct NutritionSetupCard: View {
         // Only when the user actually tracks water — see NutritionSetup.isComplete.
         if trackWater {
             NavigationLink {
-                NutritionGoalsView()
+                BodyPlanView()
             } label: {
                 checklistRow(
                     title: "Set your water goal",

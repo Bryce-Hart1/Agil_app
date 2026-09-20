@@ -1104,7 +1104,9 @@ private struct ExerciseLogSection: View {
                            set: $logged.sets[index],
                            accent: accent,
                            unit: distanceUnit,
-                           bodyweightLb: store.profile.bodyweightLb,
+                           // CLAUDE  Date 09/19/2026 — the latest weigh-in when the user has
+                           // one, else the weight typed in Settings (see AppStore).
+                           bodyweightLb: store.effectiveBodyweightLb,
                            isMissed: flaggedSetIDs.contains(logged.sets[index].id),
                            focusedField: $focusedField,
                            onMissingBodyweight: onNeedsBodyweight)

@@ -16,10 +16,12 @@ import UIKit
 // user who has no idea what we'd send. This page makes the case first, and only
 // taps on "Turn on notifications" reach the real dialog.
 //
-// The bullets deliberately name only the two alerts that actually exist
+// The bullets deliberately name only the alerts that actually exist
 // (Services/WorkoutNotifications.swift: rest-timer complete, and the
 // still-running nudge). If that list grows, update this copy — promising
 // notifications we don't send is how you get a deny.
+// CLAUDE  Date 09/19/2026 — the opt-in reminders (supplement slots, the weekly body
+// check-in) are named too, since both can now be the reason this page is shown.
 //
 // Nothing presents this yet — see .notificationAsk(isPresented:) in
 // OnboardingChrome for the one-liner.
@@ -61,6 +63,9 @@ struct NotificationRequestView: View {
                               accent: accent)
                     AskBullet("figure.strengthtraining.traditional",
                               "A nudge if you walk away mid workout, so your session time stays accurate.",
+                              accent: accent)
+                    AskBullet("checklist",
+                              "Only the reminders you switch on yourself — supplement times, and your weekly check-in. Never with any numbers in them.",
                               accent: accent)
                     AskBullet("hand.raised.fill",
                               "That's it. No marketing, no daily pestering, nothing you didn't start.",

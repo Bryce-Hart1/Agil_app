@@ -19,6 +19,8 @@ struct RootTabView: View {
     // Claude  Date 09/03/2026
     // Destination for a tapped notification, published by AppDelegate.
     @EnvironmentObject private var router: NotificationRouter
+    // CLAUDE  Date 09/19/2026 — weight and the calorie plan; its flows are presented here.
+    @EnvironmentObject private var bodyStore: BodyStore
     @Environment(\.scenePhase) private var scenePhase
     // Bryce Hart  Date 09/05/2026
     // One persisted tab position is shared by both worlds. Because both tab sets use
@@ -121,6 +123,17 @@ struct RootTabView: View {
         // mini bar no longer opens it — that tap reopens the workout instead.)
         .fullScreenCover(isPresented: $session.showFullScreenTimer) {
             RestTimerFullScreenView()
+        }
+        // CLAUDE  Date 09/19/2026
+        // The body plan's wizard and weekly check-in. Presented HERE rather than from the
+        // Journal card that asks for them: switching world rebuilds the Journal, which would
+        // tear a sheet owned by it straight back off the screen. The request is relayed
+        // through BodyStore, the same shape as session.requestedWorkoutID.
+        .fullScreenCover(isPresented: bodyFlowBinding(.setup)) {
+            PlanSetupFlow(onClose: { bodyStore.requestedFlow = nil })
+        }
+        .sheet(isPresented: bodyFlowBinding(.checkIn)) {
+            BodyCheckInView(onClose: { bodyStore.requestedFlow = nil })
         }
         // Claude  Date 06/13/2026 last changed: 07/24/2026 by: Claude
         // Achievement-unlock celebration, shown over the whole app. Keyed by id so
@@ -321,6 +334,9 @@ struct RootTabView: View {
         .onChange(of: scenePhase) { phase in
             switch phase {
             case .active:
+                // CLAUDE  Date 09/19/2026 — a body vault read that failed because the device
+                // was locked gets another go now that it plainly isn't.
+                bodyStore.retryIfUnavailable()
                 cardSync.processScheduledDeletion(store: store)
                 cardSync.sync(from: store)
                 // CLAUDE  Date 09/03/2026
@@ -383,6 +399,7 @@ struct RootTabView: View {
         .onReceive(router.$route.compactMap { $0 }) { route in
             switch route {
             case .supplements: openSupplements()
+            case .bodyCheckIn: openBodyCheckIn()
             }
             router.route = nil
         }
@@ -483,6 +500,29 @@ struct RootTabView: View {
     // Landing spot for a tapped supplement reminder: the Nutrition world's Journal,
     // where the checklist is actually ticked off. This intentional deep link overrides
     // the shared position that an ordinary mode flip preserves.
+    // CLAUDE  Date 09/19/2026
+    // A tapped check-in reminder: switch to the nutrition world and the Journal, then ask for
+    // the sheet. Holding it until no full-screen cover is up matters — SwiftUI would drop a
+    // sheet presented underneath the rest timer or the wizard, and the tap would do nothing.
+    private func openBodyCheckIn() {
+        if mode != .nutrition {
+            modeRaw = AppMode.nutrition.rawValue
+        }
+        selection = AgilTabItem.journal.tag
+        guard !session.showFullScreenTimer, store.profile.hasOnboarded else { return }
+        bodyStore.requestedFlow = .checkIn
+    }
+
+    // One binding per flow, so two presentations can share one published request without
+    // either of them fighting over it.
+    private func bodyFlowBinding(_ flow: BodyStore.Flow) -> Binding<Bool> {
+        Binding(
+            get: { bodyStore.requestedFlow == flow },
+            set: { isPresented in
+                if !isPresented, bodyStore.requestedFlow == flow { bodyStore.requestedFlow = nil }
+            })
+    }
+
     private func openSupplements() {
         if mode != .nutrition {
             modeRaw = AppMode.nutrition.rawValue
@@ -527,4 +567,5 @@ struct RootTabView: View {
         .environmentObject(WorkoutSession())
         .environmentObject(CardSyncService())
         .environmentObject(NotificationRouter.shared)
+        .environmentObject(BodyStore())
 }
