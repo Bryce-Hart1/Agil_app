@@ -17,6 +17,10 @@ struct SupplementsView: View {
     // The supplement being renamed (nil = closed).
     @State private var editing: Supplement?
     @State private var showingNewSlot = false
+    // CLAUDE  Date 09/24/2026 — the optional follow-up reminder (see SupplementFollowUp).
+    @AppStorage(SupplementFollowUp.enabledKey) private var followUpOn = false
+    @AppStorage(SupplementFollowUp.timeKey) private var followUpMinutes = SupplementFollowUp.defaultMinutes
+    @State private var showNotificationAsk = false
 
     var body: some View {
         List {
@@ -24,9 +28,22 @@ struct SupplementsView: View {
                 slotSection(slot)
             }
             newSlotSection
+            followUpSection
         }
         .navigationTitle("Supplements")
         .themed(theme.current)
+        // CLAUDE  Date 09/24/2026
+        // Follow-up changes reschedule right away. The resync after the permission screen
+        // closes is what makes a follow-up turned on before the first prompt actually fire.
+        .onChange(of: followUpOn) { on in
+            store.resyncSupplementReminders()
+            if on { askIfNeeded() }
+        }
+        .onChange(of: followUpMinutes) { _ in store.resyncSupplementReminders() }
+        .notificationAsk(isPresented: $showNotificationAsk)
+        .onChange(of: showNotificationAsk) { shown in
+            if !shown { store.resyncSupplementReminders() }
+        }
         .sheet(item: $addingToSlot) { slot in
             SupplementEditorSheet(slot: slot, existing: nil)
         }
@@ -124,6 +141,58 @@ struct SupplementsView: View {
 
     private func scheduleLabel(_ slot: SupplementSlot) -> String {
         slot.remindersOn ? "\(slot.timeLabel) · \(slot.daysLabel)" : "No reminder"
+    }
+
+    // MARK: - Follow-up
+
+    // CLAUDE  Date 09/24/2026
+    // One switch and one time for the whole stack, not per slot: the question it answers is
+    // "did I finish today?", which spans every group. Written straight through like the slot
+    // editor — the onChange handlers above do the rescheduling.
+    private var followUpSection: some View {
+        Section {
+            Toggle("Remind me again", isOn: $followUpOn)
+            if followUpOn {
+                DatePicker("If anything's left at", selection: followUpTime,
+                           displayedComponents: .hourAndMinute)
+            }
+        } header: {
+            Text("Follow-up")
+        } footer: {
+            Text(followUpOn
+                 ? "One more reminder at this time if anything due today is still unchecked. Groups with their own reminder at or after this time aren't counted."
+                 : "Get a second reminder later in the day if you haven't checked everything off.")
+        }
+    }
+
+    // The picker wants a Date; the setting is minutes after midnight (see SupplementFollowUp).
+    private var followUpTime: Binding<Date> {
+        Binding(
+            get: {
+                var components = DateComponents()
+                components.year = 2000
+                components.month = 1
+                components.day = 1
+                components.hour = followUpMinutes / 60
+                components.minute = followUpMinutes % 60
+                return Calendar.current.date(from: components) ?? Date()
+            },
+            set: { newValue in
+                let parts = Calendar.current.dateComponents([.hour, .minute], from: newValue)
+                followUpMinutes = (parts.hour ?? 20) * 60 + (parts.minute ?? 0)
+            })
+    }
+
+    // CLAUDE  Date 09/24/2026
+    // Same pre-permission rule as SupplementSlotEditorView: ask on .notDetermined, and on
+    // .denied show the screen's "Open Settings" route rather than a toggle that silently fails.
+    private func askIfNeeded() {
+        Task {
+            switch await WorkoutNotifications.authorizationStatus() {
+            case .notDetermined, .denied: showNotificationAsk = true
+            default: break
+            }
+        }
     }
 }
 

@@ -181,3 +181,21 @@ enum SupplementTracking {
     // it can't decode — adding a field there would wipe existing users' whole profile.
     static let inviteDismissedKey = "supplementsInviteDismissed"
 }
+
+// CLAUDE  Date 09/24/2026
+// The optional follow-up: one more nudge a day, at a chosen time, only if something due is
+// still unchecked. OFF by default since it's an extra alert. UserDefaults for the same reason
+// as SupplementTracking; the time is minutes after midnight, so one key holds it.
+enum SupplementFollowUp {
+    static let enabledKey = "supplementFollowUpOn"
+    static let timeKey = "supplementFollowUpMinutes"
+    static let defaultMinutes = 20 * 60 // 8:00 PM
+
+    // bool(forKey:) is safe here: a never-written key reads false, which IS the default.
+    static var isEnabled: Bool { UserDefaults.standard.bool(forKey: enabledKey) }
+
+    static var minutes: Int {
+        let stored = UserDefaults.standard.object(forKey: timeKey) as? Int ?? defaultMinutes
+        return (0..<24 * 60).contains(stored) ? stored : defaultMinutes
+    }
+}

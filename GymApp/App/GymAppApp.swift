@@ -77,6 +77,9 @@ struct GymAppApp: App {
                     theme.syncWidgetSnapshot()
                     cloudWallet.start(theme: theme)
                     store.recordDailyCheckIn()
+                    // CLAUDE  Date 09/24/2026 — schedule supplement reminders loaded from disk
+                    // (init skips the didSets) and roll the follow-up window forward.
+                    store.resyncSupplementReminders()
                     theme.noteEarned(store.totalCoinsEarned)
                     coinStore.start(theme: theme)
                 }

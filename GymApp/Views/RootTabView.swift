@@ -362,6 +362,9 @@ struct RootTabView: View {
                 // ModeNotch documents and accepts the same midnight-rollover behaviour
                 // for its stat; not worth a timer at alpha.
                 store.recordDailyCheckIn()
+                // CLAUDE  Date 09/24/2026 — keeps the week of supplement follow-ups topped up,
+                // and catches a notification permission changed in the Settings app.
+                store.resyncSupplementReminders()
                 // Catch the rest timer up to real elapsed time after backgrounding/locking.
                 session.refreshRest()
                 // Claude  Date 09/02/2026

@@ -118,7 +118,12 @@ final class AppStore: ObservableObject {
         }
     }
     @Published private(set) var supplementLog: [SupplementEntry] {
-        didSet { persistence.save(supplementLog, to: Self.supplementLogFile) }
+        didSet {
+            persistence.save(supplementLog, to: Self.supplementLogFile)
+            // CLAUDE  Date 09/24/2026 — today's follow-up lists what's still unchecked,
+            // so every check-off and un-check reschedules it (or drops it once cleared).
+            resyncSupplementReminders()
+        }
     }
     @Published private(set) var clearedSupplementDays: Set<Date> {
         didSet { persistence.save(clearedSupplementDays, to: Self.supplementClearedFile) }
@@ -1881,8 +1886,11 @@ final class AppStore: ObservableObject {
     // assignments never fire didSet, so a schedule loaded from disk was never scheduled in
     // this process), foregrounding (permission can be revoked in the Settings app behind
     // our back), the moment notification permission is granted, and the Settings toggle.
+    // CLAUDE  Date 09/24/2026 — also passes today's check-offs, which the optional follow-up
+    // reminder needs to know whether anything is still left (see SupplementNotifications).
     func resyncSupplementReminders() {
-        SupplementNotifications.resync(slots: supplementSlots, supplements: supplements)
+        SupplementNotifications.resync(slots: supplementSlots, supplements: supplements,
+                                       takenToday: takenSupplementIDs(on: Date()))
     }
 
     // MARK: - Supplements: slots
