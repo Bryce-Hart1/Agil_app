@@ -149,13 +149,25 @@ struct GemCardBackground: View {
         GeometryReader { geo in
             let diag = hypot(geo.size.width, geo.size.height)
             ZStack {
-                Rectangle().fill(tier.fillGradient)
+                Rectangle().fill(cardFill)
                 GemFacetOverlay(diameter: diag, sides: 14, highlight: tier.glimmerColor)
                     .frame(width: diag, height: diag)
                     .position(x: geo.size.width / 2, y: geo.size.height / 2)
-                GemCardGloss(size: geo.size, highlight: tier.glimmerColor)
+                GemCardGloss(size: geo.size, highlight: tier.glimmerColor,
+                             strength: tier == .diamond ? 0.18 : 0.32)
             }
         }
+    }
+
+    // CLAUDE  Date 09/23/2026
+    // Diamond's badge gradient starts near-white, which at full-card size glared and
+    // washed out the white name text. The card alone gets a muted icy-blue version (the
+    // badge keeps tier.fillGradient); emerald and legend are unchanged.
+    private var cardFill: LinearGradient {
+        guard tier == .diamond else { return tier.fillGradient }
+        return LinearGradient(colors: [Color(hex: "#8DBBD8"), Color(hex: "#5E97C2"),
+                                       Color(hex: "#284F7A")],
+                              startPoint: .topLeading, endPoint: .bottomTrailing)
     }
 }
 
@@ -168,6 +180,8 @@ private struct GemCardGloss: View {
     // Claude  Date 07/23/2026
     // The sweep glint color — white for diamond/emerald, gold for the Legend card.
     var highlight: Color = .white
+    // CLAUDE  Date 09/23/2026 — peak glint opacity; the diamond card passes a dimmer one.
+    var strength: Double = 0.32
 
     // CLAUDE  Date 09/17/2026
     // The gem cards' only moving part, so it carries the whole frame budget alone. A
@@ -194,7 +208,7 @@ private struct GemCardGloss: View {
         let phase = t.truncatingRemainder(dividingBy: period) / period  // 0…1
         let x = (phase * 2 - 0.5) * size.width                          // travel edge→edge
         return Rectangle()
-            .fill(LinearGradient(colors: [.clear, highlight.opacity(0.32), .clear],
+            .fill(LinearGradient(colors: [.clear, highlight.opacity(strength), .clear],
              startPoint: .leading, endPoint: .trailing))
             .frame(width: size.width * 0.34, height: span)
             .rotationEffect(.degrees(18))

@@ -16,8 +16,13 @@ import SwiftUI
 // spotlight target the tour points at, if any — the buttons report real frames
 // now, where the native tab items could only be approximated (see TourTarget).
 struct AgilTabItem: Identifiable, Hashable {
-    /// Matches the `.tag(_:)` on the matching TabView child.
+    /// Identifies the SCREEN, globally unique across both worlds (see activeTabTag). The
+    /// TabView child is tagged by `position` instead.
     let tag: Int
+    // CLAUDE  Date 09/20/2026
+    // The bar SLOT (1...4) this item occupies. Position is what the app persists and what
+    // a world flip preserves, so Journal (position 1) lands on Workouts (position 1).
+    let position: Int
     let title: String
     let icon: Icon
     let tour: TourTarget?
@@ -68,37 +73,62 @@ extension AgilTabItem.Icon {
     }
 }
 
-// Claude  Date 07/21/2026
-// The two worlds' tab sets. Tags match the `.tag(_:)` values and shared persisted
-// position in RootTabView, so the same tag means the same slot in either world.
+// Claude  Date 07/21/2026 last changed: 09/22/2026 by: CLAUDE
+// The two worlds' tab sets. `tag` identifies a screen (unique across worlds); `position`
+// is its bar slot, which is also the TabView tag and what a world flip preserves
+// (Journal 1 ↔ Workouts 1).
 extension AgilTabItem {
-    static let workouts = AgilTabItem(tag: 1, title: "Workouts",
+    static let workouts = AgilTabItem(tag: 1, position: 1, title: "Workouts",
                                       icon: .system("dumbbell"), tour: .tabWorkouts)
-    static let build = AgilTabItem(tag: 2, title: "Build",
+    static let build = AgilTabItem(tag: 2, position: 2, title: "Build",
                                    icon: .asset("hammer"), tour: .tabBuild)
-    static let progress = AgilTabItem(tag: 3, title: "Progress",
+    static let progress = AgilTabItem(tag: 3, position: 3, title: "Progress",
                                       icon: .asset("chart-scatter"), tour: .tabProgress)
     // CLAUDE  Date 09/05/2026
     // ONE Profile item, not one per world. The two were already identical in every
     // field, and RootTabView now mounts a single shared ProfileView outside the
     // world conditional so it is never torn down on a mode switch.
-    static let profile = AgilTabItem(tag: 4, title: "Profile",
+    static let profile = AgilTabItem(tag: 4, position: 4, title: "Profile",
                                      icon: .asset("user-circle-dashed"), tour: .tabProfile)
 
-    static let journal = AgilTabItem(tag: 1, title: "Journal",
-                                     icon: .asset("notepad"), tour: .tabJournal)
-    static let foods = AgilTabItem(tag: 2, title: "Foods",
+    // CLAUDE  Date 09/20/2026 last changed: 09/22/2026 by: CLAUDE
+    // Nutrition's tags are 1x so every screen's tag is unique — it's how each ModeNotch
+    // tells it's the visible one (activeTabTag). The TabView itself is tagged by
+    // `position`; see agilTab below.
+    static let journal = AgilTabItem(tag: 11, position: 1, title: "Journal",
+                                     icon: .asset("book-open-text"), tour: .tabJournal)
+    static let foods = AgilTabItem(tag: 12, position: 2, title: "Foods",
                                    icon: .asset("orange"), tour: nil)
+    static let log = AgilTabItem(tag: 13, position: 3, title: "Log",
+                                 icon: .asset("scroll"), tour: .tabLog)
+
     static func items(for mode: AppMode) -> [AgilTabItem] {
         switch mode {
         case .lifting:   return [.workouts, .build, .progress, .profile]
-        case .nutrition: return [.journal, .foods, .progress, .profile]
+        case .nutrition: return [.journal, .foods, .log, .profile]
         }
     }
 
+    // CLAUDE  Date 09/20/2026 last changed: 09/22/2026 by: CLAUDE
+    // Both worlds' items, so any tag the bar hands back resolves to its position.
+    static let allItems: [AgilTabItem] = [.workouts, .build, .progress, .profile,
+                                          .journal, .foods, .log]
+
+    // CLAUDE  Date 09/20/2026
+    // The two halves of the persisted-position ↔ mounted-tag mapping. Falling back to the
+    // world's first tab (rather than trapping) keeps a stale stored position harmless.
+    static func tag(position: Int, mode: AppMode) -> Int {
+        let world = items(for: mode)
+        return (world.first { $0.position == position } ?? world[0]).tag
+    }
+
+    static func position(tag: Int) -> Int {
+        allItems.first { $0.tag == tag }?.position ?? 1
+    }
+
     // Claude  Date 07/24/2026
-    // Which tag the Profile tab has in a given world. Both worlds keep Progress in
-    // slot 3 and Profile in slot 4, so switching modes preserves their position.
+    // Which tag the Profile tab has in a given world. Profile stays in slot 4,
+    // so switching modes preserves its position.
     // Exists so the unopened-achievements count can be addressed to "the Profile
     // tab" without RootTabView hardcoding a number that moves whenever a tab is
     // added to either set.
@@ -235,10 +265,11 @@ private struct TabBadge: View {
     }
 }
 
-// Claude  Date 07/21/2026 last changed: 07/21/2026 by: Claude
+// Claude  Date 07/21/2026 last changed: 09/22/2026 by: CLAUDE
 // What a RootTabView tab needs: the native tab item + tag (kept as a fallback but
 // normally invisible) and the hide-the-native-tab-bar request that lets our bar
-// stand in for the iOS 26 floating glass pill.
+// stand in for the iOS 26 floating glass pill. (09/22) Tagged by POSITION: the
+// TabView has one child per bar slot, shared by both worlds.
 //
 // Neither bar is mounted here. Both were, as safe-area insets, through two attempts
 // that drew correctly but left pages scrolling under them — insets applied outside a
@@ -250,7 +281,7 @@ extension View {
         self
             .toolbar(.hidden, for: .tabBar)
             .tabItem { item.label }
-            .tag(item.tag)
+            .tag(item.position)
     }
 }
 

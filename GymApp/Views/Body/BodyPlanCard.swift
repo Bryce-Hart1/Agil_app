@@ -1,8 +1,7 @@
 import SwiftUI
 
 // CLAUDE  Date 09/19/2026
-// The body feature's home in the Journal, sitting under the supplement checklist and above
-// Summary — the plan is what the Summary's targets came from, so it reads in that order.
+// The body feature's home in the Journal, after the daily summary and water.
 // Four states: an invitation, an active plan, a check-in that's ready, and the rare case
 // where the vault can't be read. Draws nothing once the invitation is dismissed.
 struct BodyPlanCard: View {

@@ -1,24 +1,15 @@
 import SwiftUI
 
 
-/// The Nutrition tab's home: a per-day food diary. A date stepper at the top picks
-/// the day; below it sits the daily calorie/macro summary, a water tracker, and one
-/// section per meal listing what was logged. The + on each meal opens the food
-/// picker to log into that meal on the selected day.
+/// The Nutrition tab's daily overview: calorie and macro totals, focus goals,
+/// water, supplements, and the body plan for the selected day.
 struct NutritionJournalView: View {
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var theme: ThemeManager
 
-    // Claude  Date 06/16/2026 updated Bryce Hart 6/16/26
-    // The day being viewed/edited. Defaults to today; the header steps it.
-    @State private var selectedDate = Date()
-    // Which meal the food picker is logging into (nil = picker closed).
-    @State private var addingToMeal: MealType?
-    // Claude  Date 06/16/2026
-    // The logged entry being edited (nil = editor closed). Tapping a row opens it.
-    @State private var editingEntry: FoodEntry?
+    @Binding var selectedDate: Date
     // Claude  Date 07/12/2026
-    // Whether the focus-goals editor sheet is up (top-left toolbar button).
+    // The setup checklist can still open focus goals from the Journal.
     @State private var showingFocusGoals = false
     // Claude  Date 07/16/2026
     // Water display unit (Settings → Water). Logging still writes canonical ml;
@@ -57,7 +48,7 @@ struct NutritionJournalView: View {
     var body: some View {
         NavigationStack {
             List {
-                dateSection
+                NutritionDayPickerSection(selectedDate: $selectedDate)
                 // Claude  Date 07/25/2026
                 // First-run setup checklist, directly under the day picker and above
                 // Summary — the calorie/water goals it points at are exactly what the
@@ -73,32 +64,29 @@ struct NutritionJournalView: View {
                 // which is why the tracker had no journal surface at all; it decides
                 // its own five states (including drawing nothing).
                 SupplementCard(selectedDate: selectedDate)
-                // CLAUDE  Date 09/19/2026
-                // Weight, plan and the weekly check-in, directly above Summary — the targets
-                // Summary measures against are the ones this plan sets, so it reads in that
-                // order. Draws nothing when there's no plan and the invitation was dismissed.
-                BodyPlanCard()
                 summarySection
                 if !store.focusGoals.isEmpty {
                     focusSection
                 }
                 if trackWater { waterSection }
-                ForEach(MealType.allCases) { meal in
-                    mealSection(meal)
-                }
+                // Weight, plan and the weekly check-in follow the daily overview.
+                BodyPlanCard()
             }
-            .navigationTitle("Log")
+            .navigationTitle("Journal")
             .themed(theme.current)
             // Claude  Date 07/13/2026
             // Centered mode-switcher pill in the nav bar (shared by all root tabs).
             .modeNotchToolbar(tab: AgilTabItem.journal.tag)
             .toolbar {
-                // Claude  Date 07/12/2026
-                // Top-left: nutrient focus goals ("I want to eat more fiber").
+                // CLAUDE  Date 09/22/2026
+                // Top-left: focus goals, the same sheet Log's scope button opens. Every root
+                // screen keeps a button on both sides — with only the trailing target, UIKit
+                // centred the mode notch in the leftover space and shoved it left.
                 ToolbarItem(placement: .topBarLeading) {
                     Button(action: openFocusGoals) {
                         Image(systemName: "scope")
                     }
+                    .accessibilityLabel("Focus goals")
                 }
                 // CLAUDE  Date 09/20/2026
                 // The target button now opens Body & plan, which owns the daily targets since
@@ -111,14 +99,8 @@ struct NutritionJournalView: View {
                     }
                 }
             }
-            .sheet(item: $addingToMeal) { meal in
-                FoodPickerView(meal: meal, date: selectedDate)
-            }
             .sheet(isPresented: $showingFocusGoals) {
                 FocusGoalsView()
-            }
-            .sheet(item: $editingEntry) { entry in
-                EditFoodEntryView(entry: entry)
             }
         }
     }
@@ -130,41 +112,6 @@ struct NutritionJournalView: View {
     private func openFocusGoals() {
         showingFocusGoals = true
         store.markNutritionSetup(\.focusGoalsOpened)
-    }
-
-    // MARK: - Date stepper
-
-    private var dateSection: some View {
-        Section {
-            HStack {
-                Button { step(-1) } label: { Image(systemName: "chevron.left") }
-                    .buttonStyle(.borderless)
-                Spacer()
-                VStack(spacing: 1) {
-                    Text(selectedDate, format: .dateTime.weekday(.wide))
-                        .font(.headline)
-                    Text(selectedDate, format: .dateTime.month().day().year())
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                Spacer()
-                Button { step(1) } label: { Image(systemName: "chevron.right") }
-                    .buttonStyle(.borderless)
-                    .disabled(Calendar.current.isDateInToday(selectedDate))
-            }
-            if !Calendar.current.isDateInToday(selectedDate) {
-                Button("Jump to Today") { selectedDate = Date() }
-                    .font(.caption)
-                    .frame(maxWidth: .infinity)
-            }
-        }
-    }
-
-    private func step(_ days: Int) {
-        guard let next = Calendar.current.date(byAdding: .day, value: days, to: selectedDate)
-        else { return }
-        // Never step past today (no logging into the future).
-        if days > 0 && next > Date() { return }
-        selectedDate = next
     }
 
     // MARK: - Summary
@@ -388,47 +335,6 @@ struct NutritionJournalView: View {
         }
     }
 
-    // MARK: - Meals
-
-    // Claude  Date 06/16/2026 last changed: 08/06/2026 by: Claude
-    // One meal's logged entries. Rows are swipe-actioned, not tappable: a whole row
-    // that opens an editor is an easy thing to hit by accident while scrolling, and it
-    // hid Delete behind a gesture that gave no hint it existed. Both actions are on the
-    // trailing edge (the iOS convention), Delete first so a full swipe still deletes.
-    private func mealSection(_ meal: MealType) -> some View {
-        let entries = day.entries(for: meal)
-        let mealKcal = Int(day.totals(for: meal).calories.rounded())
-        return Section {
-            ForEach(entries) { entry in
-                FoodEntryRow(entry: entry)
-                    .swipeActions(edge: .trailing) {
-                        Button(role: .destructive) {
-                            store.deleteFoodEntry(id: entry.id)
-                        } label: {
-                            Label("Delete", systemImage: "trash")
-                        }
-                        Button {
-                            editingEntry = entry
-                        } label: {
-                            Label("Edit", systemImage: "square.and.pencil")
-                        }
-                        .tint(theme.current.accent)
-                    }
-            }
-            Button {
-                addingToMeal = meal
-            } label: {
-                Label("Add food", systemImage: "plus.circle.fill")
-                    .font(.subheadline)
-            }
-        } header: {
-            HStack {
-                Label(meal.title, systemImage: meal.systemImage)
-                Spacer()
-                if mealKcal > 0 { Text("\(mealKcal) kcal") }
-            }
-        }
-    }
 }
 
 // Claude  Date 07/16/2026
@@ -507,47 +413,6 @@ private struct WaterFillShape: Shape {
     }
 }
 
-// Claude  Date 06/16/2026
-// One logged food row: name, what was eaten (servings + macro breakdown), and the
-// calories for the entry on the trailing edge.
-private struct FoodEntryRow: View {
-    let entry: FoodEntry
-
-    var body: some View {
-        let c = entry.consumed
-        HStack(alignment: .top) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(entry.displayName).font(.subheadline).fontWeight(.medium)
-                    .lineLimit(1)
-                Text("\(servingsText) • P \(g(c.protein)) · C \(g(c.carbs)) · F \(g(c.fat))")
-                    .font(.caption2).foregroundStyle(.secondary)
-            }
-            Spacer()
-            Text("\(Int(c.calories.rounded())) kcal")
-                .font(.subheadline).monospacedDigit()
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    // Claude  Date 06/16/2026 last changed: 08/06/2026 by: Claude
-    // What was eaten, in the words the user used: "200 g", "2 cups", "1.5 servings".
-    //
-    // (Was always the servings count. Everything logged through the detail page is
-    // stored as `servings: 1` with the amount folded into the nutrient snapshot, so
-    // every row read a uniform, useless "1× serving" whether you'd logged 30 g or a
-    // pound. The measurement is recorded on the entry now — `amountText` scales it by
-    // the servings multiplier so an edited entry stays consistent. Entries logged
-    // before that existed, and any plain servings-count log, keep the old wording.)
-    private var servingsText: String {
-        if let text = entry.amountText { return text }
-        let s = entry.servings
-        let n = s.rounded() == s ? String(Int(s)) : String(format: "%.2g", s)
-        return "\(n)× serving"
-    }
-
-    private func g(_ value: Double) -> String { "\(Int(value.rounded()))g" }
-}
-
 // Claude  Date 07/12/2026
 // One focus-goal progress row under the Summary: tinted icon chip, a thin bar in
 // the Summary card's style (grow-in spring, animated updates), and a status
@@ -610,7 +475,7 @@ private struct FocusGoalRow: View {
 }
 
 #Preview {
-    NutritionJournalView()
+    NutritionJournalView(selectedDate: .constant(Date()))
         .environmentObject(AppStore())
         .environmentObject(ThemeManager())
 }

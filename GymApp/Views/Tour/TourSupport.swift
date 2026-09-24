@@ -22,8 +22,9 @@ enum TourTarget: String, Hashable {
     case newBlankWorkout, newFromPreset                   // Workouts nav bar
     case profileAchievements, profileSettings             // Profile nav bar
     case tabWorkouts, tabBuild                            // lifting world
-    case tabJournal                                       // nutrition world
-    case tabProgress, tabProfile                          // shared position in both
+    case tabJournal, tabLog                               // nutrition world
+    case tabProgress                                      // lifting world
+    case tabProfile                                       // shared position in both
     case profileCard
 
     // Claude  Date 07/14/2026 last changed: 07/21/2026 by: Claude
@@ -77,9 +78,10 @@ enum TourTarget: String, Hashable {
             return nil
         case .tabWorkouts: return mode == .lifting ? tabRect(index: 0, of: 4) : nil
         case .tabBuild:    return mode == .lifting ? tabRect(index: 1, of: 4) : nil
-        case .tabProgress: return tabRect(index: 2, of: 4)
+        case .tabProgress: return mode == .lifting ? tabRect(index: 2, of: 4) : nil
         case .tabProfile:  return tabRect(index: 3, of: 4)
         case .tabJournal:  return mode == .nutrition ? tabRect(index: 0, of: 4) : nil
+        case .tabLog:      return mode == .nutrition ? tabRect(index: 2, of: 4) : nil
         case .profileCard:
             // In-content target: no synthesized fallback — it must come from the
             // anchor preference (the overlay shows a centered card if it's missing).
@@ -186,8 +188,13 @@ enum TourScript {
         TourStep(
             id: "journal", target: .tabJournal,
             title: "The Food Side",
-            message: "Over in Food, the Journal tracks meals, water, and calories day by day, staying on goal earns badges too.",
+            message: "Over in Food, the Journal shows your daily calories, water, and goals. Progress charts for food are with your workout charts.",
             mode: .nutrition, tab: 1),
+        TourStep(
+            id: "log", target: .tabLog,
+            title: "Log",
+            message: "Add and edit breakfast, lunch, dinner, and snacks here. Scan a barcode or set a focus goal from the top bar.",
+            mode: .nutrition, tab: 3),
         TourStep(
             id: "outro", target: nil,
             title: "You're all set",

@@ -73,6 +73,7 @@ struct ProgressDashboardView: View {
                     dashboardWidget(widget)
                 }
                 emptyProgressMessage
+                NutritionProgressSections()
                 editProgressSection
             }
             .navigationTitle("")
@@ -191,6 +192,9 @@ struct ProgressDashboardView: View {
         }
     }
 
+    // CLAUDE  Date 09/23/2026
+    // The one Edit Progress row for the whole page — food widgets are reached through the
+    // gallery's Workouts / Food switcher instead of a second "Edit food progress" row.
     private var editProgressSection: some View {
         Section {
             NavigationLink {

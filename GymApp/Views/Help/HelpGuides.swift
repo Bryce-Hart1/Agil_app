@@ -222,8 +222,8 @@ enum HelpGuideCatalog {
                           title: "Or scan a barcode to fill it in for you"),
             HelpGuideStep(icon: .system("chart.pie"),
                           title: "Enter the serving size and macros"),
-            HelpGuideStep(icon: .asset("notepad"),
-                          title: "It's now searchable from the Journal. You can also send it to our team for review to be added to the public database")
+            HelpGuideStep(icon: .asset("scroll"),
+                          title: "It's now searchable from Log. You can also send it to our team for review to be added to the public database")
         ]
     )
 
@@ -244,8 +244,8 @@ enum HelpGuideCatalog {
                           title: "Set how many servings it makes"),
             HelpGuideStep(icon: .system("chart.pie"),
                           title: "Macros per serving are worked out for you"),
-            HelpGuideStep(icon: .asset("notepad"),
-                          title: "Log a serving from the Journal like any other food")
+            HelpGuideStep(icon: .asset("scroll"),
+                          title: "Log a serving from the Log tab like any other food")
         ]
     )
 }

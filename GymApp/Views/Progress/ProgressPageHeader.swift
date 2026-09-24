@@ -1,7 +1,7 @@
 import SwiftUI
 
 // Bryce Hart  Date 09/02/2026 last changed: 09/05/2026 by: Bryce Hart
-// Shared by both Progress worlds. Day counts are rolling inclusive windows; all time
+// Shared by the workout and food sections. Day counts are rolling inclusive windows; all time
 // intentionally has no fixed start and expands to the first qualifying activity day.
 enum ProgressTimeRange: String, CaseIterable, Identifiable {
     case thirtyDays
@@ -43,12 +43,13 @@ enum ProgressTimeRange: String, CaseIterable, Identifiable {
     }
 }
 
-// One reusable title row prevents the lifting and food headers from drifting. The
+// One reusable title row prevents the workout and food headers from drifting. The
 // compact chart tile and soft range capsule add hierarchy without sacrificing the
 // single horizontal line the dashboard needs on smaller phones.
 struct ProgressPageHeader: View {
     @Binding var selectedRange: ProgressTimeRange
     let accent: Color
+    var title = "Progress"
 
     var body: some View {
         HStack(alignment: .center, spacing: 8) {
@@ -59,7 +60,7 @@ struct ProgressPageHeader: View {
                     .frame(width: 28, height: 28)
                     .background(accent.opacity(0.13), in: RoundedRectangle(cornerRadius: 8))
 
-                Text("Progress")
+                Text(title)
                     // A fixed compact title is more reliable than asking the large
                     // title to scale after the range capsule claims its width.
                     .font(.system(size: 23, weight: .bold))

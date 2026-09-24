@@ -3,7 +3,7 @@ import SwiftUI
 // Bryce Hart  Date 09/05/2026
 // Each world owns its own dashboard selection. The stored values are raw widget ids,
 // not positional booleans, so adding new cards later won't scramble an existing page.
-enum ProgressCustomizationMode: Equatable {
+enum ProgressCustomizationMode: Hashable, CaseIterable {
     case lifting
     case nutrition
 
@@ -36,6 +36,14 @@ enum ProgressCustomizationMode: Equatable {
 
     var defaultStorageValue: String {
         defaultWidgets.map(\.rawValue).joined(separator: ",")
+    }
+
+    // CLAUDE  Date 09/23/2026 — label for the gallery's Workouts / Food switcher.
+    var title: String {
+        switch self {
+        case .lifting: return "Workouts"
+        case .nutrition: return "Food"
+        }
     }
 }
 
@@ -148,10 +156,18 @@ enum ProgressWidgetLayout {
 }
 
 // The dedicated widget gallery reached from either Edit Progress entry point.
+// CLAUDE  Date 09/23/2026
+// One gallery for both worlds: a Workouts / Food switcher picks which widget list shows,
+// replacing the separate "Edit food progress" row. `mode` is only the starting tab; each
+// world still saves to its own layout key.
 struct ProgressCustomizationView: View {
     @EnvironmentObject private var theme: ThemeManager
 
-    let mode: ProgressCustomizationMode
+    @State private var mode: ProgressCustomizationMode
+
+    init(mode: ProgressCustomizationMode = .lifting) {
+        _mode = State(initialValue: mode)
+    }
     @AppStorage("liftingProgressWidgetLayoutV1") private var liftingLayout =
         ProgressCustomizationMode.lifting.defaultStorageValue
     @AppStorage("nutritionProgressWidgetLayoutV2") private var nutritionLayout =
@@ -180,7 +196,18 @@ struct ProgressCustomizationView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Section("Widget gallery") {
+            Section {
+                Picker("Show widgets for", selection: $mode) {
+                    ForEach(ProgressCustomizationMode.allCases, id: \.self) { option in
+                        Text(option.title).tag(option)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+            }
+
+            Section("\(mode.title) widgets") {
                 ForEach(availableWidgets) { widget in
                     widgetCard(widget)
                         .listRowInsets(EdgeInsets(top: 8, leading: 16,

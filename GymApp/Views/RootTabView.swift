@@ -22,11 +22,13 @@ struct RootTabView: View {
     // CLAUDE  Date 09/19/2026 — weight and the calorie plan; its flows are presented here.
     @EnvironmentObject private var bodyStore: BodyStore
     @Environment(\.scenePhase) private var scenePhase
-    // Bryce Hart  Date 09/05/2026
-    // One persisted tab position is shared by both worlds. Because both tab sets use
-    // matching positional tags, flipping Food ↔ Workouts now keeps you in the same
-    // slot (Foods ↔ Build, Progress ↔ Progress, and so on) across switches and relaunches.
-    @AppStorage("selectedTabPosition") private var selection = 1
+    // Bryce Hart  Date 09/05/2026 last changed: 09/20/2026 by: CLAUDE
+    // One persisted tab position is shared by both worlds, so flipping Food ↔ Workouts
+    // keeps you in the same slot (Foods ↔ Build, Log ↔ Progress, and so on) across
+    // switches and relaunches. (09/22) The TabView selects by this position directly;
+    // our bar speaks screen tags and goes through `selectedTag`.
+    @AppStorage("selectedTabPosition") private var tabPosition = 1
+    @State private var selectedNutritionDate = Date()
     // Claude  Date 07/27/2026
     // Frames reported by tour targets that can't carry a preference anchor — today
     // just the ModeNotch, hosted in a UIKit nav bar. Owned here and injected into
@@ -38,6 +40,14 @@ struct RootTabView: View {
     // where you left off. Flipped by switchMode(to:), driven by the ModeNotch pill.
     @AppStorage("appMode") private var modeRaw = AppMode.lifting.rawValue
     private var mode: AppMode { AppMode(rawValue: modeRaw) ?? .lifting }
+    // CLAUDE  Date 09/20/2026 last changed: 09/22/2026 by: CLAUDE
+    // The on-screen SCREEN's tag: the current world's item at the persisted position.
+    // Our bar selects through it and activeTabTag reads it; a flip changes it (Workouts
+    // → Journal) without touching the stored position.
+    private var selectedTag: Binding<Int> {
+        Binding(get: { AgilTabItem.tag(position: tabPosition, mode: mode) },
+                set: { tabPosition = AgilTabItem.position(tag: $0) })
+    }
     // Claude  Date 09/02/2026
     // Heartbeat for the idle auto-finish (store.autoFinishStaleWorkouts). The launch and
     // foreground checks below can't catch a workout forgotten while the app just sits on
@@ -78,7 +88,7 @@ struct RootTabView: View {
             // thing that interrupts you, and it waits quietly until you tap it.
             AgilTabBar(
                 items: AgilTabItem.items(for: mode),
-                selection: $selection,
+                selection: selectedTag,
                 badgeCounts: [AgilTabItem.profileTag(for: mode): store.unopenedAchievementCount]
             )
         }
@@ -102,7 +112,7 @@ struct RootTabView: View {
         // Which tab is actually on screen. A TabView keeps visited tabs alive, so
         // every root screen's ModeNotch is live at once; each one reads this to tell
         // whether it's the visible instance before reporting its frame to the tour.
-        .environment(\.activeTabTag, selection)
+        .environment(\.activeTabTag, selectedTag.wrappedValue)
         .tint(theme.current.accent)
         // Claude  Date 07/21/2026 last changed: 09/18/2026 by: Claude
         // The app's typeface, carried by the theme (all built-ins are monospaced
@@ -125,10 +135,8 @@ struct RootTabView: View {
             RestTimerFullScreenView()
         }
         // CLAUDE  Date 09/19/2026
-        // The body plan's wizard and weekly check-in. Presented HERE rather than from the
-        // Journal card that asks for them: switching world rebuilds the Journal, which would
-        // tear a sheet owned by it straight back off the screen. The request is relayed
-        // through BodyStore, the same shape as session.requestedWorkoutID.
+        // The body plan's wizard and weekly check-in. Their requests are relayed
+        // through BodyStore so the flows remain available across tab changes.
         .fullScreenCover(isPresented: bodyFlowBinding(.setup)) {
             PlanSetupFlow(onClose: { bodyStore.requestedFlow = nil })
         }
@@ -428,7 +436,12 @@ struct RootTabView: View {
     // three stacked pieces it is (pages, mini-bar, tab bar) — the contents are
     // unchanged, and world-switch bookkeeping stays with the selection it edits.
     private var tabContent: some View {
-        TabView(selection: $selection) {
+        // CLAUDE  Date 09/22/2026
+        // FOUR tab children, never more, never changing: one per bar position. Seven
+        // children (09/20) tripped UIKit's built-in "More" tab past five — Foods, Log and
+        // Profile got a "‹ More" back arrow in place of their left icon. Each slot swaps its
+        // world's screen INSIDE itself, so the TabView's child list is identical across flips.
+        TabView(selection: $tabPosition) {
             // Claude  Date 07/21/2026
             // Each tab is hosted by .agilTab, which hides the native tab bar and
             // applies the item's tabItem/tag. Icons + titles live on AgilTabItem (see
@@ -436,52 +449,48 @@ struct RootTabView: View {
             // apart. Neither bottom bar is mounted here — both are siblings of this
             // TabView in the VStack above, which is what keeps pages from scrolling
             // underneath them.
-            if mode == .lifting {
-                WorkoutsListView()
-                    .agilTab(.workouts)
+            worldSlot(position: 1) {
+                if mode == .lifting {
+                    WorkoutsListView()
+                } else {
+                    // Claude  Date 06/16/2026 Edited 6/16/26 Bryce Hart last changed: 07/21/2026 by: Claude
+                    // Nutrition world: the daily Journal, food library, meal Log, and
+                    // shared profile. Journal and Log use the same selected day.
+                    NutritionJournalView(selectedDate: $selectedNutritionDate)
+                }
+            }
 
-                // Claude  Date 06/16/2026 last changed: 07/21/2026 by: Claude
-                // The "Build" hub: workout presets (templates), with the exercise
-                // library reachable from its top-left link. (Icon: custom template
-                // asset "hammer", replacing plus.square.on.square.)
-                PresetsListView()
-                    .agilTab(.build)
+            // Claude  Date 06/16/2026 last changed: 07/21/2026 by: Claude
+            // The "Build" hub: workout presets (templates), with the exercise
+            // library reachable from its top-left link.
+            worldSlot(position: 2) {
+                if mode == .lifting { PresetsListView() } else { FoodLibraryView() }
+            }
 
-                // Claude  Date 07/13/2026
-                // Icon: custom template asset "chart-scatter" (was chart.bar.xaxis).
-                ProgressDashboardView()
-                    .agilTab(.progress)
-            } else {
-                // Claude  Date 06/16/2026 Edited 6/16/26 Bryce Hart last changed: 07/21/2026 by: Claude
-                // Nutrition world: per-day food Journal, the food library, food
-                // progress, and the shared profile. Goals are reached from the
-                // Journal's toolbar.
-                // (Icons: custom template assets "notepad"/"orange", replacing
-                // fork.knife/carrot.)
-                NutritionJournalView()
-                    .agilTab(.journal)
-
-                FoodLibraryView()
-                    .agilTab(.foods)
-
-                // Bryce Hart  Date 09/05/2026
-                // Progress occupies slot 3 in both worlds. Food gets its own page so
-                // nutrition-specific tracking can grow without mixing workout charts.
-                NutritionProgressDashboardView()
-                    .agilTab(.progress)
+            worldSlot(position: 3) {
+                if mode == .lifting {
+                    ProgressDashboardView()
+                } else {
+                    NutritionLogView(selectedDate: $selectedNutritionDate)
+                }
             }
 
             // CLAUDE  Date 09/05/2026
-            // Profile lives OUTSIDE the world conditional, and is the reason the whole
-            // TabView no longer carries an .id(mode). It used to be listed in both
-            // branches at the same tag, so a mode switch asked SwiftUI to reconcile a
-            // ProfileView into a different ProfileView in the same tab slot — which is
-            // what lost the navigation bar on the way back to lifting. Mounted once, it
-            // is never torn down: switching worlds no longer restarts the animated card
-            // background or re-lays out the bottom bars.
+            // Profile is shared by both worlds — one mount, one tag, never torn down, so
+            // switching worlds doesn't restart the animated card background.
             ProfileView()
                 .agilTab(.profile)
         }
+    }
+
+    // CLAUDE  Date 09/22/2026
+    // One bar position's tab child. The world conditional lives INSIDE this stable child,
+    // so a flip is an ordinary content swap within one tab rather than a change to the
+    // TabView's children (which cost the nav bar its mode notch). Labelled per world.
+    private func worldSlot<Content: View>(position: Int,
+                                          @ViewBuilder content: () -> Content) -> some View {
+        let item = AgilTabItem.items(for: mode).first { $0.position == position } ?? .profile
+        return content().agilTab(item)
     }
 
     // Claude  Date 06/16/2026 last changed: 09/05/2026 by: Bryce Hart
@@ -492,7 +501,7 @@ struct RootTabView: View {
         if mode != .lifting {
             modeRaw = AppMode.lifting.rawValue
         }
-        selection = 1
+        tabPosition = AgilTabItem.workouts.position
         session.requestedWorkoutID = id
     }
 
@@ -508,7 +517,7 @@ struct RootTabView: View {
         if mode != .nutrition {
             modeRaw = AppMode.nutrition.rawValue
         }
-        selection = AgilTabItem.journal.tag
+        tabPosition = AgilTabItem.journal.position
         guard !session.showFullScreenTimer, store.profile.hasOnboarded else { return }
         bodyStore.requestedFlow = .checkIn
     }
@@ -527,7 +536,7 @@ struct RootTabView: View {
         if mode != .nutrition {
             modeRaw = AppMode.nutrition.rawValue
         }
-        selection = AgilTabItem.journal.tag
+        tabPosition = AgilTabItem.journal.position
     }
 
     // Claude  Date 07/14/2026
@@ -554,8 +563,9 @@ struct RootTabView: View {
         if tourStep.mode != mode {
             modeRaw = tourStep.mode.rawValue
         }
+        // TourStep.tab is a bar POSITION (1...4), which is what the app persists.
         if let tab = tourStep.tab {
-            selection = tab
+            tabPosition = tab
         }
     }
 }

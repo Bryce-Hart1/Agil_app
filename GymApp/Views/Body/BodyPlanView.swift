@@ -99,18 +99,24 @@ struct BodyPlanView: View {
     private var dailyTargetsSection: some View {
         Section {
             goalField("Calories (kcal)", value: calorieGoalBinding)
-            goalField("Protein (g)", value: $store.nutritionGoals.protein)
-            goalField("Carbs (g)", value: $store.nutritionGoals.carbs)
-            goalField("Fat (g)", value: $store.nutritionGoals.fat)
+            // CLAUDE  Date 09/20/2026
+            // The three macros share one row as tappable chips instead of taking a row each —
+            // five stacked fields plus a paragraph was swallowing half the page (Bryce,
+            // 9/20/26). Still directly editable; just folded into the width instead of down.
+            HStack(spacing: 10) {
+                macroField("Protein", value: $store.nutritionGoals.protein, color: MacroPalette.protein)
+                macroField("Carbs", value: $store.nutritionGoals.carbs, color: MacroPalette.carbs)
+                macroField("Fat", value: $store.nutritionGoals.fat, color: MacroPalette.fat)
+            }
+            .padding(.vertical, 2)
             if trackWater {
                 goalField("Water (\(waterUnit.abbreviation))", value: waterGoalBinding)
             }
         } header: {
             Text("Daily targets")
         } footer: {
-            Text(plan == nil
-                 ? "What the Journal's Summary fills toward. A plan can work these out for you and keep them current."
-                 : "Set by your plan. Edit any of them here — the next check-in adjusts from whatever they are then, it never overwrites you silently.")
+            Text(plan == nil ? "What the Journal fills toward."
+                             : "Set by your plan. Edit any of them — the next check-in works from what's here.")
         }
     }
 
@@ -119,6 +125,22 @@ struct BodyPlanView: View {
             TextField(label, value: value, format: .number)
                 .keyboardType(.decimalPad)
                 .multilineTextAlignment(.trailing)
+        }
+    }
+
+    /// One macro as a compact tinted chip, coloured from MacroPalette like everywhere else.
+    private func macroField(_ title: String, value: Binding<Double>, color: Color) -> some View {
+        VStack(spacing: 3) {
+            TextField(title, value: value, format: .number)
+                .keyboardType(.decimalPad)
+                .multilineTextAlignment(.center)
+                .font(.subheadline.monospacedDigit())
+                .foregroundStyle(color)
+                .padding(.vertical, 7)
+                .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 9))
+            Text("\(title) (g)")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
         }
     }
 

@@ -2,9 +2,9 @@ import SwiftUI
 import Charts
 
 // Bryce Hart  Date 09/05/2026
-// The Food world's Progress page. Food activity stays the glanceable first row, with
-// daily goal-aware charts underneath for macros, focus goals, and optional water.
-struct NutritionProgressDashboardView: View {
+// Food progress sections embedded after workout progress. Their saved widget layout
+// and time range remain independent, so existing dashboard choices carry over.
+struct NutritionProgressSections: View {
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var theme: ThemeManager
     // CLAUDE  Date 09/19/2026 — weigh-ins for the (opt-in) weight trend card.
@@ -27,45 +27,13 @@ struct NutritionProgressDashboardView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            List {
-                progressTitleSection
-                ForEach(selectedWidgets) { widget in
-                    dashboardWidget(widget)
-                }
-                editProgressSection
+        Group {
+            progressTitleSection
+            ForEach(selectedWidgets) { widget in
+                dashboardWidget(widget)
             }
-            .navigationTitle("")
-            .navigationBarTitleDisplayMode(.inline)
-            .themed(theme.current)
-            .modeNotchToolbar(tab: AgilTabItem.progress.tag)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    NavigationLink {
-                        ProgressCustomizationView(mode: .nutrition)
-                    } label: {
-                        Image(systemName: "pencil")
-                            .font(.system(size: 17, weight: .semibold))
-                            .frame(width: 22, height: 22)
-                    }
-                    .accessibilityLabel("Edit Progress")
-                }
-                // Same top-right shortcut geometry as lifting's PR button. This is
-                // the Journal's goals destination for now; a food-specific Progress
-                // destination can replace it later without moving the control.
-                ToolbarItem(placement: .primaryAction) {
-                    NavigationLink {
-                        BodyPlanView()
-                    } label: {
-                        Image(systemName: "target")
-                            .font(.system(size: 19))
-                            .frame(width: 22, height: 22)
-                    }
-                    .accessibilityLabel("Nutrition goals")
-                }
-            }
-            .onAppear { addTopFoodWidgetsIfNeeded() }
         }
+        .onAppear { addTopFoodWidgetsIfNeeded() }
     }
 
     // Preserve the user's existing food dashboard choices while adding the three new
@@ -162,7 +130,8 @@ struct NutritionProgressDashboardView: View {
     private var progressTitleSection: some View {
         Section {
             ProgressPageHeader(selectedRange: $selectedRange,
-                               accent: theme.current.accent)
+                               accent: theme.current.accent,
+                               title: "Food progress")
                 .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 2, trailing: 16))
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
@@ -209,7 +178,7 @@ struct NutritionProgressDashboardView: View {
     private var focusCompletionSection: some View {
         Section("Focus goal completion") {
             if store.focusGoals.isEmpty {
-                Text("Add a focus goal from the Journal to see daily completion here.")
+                Text("Add a focus goal from Log to see daily completion here.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             } else if focusCompletionPoints.isEmpty {
@@ -241,16 +210,9 @@ struct NutritionProgressDashboardView: View {
         }
     }
 
-    private var editProgressSection: some View {
-        Section {
-            NavigationLink {
-                ProgressCustomizationView(mode: .nutrition)
-            } label: {
-                Label("Edit Progress", systemImage: "slider.horizontal.3")
-                    .foregroundStyle(theme.current.accent)
-            }
-        }
-    }
+    // CLAUDE  Date 09/23/2026
+    // No "Edit food progress" row here anymore — the single Edit Progress row at the bottom
+    // of ProgressDashboardView covers both worlds via its Workouts / Food switcher.
 
     // MARK: - Chart data
 
@@ -745,7 +707,7 @@ private struct NutritionActivityBar: View {
 }
 
 #Preview {
-    NutritionProgressDashboardView()
+    List { NutritionProgressSections() }
         .environmentObject(AppStore())
         .environmentObject(ThemeManager())
 }

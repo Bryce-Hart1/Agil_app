@@ -35,7 +35,7 @@ struct LogWeightSheet: View {
                             .multilineTextAlignment(.trailing)
                     }
                 } footer: {
-                    Text("Most consistent first thing in the morning, after the bathroom, before eating. Day-to-day swings are mostly water — the plan reads your weekly average, not any one morning.")
+                    Text("Weigh in at the same time each day for the best results.")
                 }
 
                 Section {

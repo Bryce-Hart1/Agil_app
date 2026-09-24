@@ -124,9 +124,9 @@ struct ProfileView: View {
         }
     }
 
-    // Claude  Date 07/28/2026
-    // This screen's tab tag — 4 in lifting, 3 in nutrition (it's the one view mounted
-    // in both worlds).
+    // Claude  Date 07/28/2026 last changed: 09/20/2026 by: CLAUDE
+    // This screen's tab tag. One value (4) for both worlds — Profile is mounted once and
+    // shared, so the tag doesn't move when the world flips.
     private var profileTab: Int {
         AgilTabItem.profileTag(for: AppMode(rawValue: modeRaw) ?? .lifting)
     }

@@ -54,8 +54,9 @@ extension EnvironmentValues {
 // looking at. A notch compares this against its own tab and only reports when it's
 // the visible one.
 //
-// Tags alone are enough despite colliding across worlds (Workouts and Journal are
-// both 1): tabContent mounts one world's screens at a time.
+// CLAUDE  Date 09/20/2026
+// Screen tags are globally unique (Journal is 11, Workouts 1), so this alone identifies
+// the on-screen tab in either world.
 private struct ActiveTabTagKey: EnvironmentKey {
     static let defaultValue = 0
 }
