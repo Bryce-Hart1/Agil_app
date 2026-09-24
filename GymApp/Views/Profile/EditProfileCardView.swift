@@ -13,6 +13,9 @@ import SwiftUI
 // (09/05) Two screens again, but as two FACES of one card rather than two tabs: the
 // segmented control at the top turns the card over, and the back's background and stats
 // are edited by tapping them exactly as the front's are.
+//
+// (09/24) The header and picture are tappable too (CardLayout), text colour joined the
+// palette sheet, and the Front/Back control is now the ONLY way to turn the card over.
 struct EditProfileCardView: View {
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var theme: ThemeManager
@@ -31,13 +34,12 @@ struct EditProfileCardView: View {
         ProfileStats(workouts: store.workouts, exercises: store.exercises)
     }
 
-    // Claude  Date 07/22/2026 last changed: 08/07/2026 by: Claude
+    // Claude  Date 07/22/2026 last changed: 09/24/2026 by: CLAUDE
     // The tappable regions of the card, each mapped to a bottom sheet. Name is deliberately
-    // absent — renaming lives in Settings › Change Name, not on the card. (08/07: `.avatar`
-    // is gone with the face feature; the card's picture is the rank emblem, which is earned
-    // rather than edited, so that region is no longer tappable.)
+    // absent — renaming lives in Settings › Change Name, not on the card.
+    // (09/24) `.avatar` is back — picture + ring/bar — and `.header` picks the AGIL mark.
     private enum EditTarget: String, Identifiable {
-        case style, badges, backStyle, stats
+        case style, badges, backStyle, stats, header, avatar
         var id: String { rawValue }
     }
 
@@ -75,6 +77,18 @@ struct EditProfileCardView: View {
                     NavigationStack { CardStatsPickerView() }
                         .environmentObject(store)
                         .environmentObject(theme)
+                // CLAUDE  Date 09/24/2026 — half height so the card's top, where both of
+                // these live, stays visible above the sheet and updates as you choose.
+                case .header:
+                    CardHeaderSheet(mode: $store.profile.cardLayout.header,
+                                    logoAsset: ThemeIcon.logoAsset(for: theme.current))
+                        .environmentObject(theme)
+                        .presentationDetents([.medium])
+                case .avatar:
+                    CardAvatarSheet(layout: $store.profile.cardLayout,
+                                    rank: store.strategistRank)
+                        .environmentObject(theme)
+                        .presentationDetents([.medium, .large])
                 }
             }
             .onAppear { refreshBackStats() }
@@ -91,25 +105,20 @@ struct EditProfileCardView: View {
             GeometryReader { geo in
                 ScrollView {
                     VStack(spacing: 12) {
-                        CardFlipView(isFlipped: isShowingBack) {
+                        // CLAUDE  Date 09/24/2026 — swipeToFlip off: the Front/Back control
+                        // is the one way to turn the card, so a drag never fights the scroll
+                        // or a tap on the card's editable parts.
+                        CardFlipView(isFlipped: isShowingBack, swipeToFlip: false) {
                             frontCard
                         } back: {
                             backCard
                         }
                         .frame(height: max(380, geo.size.height - 64))
 
-                        // Claude  Date 09/14/2026
-                        // Hides the titles under the featured badges, icons only. Front-only
-                        // since the back has no badges; syncs to friends via CardSyncService.
-                        if face == .front {
-                            Toggle("Show badge names", isOn: $store.profile.showsBadgeNamesOnCard)
-                                .tint(theme.current.accent)
-                                .padding(.horizontal, 4)
-                        }
-
+                        // (09/24) The "Show badge names" switch moved into the badges sheet.
                         Text(face == .front
                              ? "Tap any part of your card to edit it."
-                             : "Tap the palette or the stats to edit the back.")
+                             : "Tap the header, palette or stats to edit the back.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
@@ -165,9 +174,12 @@ struct EditProfileCardView: View {
             ringFillMode: .rankProgress,
             catalog: store.achievementCatalog,
             showsBadgeNames: store.profile.showsBadgeNamesOnCard,
+            layout: store.profile.cardLayout,
             edit: ProfileCardEditActions(
                 background: { target = .style },
-                badges: { target = .badges }
+                badges: { target = .badges },
+                header: { target = .header },
+                avatar: { target = .avatar }
             )
         )
     }
@@ -179,9 +191,11 @@ struct EditProfileCardView: View {
             logoAsset: ThemeIcon.logoAsset(for: theme.current),
             stats: backStats,
             memberSince: stats.memberSince,
+            layout: store.profile.cardLayout,
             edit: ProfileCardBackEditActions(
                 background: { target = .backStyle },
-                stats: { target = .stats }
+                stats: { target = .stats },
+                header: { target = .header }
             )
         )
     }
@@ -217,6 +231,21 @@ private struct CardStylePickerSheet: View {
     var body: some View {
         NavigationStack {
             List {
+                // CLAUDE  Date 09/24/2026
+                // One text colour for the whole card, so both faces' palette sheets show
+                // the same switch. Sits first: it's the choice a new background most often
+                // forces (a light style wants black text).
+                Section {
+                    Picker("Text color", selection: $store.profile.cardLayout.ink) {
+                        ForEach(CardInk.allCases) { Text($0.title).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                } header: {
+                    Text("Text")
+                } footer: {
+                    Text("Applies to both sides of your card.")
+                }
+
                 if allowsMatchFront {
                     Section {
                         matchFrontRow
@@ -266,6 +295,167 @@ private struct CardStylePickerSheet: View {
         .contentShape(Rectangle())
         .onTapGesture { selectedID = nil }
     }
+}
+
+// MARK: - Header + avatar sheets
+
+// CLAUDE  Date 09/24/2026
+// Chooses the AGIL mark at the top of both faces. Each row draws that option for real
+// (the same CardBrandHeader the card uses) on a dark chip, so the choice reads at a glance.
+private struct CardHeaderSheet: View {
+    @Binding var mode: CardHeaderMode
+    let logoAsset: String
+
+    @EnvironmentObject private var theme: ThemeManager
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    ForEach(CardHeaderMode.allCases) { option in
+                        HStack(spacing: 12) {
+                            CardBrandHeader(logoAsset: logoAsset, mode: option)
+                                .frame(width: 104)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 8)
+                                .background(CardOptionChrome.ground,
+                                            in: RoundedRectangle(cornerRadius: 10))
+                            Text(option.title)
+                                .foregroundStyle(.primary)
+                            Spacer(minLength: 8)
+                            if mode == option {
+                                Image(systemName: "checkmark").fontWeight(.semibold)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                        .onTapGesture { mode = option }
+                        .accessibilityAddTraits(mode == option ? .isSelected : [])
+                    }
+                } footer: {
+                    Text("Shows on both sides of your card.")
+                }
+            }
+            .navigationTitle("Card Header")
+            .navigationBarTitleDisplayMode(.inline)
+            .themed(theme.current)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+    }
+}
+
+// CLAUDE  Date 09/24/2026
+// The card's picture and how rank progress is drawn with it. Picture cells are the real
+// CardAvatarCore on a dark disc, tinted by your current rank, so "Ram" shows the Ram you'd
+// get. The ring needs a picture to frame, so it's not offered while Name only is chosen.
+private struct CardAvatarSheet: View {
+    @Binding var layout: CardLayout
+    let rank: StrategistRank
+
+    @EnvironmentObject private var theme: ThemeManager
+    @Environment(\.dismiss) private var dismiss
+
+    private let columns = [GridItem(.adaptive(minimum: 84), spacing: 12)]
+
+    private var progressOptions: [CardProgressStyle] {
+        layout.avatar == .none ? [.bar, .off] : CardProgressStyle.allCases
+    }
+
+    // Reads through resolvedProgress so a stored ring with no picture shows as Bar.
+    private var progress: Binding<CardProgressStyle> {
+        Binding(get: { layout.resolvedProgress }, set: { layout.progress = $0 })
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section("Picture") {
+                    LazyVGrid(columns: columns, spacing: 16) {
+                        ForEach(CardAvatar.allCases) { option in
+                            Button { layout.setAvatar(option) } label: { cell(option) }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel(title(for: option))
+                                .accessibilityAddTraits(layout.avatar == option ? .isSelected : [])
+                        }
+                    }
+                    .padding(.vertical, 8)
+                }
+
+                Section {
+                    Picker("Rank progress", selection: progress) {
+                        ForEach(progressOptions) { Text($0.title).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                } header: {
+                    Text("Rank progress")
+                } footer: {
+                    Text(progressFooter)
+                }
+            }
+            .navigationTitle("Picture")
+            .navigationBarTitleDisplayMode(.inline)
+            .themed(theme.current)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+    }
+
+    private func cell(_ option: CardAvatar) -> some View {
+        let isSelected = layout.avatar == option
+        return VStack(spacing: 6) {
+            ZStack {
+                Circle().fill(CardOptionChrome.ground)
+                if option == .none {
+                    Text("Aa")
+                        .font(.system(size: 22, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.85))
+                } else {
+                    CardAvatarCore(avatar: option, rank: rank, diameter: 56)
+                }
+            }
+            .frame(width: 64, height: 64)
+            .overlay(Circle().strokeBorder(isSelected ? theme.current.accent : .clear,
+                                           lineWidth: 3))
+            Text(title(for: option))
+                .font(.caption.weight(isSelected ? .semibold : .regular))
+                .foregroundStyle(isSelected ? .primary : .secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .frame(maxWidth: .infinity)
+        .contentShape(Rectangle())
+    }
+
+    private func title(for option: CardAvatar) -> String {
+        switch option {
+        case .rank:           return rank.title
+        case .icon(let icon): return icon.title
+        case .none:           return "Name only"
+        }
+    }
+
+    private var progressFooter: String {
+        var lines: [String] = []
+        if layout.avatar == .none {
+            lines.append("The ring needs a picture to frame, so the bar stands in for it.")
+        }
+        if let next = StrategistScoring.nextRank(after: rank) {
+            lines.append("On your card it fills toward \(next.title). Friends see your rank.")
+        }
+        return lines.joined(separator: " ")
+    }
+}
+
+// The dark ground behind option previews, so a white-on-card glyph reads in a light sheet.
+private enum CardOptionChrome {
+    static let ground = Color(hex: "#1B1B22")
 }
 
 // MARK: - Rows (shared by the sheets above)

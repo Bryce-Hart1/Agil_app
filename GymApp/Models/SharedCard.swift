@@ -49,4 +49,9 @@ struct SharedCard: Codable, Equatable {
     // build (or a backend that doesn't store it yet) decodes as nil, which renders as SHOWN —
     // the behaviour every card had before this switch existed.
     var showsBadgeNames: Bool? = nil
+    // CLAUDE  Date 09/24/2026
+    // The owner's header/avatar/progress/text-colour choices. nil (older build, or a backend
+    // not storing it yet) renders the default layout. CardLayout's decoder never throws on
+    // unknown values, so a newer friend's new avatar can't break this whole card's decode.
+    var cardLayout: CardLayout? = nil
 }

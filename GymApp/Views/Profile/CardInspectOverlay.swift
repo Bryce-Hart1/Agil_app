@@ -90,7 +90,8 @@ struct CardInspectOverlay: View {
                 rankProgress: store.strategistProgress,
                 ringFillMode: .rankProgress,
                 catalog: store.achievementCatalog,
-                showsBadgeNames: store.profile.showsBadgeNamesOnCard
+                showsBadgeNames: store.profile.showsBadgeNamesOnCard,
+                layout: store.profile.cardLayout   // CLAUDE 09/24/2026
             )
         } back: {
             ProfileShowcaseCardBack(
@@ -98,7 +99,8 @@ struct CardInspectOverlay: View {
                 style: store.resolvedBackCardStyle,
                 logoAsset: ThemeIcon.logoAsset(for: theme.current),
                 stats: backStats,
-                memberSince: stats.memberSince
+                memberSince: stats.memberSince,
+                layout: store.profile.cardLayout
             )
         }
         .onChange(of: isFlipped) { _ in hasFlippedOnce = true }

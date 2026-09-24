@@ -65,6 +65,16 @@ struct FeaturedBadgesView: View {
                 }
             }
 
+            // CLAUDE  Date 09/24/2026
+            // Moved here from under the card in Edit Profile Card, next to the badges it
+            // affects. Same field as before, so it still syncs to friends via SharedCard.
+            Section {
+                Toggle("Show badge names", isOn: $store.profile.showsBadgeNamesOnCard)
+                    .tint(accent)
+            } footer: {
+                Text("Off leaves just the badge icons on your card.")
+            }
+
             Section {
                 if available.isEmpty {
                     Text(store.unlockedAchievementIDs.isEmpty

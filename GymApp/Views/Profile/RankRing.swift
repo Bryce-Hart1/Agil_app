@@ -107,7 +107,10 @@ struct RankRing<Core: View>: View {
 
     /// Track color for unlit segments. Matches StrategistEmblem's progress track, so it
     /// adapts to light/dark instead of being pinned to a dark-mode hex.
-    private var trackColor: Color { Color.primary.opacity(0.12) }
+    // CLAUDE  Date 09/24/2026 — on a profile card the track follows the card's chosen text
+    // colour instead, since the card's background (not the system scheme) sits behind it.
+    @Environment(\.cardInk) private var cardInk
+    private var trackColor: Color { cardInk.map { $0.color.opacity(0.12) } ?? Color.primary.opacity(0.12) }
 
     var body: some View {
         ZStack {
@@ -444,6 +447,8 @@ struct StrategistGlyph: View {
 struct RankRingInitials: View {
     let name: String
     var size: CGFloat = 92
+    // CLAUDE  Date 09/24/2026 — the card's text colour when drawn on a card, else white.
+    @Environment(\.cardInk) private var cardInk
 
     private var initials: String {
         let parts = name.split(separator: " ").prefix(2)
@@ -457,7 +462,7 @@ struct RankRingInitials: View {
             .font(.system(size: size * 0.3, weight: .semibold, design: .rounded))
             .minimumScaleFactor(0.5)
             .lineLimit(1)
-            .foregroundStyle(.white.opacity(0.92))
+            .foregroundStyle((cardInk ?? .white).color.opacity(0.92))
     }
 }
 

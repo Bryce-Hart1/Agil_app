@@ -79,6 +79,10 @@ struct UserProfile: Codable, Hashable {
     // Edit Profile Card and shared with friends (SharedCard.showsBadgeNames), so turning it
     // off hides the names on YOUR card everywhere, including on friends' screens.
     var showsBadgeNamesOnCard: Bool
+    // CLAUDE  Date 09/24/2026
+    // The card's header, avatar, progress style and text colour (see CardLayout). Edited
+    // by tapping those parts in Edit Profile Card; synced to friends via SharedCard.
+    var cardLayout: CardLayout
 
     init(displayName: String = "", hasOnboarded: Bool = false,
          cardStyleID: String = CardStyle.defaultStyle.id,
@@ -89,7 +93,8 @@ struct UserProfile: Codable, Hashable {
          tookFirstStep: Bool = false,
          cardBackStyleID: String? = nil, cardBackHeroStat: String? = nil,
          cardBackStatIDs: [String] = [], bodyweightLb: Double? = nil,
-         showsBadgeNamesOnCard: Bool = true) {
+         showsBadgeNamesOnCard: Bool = true,
+         cardLayout: CardLayout = .default) {
         self.displayName = displayName
         self.hasOnboarded = hasOnboarded
         self.cardStyleID = cardStyleID
@@ -104,6 +109,7 @@ struct UserProfile: Codable, Hashable {
         self.cardBackStatIDs = cardBackStatIDs
         self.bodyweightLb = bodyweightLb
         self.showsBadgeNamesOnCard = showsBadgeNamesOnCard
+        self.cardLayout = cardLayout
     }
 
     // Claude  Date 06/12/2026 last changed: 06/13/2026 by: Claude
@@ -118,7 +124,7 @@ struct UserProfile: Codable, Hashable {
         case displayName, hasOnboarded, cardStyleID, dataMode, showcasedAchievementIDs,
              gender, hasSeenTour, nutritionSetup, tookFirstStep,
              cardBackStyleID, cardBackHeroStat, cardBackStatIDs, bodyweightLb,
-             showsBadgeNamesOnCard
+             showsBadgeNamesOnCard, cardLayout
     }
     private enum LegacyKeys: String, CodingKey { case cardColorHex }
     init(from decoder: Decoder) throws {
@@ -147,6 +153,9 @@ struct UserProfile: Codable, Hashable {
         bodyweightLb = try c.decodeIfPresent(Double.self, forKey: .bodyweightLb)
         // Claude  Date 09/14/2026 — new field; older profiles keep showing badge names.
         showsBadgeNamesOnCard = try c.decodeIfPresent(Bool.self, forKey: .showsBadgeNamesOnCard) ?? true
+        // CLAUDE  Date 09/24/2026 — new field; older profiles get today's layout. try? on
+        // top of CardLayout's own tolerant decode, so a bad value can never reset the profile.
+        cardLayout = (try? c.decodeIfPresent(CardLayout.self, forKey: .cardLayout)) ?? .default
         if let id = try c.decodeIfPresent(String.self, forKey: .cardStyleID) {
             cardStyleID = id
         } else {

@@ -38,7 +38,8 @@ struct ProfileView: View {
                             rankProgress: store.strategistProgress,
                             ringFillMode: .rankProgress,
                             catalog: store.achievementCatalog,
-                            showsBadgeNames: store.profile.showsBadgeNamesOnCard
+                            showsBadgeNames: store.profile.showsBadgeNamesOnCard,
+                            layout: store.profile.cardLayout   // CLAUDE 09/24/2026
                         )
                         .frame(height: max(380, geo.size.height - 32))
                         // CLAUDE  Date 09/18/2026
@@ -363,9 +364,14 @@ struct ProfileView: View {
 // Claude 08/07/2026: `avatar` is gone too, with the face feature. The picture is the rank
 // emblem now — earned, not configured — so there is nothing to edit there and the ring
 // carries no pencil.
+//
+// CLAUDE 09/24/2026: `header` and `avatar` are back as the layout became editable — the
+// AGIL mark picks logo/wordmark, and the picture opens the Avatar sheet (picture + ring/bar).
 struct ProfileCardEditActions {
     var background: () -> Void = {}
     var badges: () -> Void = {}
+    var header: () -> Void = {}
+    var avatar: () -> Void = {}
 }
 
 // Claude  Date 06/12/2026 last changed: 07/12/2026 by: Claude
@@ -404,6 +410,12 @@ struct ProfileShowcaseCard: View {
     // Whether each featured badge prints its title underneath. Off leaves just the icons —
     // set from the owner's Edit Profile Card switch, or from SharedCard for a friend's card.
     var showsBadgeNames: Bool = true
+    // CLAUDE  Date 09/24/2026
+    // The owner's header, picture, progress style and text colour. Default = the card as it
+    // looked before these were choosable, which is also what an older friend's card gets.
+    var layout: CardLayout = .default
+
+    private var ink: Color { layout.ink.color }
 
     // Claude  Date 07/22/2026
     // Opt-in edit affordances. nil (the default, used by the Profile tab, Friends and
@@ -432,56 +444,99 @@ struct ProfileShowcaseCard: View {
     // (09/05) The padding/background/hairline/shadow moved to CardFaceChrome, and
     // shadowColor onto CardStyle, so the new back face is the SAME shell rather than a
     // copy of it that can drift. No visual change.
+    // (09/24) The ink is published to the environment so shared pieces (header, palette
+    // chip, ring track, initials) pick up the chosen text colour too.
     var body: some View {
-        content.cardFaceChrome(style: style)
+        content
+            .environment(\.cardInk, layout.ink)
+            .cardFaceChrome(style: style)
     }
 
-    // Claude  Date 07/09/2026 last changed: 08/07/2026 by: Claude
+    // Claude  Date 07/09/2026 last changed: 09/24/2026 by: CLAUDE
     // The picture at the top of the card: the rank's chess piece inside the RankRing, or
     // initials when no rank is equipped (there's no emblem to draw without one).
     //
     // (08/07) This used to be a three-way face — customizable character, stock avatar, or
     // initials — and on your own card a two-sided coin that turned over to show the
     // character. All of that is gone; what's left is what the coin's HEADS side always was.
-    // The picture is now purely earned rather than bought or configured, which is the point.
+    //
+    // (09/24) Choosable again via CardLayout: rank piece, an AGIL icon, or none, framed by
+    // the ring or shown bare (with the bar under it, or nothing). The ring stays earned.
     private let ringSize: CGFloat = 120
+    private let bareDiameter: CGFloat = 92
 
     @ViewBuilder private var cardAvatar: some View {
         if let rank {
-            RankRing(rank: rank, progress: rankProgress, size: ringSize,
-                     fillMode: ringFillMode) {
-                rankCore(rank: rank,
-                         diameter: RingGeometry.coreDiameter(for: ringSize))
+            if layout.resolvedProgress == .ring {
+                RankRing(rank: rank, progress: rankProgress, size: ringSize,
+                         fillMode: ringFillMode) {
+                    CardAvatarCore(avatar: layout.avatar, rank: rank,
+                                   diameter: RingGeometry.coreDiameter(for: ringSize))
+                }
+            } else {
+                CardAvatarCore(avatar: layout.avatar, rank: rank, diameter: bareDiameter)
             }
+        } else if case .icon = layout.avatar {
+            CardAvatarCore(avatar: layout.avatar, rank: nil, diameter: bareDiameter)
         } else {
             RankRingInitials(name: name, size: 92)
         }
     }
 
-    // Claude  Date 08/07/2026
-    // The ring's centre: the rank's glyph on a faint backing disc — lifted verbatim from
-    // the old coin's heads face, so the card looks exactly as it did before any tap.
-    @ViewBuilder private func rankCore(rank: StrategistRank, diameter: CGFloat) -> some View {
-        ZStack {
-            Circle().fill(Color.white.opacity(0.15))
-            StrategistGlyph(rank: rank, size: diameter * 0.62)
+    // CLAUDE  Date 09/24/2026
+    // The rank bar, drawn under the picture — or under the rank title when there is no
+    // picture. Needs a rank to measure, so a friend's card with rank hidden has none.
+    @ViewBuilder private var progressBar: some View {
+        if let rank, layout.resolvedProgress == .bar {
+            RankProgressBar(rank: rank, progress: rankProgress, fillMode: ringFillMode)
         }
-        .frame(width: diameter, height: diameter)
-        .clipShape(Circle())
+    }
+
+    // CLAUDE  Date 09/24/2026
+    // The picture block: avatar with its bar, tappable as one unit in edit mode. With no
+    // picture chosen, edit mode shows a small "Picture" slot instead — otherwise there'd be
+    // nothing left on the card to tap to bring one back. Read-only cards show nothing there.
+    @ViewBuilder private var avatarSection: some View {
+        if layout.avatar == .none {
+            if let edit {
+                Button(action: edit.avatar) { pictureSlot }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Add a picture")
+            }
+        } else {
+            editable(edit?.avatar, chip: .topTrailing) {
+                VStack(spacing: 14) {
+                    cardAvatar
+                    progressBar
+                }
+            }
+        }
+    }
+
+    private var pictureSlot: some View {
+        VStack(spacing: 4) {
+            Image("selection-plus")
+                .renderingMode(.template)
+                .resizable().scaledToFit()
+                .frame(width: 40, height: 40)
+            Text("Picture")
+                .font(.caption2.weight(.semibold))
+        }
+        .foregroundStyle(ink.opacity(0.9))
     }
 
     private var content: some View {
         VStack(spacing: 16) {
             header
 
-            cardAvatar
+            avatarSection
 
             // Claude  Date 07/22/2026
             // The name is intentionally NOT editable from the card — renaming carries
             // backend/identity weight, so it lives behind Settings › Change Name instead.
             Text(name)
                 .font(.system(.largeTitle, design: .rounded).weight(.bold))
-                .foregroundStyle(.white)
+                .foregroundStyle(ink)
                 .minimumScaleFactor(0.6)
                 .lineLimit(1)
 
@@ -496,7 +551,14 @@ struct ProfileShowcaseCard: View {
             if let rank {
                 Text(rank.title)
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(ink)
+            }
+
+            // CLAUDE  Date 09/24/2026 — with no picture the bar sits under the title
+            // instead; in edit mode it opens the same Avatar sheet as the picture would.
+            // Padded so the pencil chip clears the last segment rather than covering it.
+            if layout.avatar == .none, rank != nil, layout.resolvedProgress == .bar {
+                editable(edit?.avatar, chip: .trailing) { progressBar.padding(.horizontal, 24) }
             }
 
             // Claude  Date 07/22/2026
@@ -514,7 +576,7 @@ struct ProfileShowcaseCard: View {
             if let memberSince {
                 Text("Member since \(memberSince.formatted(.dateTime.month().year()))")
                     .font(.caption2)
-                    .foregroundStyle(.white.opacity(0.75))
+                    .foregroundStyle(ink.opacity(0.75))
             }
         }
     }
@@ -567,7 +629,7 @@ struct ProfileShowcaseCard: View {
                         Text("Change or delete badges")
                             .font(.caption2.weight(.semibold))
                     }
-                    .foregroundStyle(.white.opacity(0.9))
+                    .foregroundStyle(ink.opacity(0.9))
                 }
                 .buttonStyle(.plain)
             }
@@ -582,10 +644,10 @@ struct ProfileShowcaseCard: View {
                 .renderingMode(.template)
                 .resizable().scaledToFit()
                 .frame(width: 58, height: 58)
-                .foregroundStyle(.white.opacity(0.9))
+                .foregroundStyle(ink.opacity(0.9))
             Text("Add")
                 .font(.caption2.weight(.semibold))
-                .foregroundStyle(.white.opacity(0.9))
+                .foregroundStyle(ink.opacity(0.9))
         }
         .frame(maxWidth: .infinity)
     }
@@ -594,8 +656,9 @@ struct ProfileShowcaseCard: View {
     // In edit mode the background has no single element to tap, so the header carries a
     // palette chip for it (a whole-card tap would fight the inner elements' gestures).
     // Hidden entirely on read-only cards. (09/05: header markup shared with the back.)
+    // (09/24) Honours the chosen header mode; in edit mode the mark itself opens its sheet.
     private var header: some View {
-        CardBrandHeader(logoAsset: logoAsset) {
+        CardBrandHeader(logoAsset: logoAsset, mode: layout.header, onEdit: edit?.header) {
             if let edit { CardPaletteChip(action: edit.background) }
         }
     }
@@ -619,7 +682,7 @@ struct ProfileShowcaseCard: View {
             if showsBadgeNames {
                 Text(achievement.title)
                     .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(ink)
                     .multilineTextAlignment(.center)
                     .lineLimit(2)
                     .minimumScaleFactor(0.7)

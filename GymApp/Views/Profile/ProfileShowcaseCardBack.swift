@@ -3,9 +3,12 @@ import SwiftUI
 // CLAUDE  Date 09/05/2026
 // Which part of the card BACK was tapped; the owner raises the matching sheet. Mirrors
 // ProfileCardEditActions on the front, defaulted so a caller wires only what it needs.
+// (09/24) `header` added: the AGIL mark is tappable on both faces, since one choice
+// sets the header for the whole card.
 struct ProfileCardBackEditActions {
     var background: () -> Void = {}
     var stats: () -> Void = {}
+    var header: () -> Void = {}
 }
 
 // CLAUDE  Date 09/05/2026
@@ -18,7 +21,13 @@ struct ProfileShowcaseCardBack: View {
     var logoAsset: String = ThemeIcon.classicLogoAsset
     let stats: CardBackStats
     let memberSince: Date?
+    // CLAUDE  Date 09/24/2026
+    // Shared with the front: the header mode and the text colour (every label and faint
+    // tile fill below reads `ink`). The picture/progress fields don't apply to this face.
+    var layout: CardLayout = .default
     var edit: ProfileCardBackEditActions? = nil
+
+    private var ink: Color { layout.ink.color }
 
     private var canAddMore: Bool {
         stats.hero == nil || stats.tiles.count < CardStat.maxTiles
@@ -26,7 +35,7 @@ struct ProfileShowcaseCardBack: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            CardBrandHeader(logoAsset: logoAsset) {
+            CardBrandHeader(logoAsset: logoAsset, mode: layout.header, onEdit: edit?.header) {
                 if let edit { CardPaletteChip(action: edit.background) }
             }
 
@@ -34,7 +43,7 @@ struct ProfileShowcaseCardBack: View {
             // subject and the name is just the attribution on a shared screenshot.
             Text(name)
                 .font(.system(.title2, design: .rounded).weight(.semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(ink)
                 .minimumScaleFactor(0.6)
                 .lineLimit(1)
 
@@ -45,9 +54,10 @@ struct ProfileShowcaseCardBack: View {
             if let memberSince {
                 Text("Member since \(memberSince.formatted(.dateTime.month().year()))")
                     .font(.caption2)
-                    .foregroundStyle(.white.opacity(0.75))
+                    .foregroundStyle(ink.opacity(0.75))
             }
         }
+        .environment(\.cardInk, layout.ink)
         .cardFaceChrome(style: style)
     }
 
@@ -73,7 +83,7 @@ struct ProfileShowcaseCardBack: View {
         } else {
             Text("No stats on this side yet.")
                 .font(.footnote)
-                .foregroundStyle(.white.opacity(0.7))
+                .foregroundStyle(ink.opacity(0.7))
         }
     }
 
@@ -104,17 +114,17 @@ struct ProfileShowcaseCardBack: View {
         VStack(spacing: 6) {
             Label(value.stat.title, systemImage: value.stat.systemImage)
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.white.opacity(0.85))
+                .foregroundStyle(ink.opacity(0.85))
             Text(value.value)
                 .font(.system(size: 38, weight: .bold, design: .rounded))
-                .foregroundStyle(.white)
+                .foregroundStyle(ink)
                 .lineLimit(value.stat.carriesUserText ? 2 : 1)
                 .minimumScaleFactor(0.4)
                 .multilineTextAlignment(.center)
             if let caption = value.caption {
                 Text(caption)
                     .font(.caption)
-                    .foregroundStyle(.white.opacity(0.85))
+                    .foregroundStyle(ink.opacity(0.85))
                     .lineLimit(2)
                     .minimumScaleFactor(0.7)
                     .multilineTextAlignment(.center)
@@ -123,32 +133,32 @@ struct ProfileShowcaseCardBack: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, 20)
         .padding(.horizontal, 12)
-        .background(.white.opacity(0.14), in: RoundedRectangle(cornerRadius: 14))
+        .background(ink.opacity(0.14), in: RoundedRectangle(cornerRadius: 14))
     }
 
-    // White on a translucent fill, matching PerformanceCardView.statCell — StatCard's
+    // Ink on a translucent fill, matching PerformanceCardView.statCell — StatCard's
     // .secondary palette is built for the light Progress list and vanishes on a card.
     private func tile(_ value: CardStatValue) -> some View {
         VStack(spacing: 4) {
             Image(systemName: value.stat.systemImage)
                 .font(.caption)
-                .foregroundStyle(.white.opacity(0.8))
+                .foregroundStyle(ink.opacity(0.8))
             Text(value.value)
                 .font(.subheadline.weight(.bold))
-                .foregroundStyle(.white)
+                .foregroundStyle(ink)
                 .lineLimit(value.stat.carriesUserText ? 2 : 1)
                 .minimumScaleFactor(0.6)
                 .multilineTextAlignment(.center)
             Text(value.stat.title)
                 .font(.caption2)
-                .foregroundStyle(.white.opacity(0.75))
+                .foregroundStyle(ink.opacity(0.75))
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
         }
         .frame(maxWidth: .infinity, minHeight: 76)
         .padding(.vertical, 10)
         .padding(.horizontal, 6)
-        .background(.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+        .background(ink.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
     }
 
     // The same two edit affordances the front's badge row uses, so both faces teach the
@@ -162,7 +172,7 @@ struct ProfileShowcaseCardBack: View {
             Text(stats.isEmpty ? "Add stats" : "Add")
                 .font(.caption2.weight(.semibold))
         }
-        .foregroundStyle(.white.opacity(0.9))
+        .foregroundStyle(ink.opacity(0.9))
         .frame(maxWidth: .infinity)
     }
 
@@ -175,6 +185,6 @@ struct ProfileShowcaseCardBack: View {
             Text("Change or remove stats")
                 .font(.caption2.weight(.semibold))
         }
-        .foregroundStyle(.white.opacity(0.9))
+        .foregroundStyle(ink.opacity(0.9))
     }
 }

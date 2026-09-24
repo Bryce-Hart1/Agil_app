@@ -225,7 +225,9 @@ final class CardSyncService: ObservableObject {
             // Server-owned — never sent from the client (ignored on PUT).
             friendCode: nil,
             // Claude  Date 09/14/2026 — the Edit Profile Card "Badge names" switch.
-            showsBadgeNames: store.profile.showsBadgeNamesOnCard
+            showsBadgeNames: store.profile.showsBadgeNamesOnCard,
+            // CLAUDE  Date 09/24/2026 — header, avatar, progress style and text colour.
+            cardLayout: store.profile.cardLayout
         )
     }
 

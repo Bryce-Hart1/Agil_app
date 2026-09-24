@@ -33,7 +33,10 @@ struct FriendCardView: View {
             rank: card.showsRankOnCard ? card.rank : nil,
             rankProgress: card.rankProgress,
             // Claude  Date 09/14/2026 — honour the friend's own switch; nil (older card) shows.
-            showsBadgeNames: card.showsBadgeNames ?? true
+            showsBadgeNames: card.showsBadgeNames ?? true,
+            // CLAUDE  Date 09/24/2026 — the friend's own header/picture/progress/text colour;
+            // nil (older build, or backend not storing it yet) keeps the default layout.
+            layout: card.cardLayout ?? .default
         )
     }
 }
