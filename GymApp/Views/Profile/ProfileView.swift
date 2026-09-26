@@ -591,7 +591,7 @@ struct ProfileShowcaseCard: View {
         if let action {
             Button(action: action) { content() }
                 .buttonStyle(.plain)
-                .overlay(alignment: alignment) { CardEditChip().padding(-4) }
+                .overlay(alignment: alignment) { CardEditChip(action: action).padding(-4) }
         } else {
             content()
         }

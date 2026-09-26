@@ -69,7 +69,7 @@ struct ProfileShowcaseCardBack: View {
                 if !stats.isEmpty {
                     Button(action: edit.stats) { statsContent }
                         .buttonStyle(.plain)
-                        .overlay(alignment: .topTrailing) { CardEditChip().padding(-4) }
+                        .overlay(alignment: .topTrailing) { CardEditChip(action: edit.stats).padding(-4) }
                 }
                 // Under the cap there's a slot to fill; at the cap there's nowhere to put
                 // a new stat, so the prompt routes to the same picker to swap one out.

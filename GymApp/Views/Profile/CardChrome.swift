@@ -49,7 +49,7 @@ struct CardBrandHeader<Trailing: View>: View {
             if let onEdit {
                 Button(action: onEdit) { mark }
                     .buttonStyle(.plain)
-                    .overlay(alignment: .topTrailing) { CardEditChip().offset(x: 22, y: -10) }
+                    .overlay(alignment: .topTrailing) { CardEditChip(action: onEdit).offset(x: 22, y: -10) }
                     .accessibilityLabel("Change card header")
             } else {
                 mark
@@ -103,11 +103,29 @@ struct CardPaletteChip: View {
     }
 }
 
-// CLAUDE  Date 09/05/2026
+// CLAUDE  Date 09/05/2026 last changed: 09/26/2026 by: CLAUDE
 // The small pencil bubble marking an element as tappable in edit mode. Was private on
 // ProfileShowcaseCard; shared now so the back's chips match the front's exactly.
+// (09/26) Given an action, the pencil itself opens the editor too — it sits on top of the
+// element, so it used to swallow the tap. Its hit area grows to ~40pt without moving it.
 struct CardEditChip: View {
+    var action: (() -> Void)? = nil
+
     var body: some View {
+        if let action {
+            Button(action: action) {
+                chip.padding(10).contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .padding(-10)
+            // The element under it already carries this action for VoiceOver.
+            .accessibilityHidden(true)
+        } else {
+            chip
+        }
+    }
+
+    private var chip: some View {
         Image(systemName: "pencil")
             .font(.system(size: 10, weight: .bold))
             .foregroundStyle(.white)

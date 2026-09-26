@@ -16,12 +16,19 @@ import SwiftUI
 //
 // (09/24) The header and picture are tappable too (CardLayout), text colour joined the
 // palette sheet, and the Front/Back control is now the ONLY way to turn the card over.
+//
+// (09/26) The big editors (backgrounds, picture, badges, stats) push as full pages with
+// the nav bar's back arrow and a live mini card on top; only the header stays a sheet.
 struct EditProfileCardView: View {
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var theme: ThemeManager
 
-    // Which element's editor is currently presented (nil = none).
-    @State private var target: EditTarget?
+    // CLAUDE  Date 09/26/2026
+    // The pushed editor page and the header sheet. `page` is kept after the push ends
+    // (only `isShowingPage` flips back), so the page doesn't go blank mid pop-animation.
+    @State private var page: EditPage = .style
+    @State private var isShowingPage = false
+    @State private var isShowingHeader = false
     // CLAUDE  Date 09/05/2026
     // The face being edited, and the back's resolved numbers. `face` drives the real
     // flip, so the segmented control and the card preview can never disagree. backStats
@@ -34,13 +41,13 @@ struct EditProfileCardView: View {
         ProfileStats(workouts: store.workouts, exercises: store.exercises)
     }
 
-    // Claude  Date 07/22/2026 last changed: 09/24/2026 by: CLAUDE
-    // The tappable regions of the card, each mapped to a bottom sheet. Name is deliberately
+    // Claude  Date 07/22/2026 last changed: 09/26/2026 by: CLAUDE
+    // The tappable regions of the card that open a full editor page. Name is deliberately
     // absent — renaming lives in Settings › Change Name, not on the card.
-    // (09/24) `.avatar` is back — picture + ring/bar — and `.header` picks the AGIL mark.
-    private enum EditTarget: String, Identifiable {
-        case style, badges, backStyle, stats, header, avatar
-        var id: String { rawValue }
+    // (09/24) `.avatar` is back — picture + ring/bar. (09/26) `.header` left for its own
+    // half sheet: three options don't need a whole screen.
+    private enum EditPage {
+        case style, backStyle, avatar, badges, stats
     }
 
     // Claude  Date 08/07/2026
@@ -53,43 +60,17 @@ struct EditProfileCardView: View {
             .navigationTitle("Edit Profile Card")
             .navigationBarTitleDisplayMode(.inline)
             .themed(theme.current)
-            .sheet(item: $target) { target in
-                switch target {
-                case .style:
-                    CardStylePickerSheet(title: "Card Style", selectedID: frontStyleID)
-                        .environmentObject(store)
-                        .environmentObject(theme)
-                        .presentationDetents([.medium, .large])
-                case .badges:
-                    NavigationStack { FeaturedBadgesView() }
-                        .environmentObject(store)
-                        .environmentObject(theme)
-                // CLAUDE  Date 09/05/2026 — the back reuses the front's picker, with
-                // "Match front" as an extra choice (nil = track whatever the front is).
-                case .backStyle:
-                    CardStylePickerSheet(title: "Back Style",
-                                         selectedID: $store.profile.cardBackStyleID,
-                                         allowsMatchFront: true)
-                        .environmentObject(store)
-                        .environmentObject(theme)
-                        .presentationDetents([.medium, .large])
-                case .stats:
-                    NavigationStack { CardStatsPickerView() }
-                        .environmentObject(store)
-                        .environmentObject(theme)
-                // CLAUDE  Date 09/24/2026 — half height so the card's top, where both of
-                // these live, stays visible above the sheet and updates as you choose.
-                case .header:
-                    CardHeaderSheet(mode: $store.profile.cardLayout.header,
-                                    logoAsset: ThemeIcon.logoAsset(for: theme.current))
-                        .environmentObject(theme)
-                        .presentationDetents([.medium])
-                case .avatar:
-                    CardAvatarSheet(layout: $store.profile.cardLayout,
-                                    rank: store.strategistRank)
-                        .environmentObject(theme)
-                        .presentationDetents([.medium, .large])
-                }
+            // CLAUDE  Date 09/26/2026
+            // Full pages for the choosers with many options; pushing gets the standard
+            // back arrow for free, which is the one way back to this screen.
+            .navigationDestination(isPresented: $isShowingPage) { pageView }
+            // The header's three options stay a half sheet, so the card's top — where
+            // the header lives — is still visible and updates as you pick.
+            .sheet(isPresented: $isShowingHeader) {
+                CardHeaderSheet(mode: $store.profile.cardLayout.header,
+                                logoAsset: ThemeIcon.logoAsset(for: theme.current))
+                    .environmentObject(theme)
+                    .presentationDetents([.medium])
             }
             .onAppear { refreshBackStats() }
             .onChange(of: store.profile.cardBackStatIDs) { _ in refreshBackStats() }
@@ -109,9 +90,9 @@ struct EditProfileCardView: View {
                         // is the one way to turn the card, so a drag never fights the scroll
                         // or a tap on the card's editable parts.
                         CardFlipView(isFlipped: isShowingBack, swipeToFlip: false) {
-                            frontCard
+                            frontCard(editable: true)
                         } back: {
-                            backCard
+                            backCard(editable: true)
                         }
                         .frame(height: max(380, geo.size.height - 64))
 
@@ -161,7 +142,8 @@ struct EditProfileCardView: View {
                 set: { newValue in if let newValue { store.profile.cardStyleID = newValue } })
     }
 
-    private var frontCard: some View {
+    // (09/26) `editable: false` is the same card read-only — the editor pages' preview.
+    private func frontCard(editable: Bool) -> some View {
         ProfileShowcaseCard(
             name: store.profile.resolvedName,
             style: CardStyle.style(for: store.profile.cardStyleID),
@@ -175,16 +157,16 @@ struct EditProfileCardView: View {
             catalog: store.achievementCatalog,
             showsBadgeNames: store.profile.showsBadgeNamesOnCard,
             layout: store.profile.cardLayout,
-            edit: ProfileCardEditActions(
-                background: { target = .style },
-                badges: { target = .badges },
-                header: { target = .header },
-                avatar: { target = .avatar }
-            )
+            edit: editable ? ProfileCardEditActions(
+                background: { open(.style) },
+                badges: { open(.badges) },
+                header: { isShowingHeader = true },
+                avatar: { open(.avatar) }
+            ) : nil
         )
     }
 
-    private var backCard: some View {
+    private func backCard(editable: Bool) -> some View {
         ProfileShowcaseCardBack(
             name: store.profile.resolvedName,
             style: store.resolvedBackCardStyle,
@@ -192,15 +174,47 @@ struct EditProfileCardView: View {
             stats: backStats,
             memberSince: stats.memberSince,
             layout: store.profile.cardLayout,
-            edit: ProfileCardBackEditActions(
-                background: { target = .backStyle },
-                stats: { target = .stats },
-                header: { target = .header }
-            )
+            edit: editable ? ProfileCardBackEditActions(
+                background: { open(.backStyle) },
+                stats: { open(.stats) },
+                header: { isShowingHeader = true }
+            ) : nil
         )
     }
 
     private func refreshBackStats() { backStats = store.cardBackStats }
+
+    private func open(_ newPage: EditPage) {
+        page = newPage
+        isShowingPage = true
+    }
+
+    // CLAUDE  Date 09/26/2026
+    // The page behind each editable region. The style and picture pages carry a read-only
+    // copy of the card on top, since the full-screen page now covers the real one.
+    // (09/05: the back reuses the front's style picker, plus "Match front".)
+    @ViewBuilder private var pageView: some View {
+        switch page {
+        case .style:
+            CardStylePickerPage(title: "Card Style", selectedID: frontStyleID) {
+                frontCard(editable: false)
+            }
+        case .backStyle:
+            CardStylePickerPage(title: "Back Style",
+                                selectedID: $store.profile.cardBackStyleID,
+                                allowsMatchFront: true) {
+                backCard(editable: false)
+            }
+        case .avatar:
+            CardAvatarPage(layout: $store.profile.cardLayout, rank: store.strategistRank) {
+                frontCard(editable: false)
+            }
+        case .badges:
+            FeaturedBadgesView()
+        case .stats:
+            CardStatsPickerView()
+        }
+    }
 }
 
 // MARK: - Card style picker
@@ -214,14 +228,17 @@ struct EditProfileCardView: View {
 // (09/05) Parameterized so both faces share it: the selection is passed in as a binding
 // rather than written straight to profile.cardStyleID. `allowsMatchFront` adds the back's
 // extra choice, where nil means "track the front" instead of copying its id.
-private struct CardStylePickerSheet: View {
+//
+// (09/26) A full pushed page now (too many styles for a sheet), returning via the nav bar's
+// back arrow. `preview` is that face of the card, pinned on top so each pick shows live.
+private struct CardStylePickerPage<Preview: View>: View {
     let title: String
     @Binding var selectedID: String?
     var allowsMatchFront: Bool = false
+    @ViewBuilder let preview: () -> Preview
 
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var theme: ThemeManager
-    @Environment(\.dismiss) private var dismiss
 
     // Owned styles only, in catalog order.
     private var ownedStyles: [CardStyle] {
@@ -229,7 +246,7 @@ private struct CardStylePickerSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
+        EditorPageLayout(preview: preview) {
             List {
                 // CLAUDE  Date 09/24/2026
                 // One text colour for the whole card, so both faces' palette sheets show
@@ -269,15 +286,10 @@ private struct CardStylePickerSheet: View {
                     Text("Unlock more styles in the Shop.")
                 }
             }
-            .navigationTitle(title)
-            .navigationBarTitleDisplayMode(.inline)
             .themed(theme.current)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                }
-            }
         }
+        .navigationTitle(title)
+        .navigationBarTitleDisplayMode(.inline)
     }
 
     // Not a CardStyleRow: there is no style to swatch here, just the "use the front's"
@@ -339,25 +351,31 @@ private struct CardHeaderSheet: View {
             .navigationTitle("Card Header")
             .navigationBarTitleDisplayMode(.inline)
             .themed(theme.current)
+            // CLAUDE  Date 09/26/2026 — a back arrow rather than Done, so every card
+            // editor (pushed page or this sheet) returns to the card the same way.
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button { dismiss() } label: {
+                        Image(systemName: "chevron.left").fontWeight(.semibold)
+                    }
+                    .accessibilityLabel("Back")
                 }
             }
         }
     }
 }
 
-// CLAUDE  Date 09/24/2026
+// CLAUDE  Date 09/24/2026 last changed: 09/26/2026 by: CLAUDE
 // The card's picture and how rank progress is drawn with it. Picture cells are the real
 // CardAvatarCore on a dark disc, tinted by your current rank, so "Ram" shows the Ram you'd
 // get. The ring needs a picture to frame, so it's not offered while Name only is chosen.
-private struct CardAvatarSheet: View {
+// (09/26) A full pushed page with the live card on top, like the style page.
+private struct CardAvatarPage<Preview: View>: View {
     @Binding var layout: CardLayout
     let rank: StrategistRank
+    @ViewBuilder let preview: () -> Preview
 
     @EnvironmentObject private var theme: ThemeManager
-    @Environment(\.dismiss) private var dismiss
 
     private let columns = [GridItem(.adaptive(minimum: 84), spacing: 12)]
 
@@ -371,7 +389,7 @@ private struct CardAvatarSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
+        EditorPageLayout(preview: preview) {
             List {
                 Section("Picture") {
                     LazyVGrid(columns: columns, spacing: 16) {
@@ -396,15 +414,10 @@ private struct CardAvatarSheet: View {
                     Text(progressFooter)
                 }
             }
-            .navigationTitle("Picture")
-            .navigationBarTitleDisplayMode(.inline)
             .themed(theme.current)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                }
-            }
         }
+        .navigationTitle("Picture")
+        .navigationBarTitleDisplayMode(.inline)
     }
 
     private func cell(_ option: CardAvatar) -> some View {
@@ -456,6 +469,37 @@ private struct CardAvatarSheet: View {
 // The dark ground behind option previews, so a white-on-card glyph reads in a light sheet.
 private enum CardOptionChrome {
     static let ground = Color(hex: "#1B1B22")
+}
+
+// CLAUDE  Date 09/26/2026
+// A full-screen editor page: a scaled-down, read-only copy of the card pinned above the
+// options, so a choice still shows on the card the moment it's made. The card is laid out
+// at a real card size and scaled, so it matches the editor's card rather than reflowing.
+private struct EditorPageLayout<Preview: View, Content: View>: View {
+    @ViewBuilder let preview: () -> Preview
+    @ViewBuilder let content: () -> Content
+
+    @EnvironmentObject private var theme: ThemeManager
+
+    private let cardSize = CGSize(width: 330, height: 560)
+    private let previewHeight: CGFloat = 200
+
+    var body: some View {
+        let scale = previewHeight / cardSize.height
+        VStack(spacing: 0) {
+            preview()
+                .frame(width: cardSize.width, height: cardSize.height)
+                .scaleEffect(scale)
+                .frame(width: cardSize.width * scale, height: previewHeight)
+                .cardMotionDetail(.preview)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+                .padding(.vertical, 12)
+                .frame(maxWidth: .infinity)
+            content()
+        }
+        .background(theme.current.background.ignoresSafeArea())
+    }
 }
 
 // MARK: - Rows (shared by the sheets above)

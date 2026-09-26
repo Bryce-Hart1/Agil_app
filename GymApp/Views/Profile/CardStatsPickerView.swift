@@ -9,7 +9,6 @@ import SwiftUI
 struct CardStatsPickerView: View {
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var theme: ThemeManager
-    @Environment(\.dismiss) private var dismiss
 
     // Built once on appear: two ProfileStats passes plus a ledger scan is too much to
     // repeat per row, and nothing here changes the numbers.
@@ -70,12 +69,11 @@ struct CardStatsPickerView: View {
         .navigationBarTitleDisplayMode(.inline)
         .themed(theme.current)
         .onAppear { if inputs == nil { inputs = store.cardBackStatInputs } }
+        // CLAUDE  Date 09/26/2026 — pushed from Edit Profile Card now, so the nav bar's
+        // back arrow replaces Done, and Edit moves right to leave the back arrow alone.
         .toolbar {
             if tiles.count > 1 {
-                ToolbarItem(placement: .navigationBarLeading) { EditButton() }
-            }
-            ToolbarItem(placement: .confirmationAction) {
-                Button("Done") { dismiss() }
+                ToolbarItem(placement: .primaryAction) { EditButton() }
             }
         }
     }
