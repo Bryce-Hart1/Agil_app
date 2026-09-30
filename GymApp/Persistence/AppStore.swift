@@ -197,10 +197,9 @@ final class AppStore: ObservableObject {
     // OF DAY, which is the signal Recents throws away: at 7am, `foodRecency` ranks last
     // night's dinner exactly as highly as this morning's usual breakfast.
     //
-    // minLogs = 2 is what separates a routine from a one-off — it also absorbs most of
-    // the noise from `stamp(_:)` (see below), which files a BACK-DATED log under the
-    // clock time it was typed at rather than the hour it was eaten. A single mistimed
-    // entry can't reach the row on its own.
+    // minLogs = 2 is what separates a routine from a one-off. (It also absorbed noise from
+    // back-dated logs, which used to be stamped with the clock time they were typed at.
+    // CLAUDE 09/30/2026: they now get the meal's usual time — see MealTiming.)
     enum TopPicks {
         static let windowDays = 21
         static let hourRadius: TimeInterval = 3 * 3600
@@ -223,7 +222,7 @@ final class AppStore: ObservableObject {
     func topPickIDs(asOf now: Date = Date(), calendar: Calendar = .current) -> [UUID] {
         guard let start = calendar.date(byAdding: .day, value: -TopPicks.windowDays, to: now)
         else { return [] }
-        let nowSeconds = Self.secondsIntoDay(now, calendar: calendar)
+        let nowSeconds = MealTiming.secondsIntoDay(now, calendar: calendar)
 
         var counts: [UUID: Int] = [:]
         var latest: [UUID: Date] = [:]
@@ -234,8 +233,8 @@ final class AppStore: ObservableObject {
             // ahead of the real clock anyway: the diary refuses to step past today.
             guard entry.loggedAt > start else { continue }
             guard let id = entry.foodId else { continue }
-            let seconds = Self.secondsIntoDay(entry.loggedAt, calendar: calendar)
-            guard Self.clockDistance(seconds, nowSeconds) <= TopPicks.hourRadius else { continue }
+            let seconds = MealTiming.secondsIntoDay(entry.loggedAt, calendar: calendar)
+            guard MealTiming.clockDistance(seconds, nowSeconds) <= TopPicks.hourRadius else { continue }
             counts[id, default: 0] += 1
             if let seen = latest[id], seen >= entry.loggedAt { continue }
             latest[id] = entry.loggedAt
@@ -274,21 +273,13 @@ final class AppStore: ObservableObject {
         return recipes.first(where: { $0.id == id })?.asFoodItem
     }
 
-    // Seconds since midnight — the time-of-day coordinate the window is measured in.
-    private static func secondsIntoDay(_ date: Date, calendar: Calendar) -> TimeInterval {
-        let c = calendar.dateComponents([.hour, .minute, .second], from: date)
-        let hour = TimeInterval(c.hour ?? 0)
-        let minute = TimeInterval(c.minute ?? 0)
-        let second = TimeInterval(c.second ?? 0)
-        return hour * 3600 + minute * 60 + second
-    }
-
-    // Distance between two times of day, THE SHORT WAY ROUND. Without the wrap, a ±3h
-    // window at 01:00 would cover 01:00–04:00 only and quietly drop the 22:00–24:00 half
-    // of a late-night routine.
-    private static func clockDistance(_ a: TimeInterval, _ b: TimeInterval) -> TimeInterval {
-        let raw = abs(a - b)
-        return min(raw, 86_400 - raw)
+    // CLAUDE  Date 09/30/2026
+    // A meal's usual foods for the Log's one-tap chips, minus the ones already eaten in
+    // that meal today. Asks MealTiming for every candidate, then trims, so a deleted food
+    // (which resolves to nil) doesn't leave the row a chip short.
+    func usualFoods(for meal: MealType, excluding loggedIDs: Set<UUID>) -> [FoodItem] {
+        let ids = MealTiming.usualFoodIDs(for: meal, in: foodLog, excluding: loggedIDs, limit: .max)
+        return Array(ids.lazy.compactMap { self.food(for: $0) }.prefix(MealTiming.maxUsuals))
     }
 
     @Published var nutritionGoals: NutritionGoals {
@@ -1614,11 +1605,29 @@ final class AppStore: ObservableObject {
     // Log a library food into the diary at `servings` of its reference serving,
     // under `meal`, on the calendar day `date`. The entry SNAPSHOTS the food's
     // name + per-serving nutrients (see FoodEntry.from), so later edits to the
-    // library never rewrite this diary record. `date` is stamped with the current
-    // time-of-day so entries on the selected day stay chronologically ordered.
+    // library never rewrite this diary record. The entry lands on `date` at the meal's
+    // suggested time (CLAUDE 09/30/2026 — was the current clock time; see MealTiming).
     func logFood(_ food: FoodItem, servings: Double, meal: MealType, on date: Date = Date()) {
         foodLog.append(FoodEntry.from(food, servings: servings, mealType: meal,
-                                      loggedAt: Self.stamp(date)))
+                                      loggedAt: logTime(nil, for: meal, on: date)))
+    }
+
+    // CLAUDE  Date 09/30/2026
+    // What a food log's time picker should open on for this meal and day (see
+    // MealTiming.suggestedTime). Views pass this as a closure so FoodDetailView stays store-free.
+    func suggestedLogTime(for meal: MealType, on date: Date) -> Date {
+        MealTiming.suggestedTime(for: meal, on: date, log: foodLog)
+    }
+
+    // Every meal's suggestion for one day, for FoodDetailView (which takes plain data
+    // rather than the store, and rather than a closure that would steal its trailing one).
+    func suggestedLogTimes(on date: Date) -> [MealType: Date] {
+        Dictionary(uniqueKeysWithValues: MealType.allCases.map { ($0, suggestedLogTime(for: $0, on: date)) })
+    }
+
+    // The time every food log is written with: the picked time on `date`, or the suggestion.
+    private func logTime(_ picked: Date?, for meal: MealType, on date: Date) -> Date {
+        MealTiming.resolvedTime(picked, for: meal, on: date, log: foodLog)
     }
 
     // Claude  Date 07/15/2026 Peer reviewed Bryce Hart Aug 6, 2026
@@ -1626,7 +1635,7 @@ final class AppStore: ObservableObject {
     // per-100 and lets the user dial in an exact amount — grams, a serving, cups… — so
     // it hands back the already-consumed nutrients. We snapshot those as a single
     // "serving" (servings folded into the nutrients, so `consumed` reads back the same),
-    // linking `foodId` to the library food when there is one. Stamped like logFood so the
+    // linking `foodId` to the library food when there is one. Timed like logFood so the
     // entry lands chronologically on `date`.
     // carries the `measurement` — the amount+unit
     // as the user dialed it. Two uses, and this is the one choke point for both: it's
@@ -1634,13 +1643,53 @@ final class AppStore: ObservableObject {
     // hardcoded "1× serving", and remembered per food so re-opening seeds the page
     // with it. Optional/defaulted because `logFood` and any plain servings-count path
     // legitimately have no unit to record.)
+    //
+    // CLAUDE  Date 09/30/2026 — `at` is the time the user picked (nil = the meal's suggested
+    // time, see MealTiming). Returns the new entry's id so the Log can offer an undo.
+    @discardableResult
     func logFoodDetail(_ food: FoodDetail, consumed: Nutrients, measurement: FoodMeasurement? = nil, meal: MealType,
-     on date: Date = Date()) {
-        foodLog.append(FoodEntry(foodId: food.id, name: food.snapshotLabel,
-                                 nutrients: consumed, servings: 1, mealType: meal,
-                                 loggedAt: Self.stamp(date), measurement: measurement,
-                                 basis: MeasurementBasis(food)))
+     on date: Date = Date(), at picked: Date? = nil) -> UUID {
+        let entry = FoodEntry(foodId: food.id, name: food.snapshotLabel,
+                              nutrients: consumed, servings: 1, mealType: meal,
+                              loggedAt: logTime(picked, for: meal, on: date), measurement: measurement,
+                              basis: MeasurementBasis(food))
+        foodLog.append(entry)
         if let measurement { lastMeasurements[food.id] = measurement }
+        return entry.id
+    }
+
+    // CLAUDE  Date 09/30/2026
+    // The portion a one-tap re-log would write: the food at its remembered amount (when it
+    // still fits the food), else its default. Same arithmetic as FoodDetailView, so a chip's
+    // calories match what the food page would have logged.
+    func relogPortion(of food: FoodItem) -> (detail: FoodDetail, measurement: FoodMeasurement, consumed: Nutrients) {
+        let detail = FoodDetail(from: food)
+        let basis = MeasurementBasis(detail)
+        let remembered = lastMeasurements[detail.id].flatMap { $0.isValid(for: basis) ? $0 : nil }
+        let measurement = remembered ?? basis.defaultMeasurement
+        return (detail, measurement, detail.per100.scaled(by: measurement.per100Factor(in: basis)))
+    }
+
+    // CLAUDE  Date 09/30/2026
+    // Log a usuals chip: its relogPortion under `meal` on `date` at the suggested time.
+    // Returns the entry id for the undo toast.
+    @discardableResult
+    func logUsual(_ food: FoodItem, meal: MealType, on date: Date) -> UUID {
+        let portion = relogPortion(of: food)
+        return logFoodDetail(portion.detail, consumed: portion.consumed,
+                             measurement: portion.measurement, meal: meal, on: date)
+    }
+
+    // CLAUDE  Date 09/30/2026
+    // A bare calorie/macro log with no food behind it (eating out, estimating). foodId is
+    // nil, which keeps it out of Top picks and usuals and marks it FoodEntry.isQuickAdd.
+    @discardableResult
+    func logQuickAdd(name: String, nutrients: Nutrients, meal: MealType, on date: Date,
+                     at picked: Date? = nil) -> UUID {
+        let entry = FoodEntry(name: name, nutrients: nutrients, servings: 1, mealType: meal,
+                              loggedAt: logTime(picked, for: meal, on: date))
+        foodLog.append(entry)
+        return entry.id
     }
 
     func deleteFoodEntry(id: UUID) {

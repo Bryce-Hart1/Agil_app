@@ -171,12 +171,14 @@ struct FoodPickerView: View {
                     }
                 } else {
                     let detail = FoodDetail(from: food)
+                    // CLAUDE  Date 09/30/2026 — also carries the picked time onto `date`.
                     FoodDetailView(food: detail, initialMeal: meal,
-                                   initialMeasurement: store.lastMeasurements[detail.id]) {
-                        chosenMeal, consumed, measurement in
+                                   initialMeasurement: store.lastMeasurements[detail.id],
+                                   suggestedTimes: store.suggestedLogTimes(on: date)) {
+                        chosenMeal, consumed, measurement, time in
                         store.logFoodDetail(detail, consumed: consumed,
                                             measurement: measurement,
-                                            meal: chosenMeal, on: date)
+                                            meal: chosenMeal, on: date, at: time)
                         dismiss()
                     }
                 }

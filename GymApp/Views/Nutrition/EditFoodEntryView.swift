@@ -27,6 +27,11 @@ struct EditFoodEntryView: View {
     // The legacy path: a bare multiplier over the frozen nutrient snapshot.
     @State private var servings: Double
     @State private var meal: MealType
+    // CLAUDE  Date 09/30/2026
+    // When it was eaten (only the clock part is used; the entry keeps its day), and the
+    // typed numbers behind a quick add, which has no food to re-dial.
+    @State private var time: Date
+    @State private var quickDraft: QuickNutrientDraft
 
     init(entry: FoodEntry) {
         self.entry = entry
@@ -35,6 +40,8 @@ struct EditFoodEntryView: View {
                                                 servingNoun: "serving"))
         _servings = State(initialValue: entry.servings)
         _meal = State(initialValue: entry.mealType)
+        _time = State(initialValue: entry.loggedAt)
+        _quickDraft = State(initialValue: QuickNutrientDraft(entry.consumed))
     }
 
     // Claude  Date 08/06/2026
@@ -44,6 +51,7 @@ struct EditFoodEntryView: View {
     // multiplication of a rounded total. Without one, fall back to scaling the
     // snapshot.
     private var consumed: Nutrients {
+        if entry.isQuickAdd { return quickDraft.nutrients }
         if let basis = entry.basis, entry.measurement != nil {
             return basis.per100.scaled(by: measurement.per100Factor(in: basis))
         }
@@ -60,7 +68,9 @@ struct EditFoodEntryView: View {
                 }
 
                 Section("Amount") {
-                    if let basis = entry.basis, entry.measurement != nil {
+                    if entry.isQuickAdd {
+                        QuickNutrientFields(draft: $quickDraft)
+                    } else if let basis = entry.basis, entry.measurement != nil {
                         MeasurementEditor(basis: basis, measurement: $measurement,
                                           accent: theme.current.accent)
                             .padding(.vertical, 4)
@@ -71,10 +81,12 @@ struct EditFoodEntryView: View {
                     }
                 }
 
-                Section("Meal") {
+                // CLAUDE  Date 09/30/2026 — was "Meal"; the time moves the entry on the Log's thread.
+                Section("When") {
                     Picker("Meal", selection: $meal) {
                         ForEach(MealType.allCases) { Text($0.title).tag($0) }
                     }
+                    DatePicker("Time", selection: $time, displayedComponents: .hourAndMinute)
                 }
 
                 Section("Totals") {
@@ -103,6 +115,7 @@ struct EditFoodEntryView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save", action: save)
+                        .disabled(entry.isQuickAdd && !quickDraft.isLoggable)
                 }
             }
         }
@@ -115,6 +128,7 @@ struct EditFoodEntryView: View {
     // the control below look like it did something other than what it does.
     private var loggedCaption: String {
         let kcal = Int(entry.consumed.calories.rounded())
+        if entry.isQuickAdd { return "Quick add · \(kcal) kcal" }
         if let original = entry.measurement {
             return "Logged: \(original.displayText) · \(kcal) kcal"
         }
@@ -131,7 +145,12 @@ struct EditFoodEntryView: View {
     private func save() {
         var updated = entry
         updated.mealType = meal
-        if let basis = entry.basis, entry.measurement != nil {
+        // CLAUDE 09/30/2026 — the picked clock time on the entry's own day, never past now.
+        updated.loggedAt = min(MealTiming.placing(timeOf: time, on: entry.loggedAt), Date())
+        if entry.isQuickAdd {
+            updated.nutrients = quickDraft.nutrients
+            updated.servings = 1
+        } else if let basis = entry.basis, entry.measurement != nil {
             updated.nutrients = basis.per100.scaled(by: measurement.per100Factor(in: basis))
             updated.servings = 1
             updated.measurement = measurement

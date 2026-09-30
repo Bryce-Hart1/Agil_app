@@ -1,24 +1,14 @@
 import SwiftUI
 
-// Claude  Date 08/23/2026
-// The content model behind Help & Demos: a flat catalog of walkthroughs, each a
-// short ordered list of steps. Data, not views — HelpGuidesView renders the list
-// and HelpGuideDetailView renders one guide, so filling in the prose never means
-// touching layout code.
-//
-// EVERY body here is deliberately nil: the step titles + icons describe the real
-// navigation (verified against the screens they describe), and the prose under
-// each one is Bryce's to write. A nil body renders as a visible "TODO" placeholder
-// rather than an empty gap, so an unwritten step is obvious in the app instead of
-// silently looking finished. Search this file for `TODO:` to find what's left.
+// CLAUDE  Date 09/26/2026
+// The catalog behind Help & Demos: sections of guides, each either a short help paragraph
+// or an interactive demo (see Demos/). Data only; HelpGuidesView renders it, so editing
+// copy never means touching layout code.
 
 // Claude  Date 08/23/2026
 // An icon the guide points at, drawn the way the real screen draws it. The app
 // mixes SF Symbols with Bryce's custom template assets (which need
-// .renderingMode(.template) — the SVGs declare no template intent in their
-// Contents.json, so without it they'd draw flat instead of taking the tint).
-// Same split AgilTabItem.Icon makes for the tab bar; kept separate because the
-// sizes here are guide-sized, not bar-sized.
+// .renderingMode(.template) or they draw flat instead of taking the tint).
 enum GuideIcon: Hashable {
     case system(String)
     case asset(String)
@@ -39,213 +29,154 @@ enum GuideIcon: Hashable {
     }
 }
 
-// Claude  Date 08/23/2026
-// One step of a walkthrough. `icon` is what the user should look for on screen,
-// `title` is where/what to tap, `body` is the explanation — nil until written.
-struct HelpGuideStep: Identifiable {
-    let id = UUID()
-    let icon: GuideIcon
-    let title: String
-    var body: String? = nil
+// CLAUDE  Date 09/26/2026
+// What opening a guide shows: a paragraph page, a demo, or nothing yet. `comingSoon` is a
+// demo that isn't built; its row is greyed out and can't be tapped.
+enum HelpGuideContent {
+    case article(String)
+    case demo(DemoKind)
+    case comingSoon
 }
 
 struct HelpGuide: Identifiable {
     let id: String
     let title: String
-    /// One-line summary shown under the title in the list. nil = TODO.
-    var summary: String? = nil
-    /// The icon that identifies this guide in the list.
+    /// One line under the title in the list.
+    let summary: String
     let icon: GuideIcon
-    /// Asset-catalog name of the demo image/animation shown at the top of the
-    /// guide. nil renders the "demo goes here" placeholder.
-    var demoAsset: String? = nil
-    /// Caption under the demo. nil = TODO.
-    var demoCaption: String? = nil
-    let steps: [HelpGuideStep]
-
-    /// How many pieces of copy are still unwritten — drives the list's TODO chip.
-    var todoCount: Int {
-        (summary == nil ? 1 : 0)
-            + (demoAsset == nil ? 1 : 0)
-            + (demoCaption == nil ? 1 : 0)
-            + steps.filter { $0.body == nil }.count
-    }
+    let content: HelpGuideContent
 }
 
 // Claude  Date 08/23/2026
-// A titled run of guides in the list. Sections follow the app's own shape —
-// the lifting world, the food world, then the things that cut across both.
+// A titled run of guides in the list. Sections follow the app's own shape.
 struct HelpGuideSection: Identifiable {
     let id: String
     let title: String
     let guides: [HelpGuide]
 }
 
+// CLAUDE  Date 09/26/2026
+// Every guide, in list order. Copy rules: short, no em dashes, and every step a user needs.
+// Paragraph facts are checked against the screens they describe; update them with the UI.
 enum HelpGuideCatalog {
     static let sections: [HelpGuideSection] = [
-        HelpGuideSection(id: "you", title: "Your profile", guides: [userCard, appTheme]),
-        HelpGuideSection(id: "lifting", title: "Lifting", guides: [blankWorkout, buildPreset, customExercise]),
-        HelpGuideSection(id: "food", title: "Food", guides: [customFood, recipe])
+        HelpGuideSection(id: "around", title: "Getting around", guides: [flippingSides]),
+        HelpGuideSection(id: "you", title: "Your profile",
+                         guides: [userCard, prsAndAchievements, appTheme, font]),
+        HelpGuideSection(id: "lifting", title: "Lifting",
+                         guides: [newWorkout, presetWorkout, buildPreset, customExercise, progressWidget]),
+        HelpGuideSection(id: "food", title: "Food", guides: [logMeal, customFood, recipe])
     ]
 
-    static var all: [HelpGuide] { sections.flatMap(\.guides) }
+    // MARK: - Getting around
+
+    static let flippingSides = HelpGuide(
+        id: "flipping-sides",
+        title: "Flipping sides",
+        summary: "Switch between Lifting and Food.",
+        icon: .system("arrow.left.arrow.right"),
+        content: .article("Agil has two sides, Lifting and Food. Tap the pill at the top of any main screen to flip between them.\n\nThe pill shows your side, your coins, and one number from the other side: calories eaten while lifting, your weekly workout streak while on Food.\n\nYou land in the same spot on the tab bar, and Profile is shared by both sides.")
+    )
 
     // MARK: - Your profile
 
-    // TODO: bodies for every step below.
     static let userCard = HelpGuide(
         id: "user-card",
         title: "Your user card",
+        summary: "Style the card your friends see.",
         icon: .asset("user-circle-dashed"),
-        steps: [
-            HelpGuideStep(icon: .asset("user-circle-dashed"),
-                          title: "Open the Profile tab"),
-            HelpGuideStep(icon: .system("rectangle.on.rectangle.angled"),
-                          title: "The card fills the top of the screen"),
-            HelpGuideStep(icon: .asset("wrench"),
-                          title: "Scroll down and tap Edit Profile Card"),
-            HelpGuideStep(icon: .system("photo"),
-                          title: "Tap the background pencil to change the style"),
-            HelpGuideStep(icon: .asset("medal"),
-                          title: "Tap the badge pencil to pin featured badges"),
-            HelpGuideStep(icon: .system("circle.dotted"),
-                          title: "The ring around your emblem tracks Strategist rank"),
-            HelpGuideStep(icon: .system("bag"),
-                          title: "New card styles come from the Shop")
-        ]
+        content: .article("Your card sits at the top of the Profile tab, and it's what friends see.\n\nTo change it, scroll down and tap Edit Profile Card, then tap any part of the card: the background for its style and text color, the badges to pin favorites, the header for logo and name, and the picture for your emblem and rank progress (ring or bar).\n\nSwitch to Back at the top to pick the back's stats and style, or have it match the front. More styles are in the Shop.")
     )
 
-    // TODO: bodies for every step below.
+    static let prsAndAchievements = HelpGuide(
+        id: "prs-achievements",
+        title: "Seeing PRs and achievements",
+        summary: "Find your records and badges.",
+        icon: .asset("medal"),
+        content: .article("PRs: open the Progress tab and tap the trophy at the top right to see every personal record. The Personal records widget shows your 5 latest, and a new PR shows in gold on the summary after you finish a workout.\n\nAchievements: open the Profile tab and tap the medal at the top left to open the Achievement Book. A red number means badges you haven't opened yet. Swipe through the book by category. Secret badges are on the last page.")
+    )
+
     static let appTheme = HelpGuide(
         id: "app-theme",
         title: "Changing the app theme",
+        summary: "Colors, app icon, and font.",
         icon: .system("paintpalette"),
-        steps: [
-            HelpGuideStep(icon: .asset("user-circle-dashed"),
-                          title: "Open the Profile tab"),
-            HelpGuideStep(icon: .system("gearshape"),
-                          title: "Tap the gear in the top-right for Settings"),
-            HelpGuideStep(icon: .system("paintpalette"),
-                          title: "Under Appearance, tap Theme"),
-            HelpGuideStep(icon: .system("checkmark"),
-                          title: "Tap a theme to apply it everywhere"),
-            HelpGuideStep(icon: .system("bag"),
-                          title: "Locked themes are unlocked in the Shop")
-        ]
+        content: .article("Open the Profile tab, tap the gear at the top right, then tap Theme under Appearance.\n\nTap a theme to apply it everywhere. Each theme brings its own app icon and font.\n\nGet more themes in the Shop on the Profile tab.")
+    )
+
+    static let font = HelpGuide(
+        id: "font",
+        title: "Changing the font",
+        summary: "Use Apple's standard font.",
+        icon: .system("textformat"),
+        content: .article("Each theme has its own font. To use Apple's standard font instead, open Settings (the gear on the Profile tab) and turn on Use system font under Appearance. Turn it off to go back.\n\nThe workout screen always uses the standard font so your numbers line up.")
     )
 
     // MARK: - Lifting
 
-    static let blankWorkout = HelpGuide(
-        id: "blank-workout",
-        title: "Starting a blank workout",
+    static let newWorkout = HelpGuide(
+        id: "new-workout",
+        title: "Starting a new workout",
+        summary: "Log a workout from scratch.",
         icon: .asset("note-blank"),
-        steps: [
-            HelpGuideStep(icon: .system("dumbbell"),
-                          title: "Make sure that you are on the lifting side of the app"),
-            HelpGuideStep(icon: .system("dumbbell"),
-                          title: "Open the Workouts tab"),
-            HelpGuideStep(icon: .asset("note-blank"),
-                          title: "Tap the blank-page button in the top-left"),
-            HelpGuideStep(icon: .system("plus"),
-                          title: "Add your first exercise"),
-            HelpGuideStep(icon: .system("square.and.pencil"),
-                          title: "Log weight and reps set by set"),
-            HelpGuideStep(icon: .system("timer"),
-                          title: "The rest timer starts when you finish a set"),
-            HelpGuideStep(icon: .system("checkmark.circle"),
-                          title: "Finish the workout to log it to History")
-        ]
+        content: .demo(.newWorkout)
     )
 
-    // TODO: bodies for every step below.
+    static let presetWorkout = HelpGuide(
+        id: "preset-workout",
+        title: "Starting from a preset",
+        summary: "Start a workout that comes pre-filled.",
+        icon: .asset("note"),
+        content: .demo(.presetWorkout)
+    )
+
     static let buildPreset = HelpGuide(
         id: "build-preset",
         title: "Building a preset",
+        summary: "Save a workout template to reuse.",
         icon: .asset("hammer"),
-        steps: [
-            HelpGuideStep(icon: .asset("hammer"),
-                          title: "Open the Build tab"),
-            HelpGuideStep(icon: .system("plus"),
-                          title: "Tap + in the top-right"),
-            HelpGuideStep(icon: .system("square.and.pencil"),
-                          title: "Choose Blank Preset to start from scratch"),
-            HelpGuideStep(icon: .system("square.stack"),
-                          title: "Or Browse Premade to start from a template"),
-            HelpGuideStep(icon: .system("tag"),
-                          title: "Name it and pick its icon"),
-            HelpGuideStep(icon: .system("plus"),
-                          title: "Add exercises and set rep ranges"),
-            HelpGuideStep(icon: .asset("note"),
-                          title: "Start it later from the Workouts tab's preset button")
-        ]
+        content: .demo(.buildPreset)
     )
 
     static let customExercise = HelpGuide(
         id: "custom-exercise",
         title: "Adding a custom exercise",
+        summary: "Add a lift that isn't in the library.",
         icon: .system("list.bullet"),
-        steps: [
-            HelpGuideStep(icon: .asset("hammer"),
-                          title: "Open the Build tab"),
-            HelpGuideStep(icon: .system("list.bullet"),
-                          title: "Tap Exercises in the top-left"),
-            HelpGuideStep(icon: .system("plus"),
-                          title: "Tap + in the top-right"),
-            HelpGuideStep(icon: .system("character.cursor.ibeam"),
-                          title: "Name the lift and pick its body region"),
-            HelpGuideStep(icon: .system("wrench.and.screwdriver"),
-                          title: "Pick the equipment it uses"),
-            HelpGuideStep(icon: .system("tag"),
-                          title: "Long-press a lift to add a brand variant, these can be whatever you want (example, brand or place)"),
-            HelpGuideStep(icon: .system("pencil"),
-                          title: "Swipe a lift to edit or delete it")
-        ]
+        content: .demo(.customExercise)
+    )
+
+    static let progressWidget = HelpGuide(
+        id: "progress-widget",
+        title: "Adding a progress widget",
+        summary: "Choose the charts on Progress.",
+        icon: .asset("chart-scatter"),
+        content: .article("On the Lifting side, open the Progress tab and tap the pencil at the top left, or Edit Progress at the bottom of the page.\n\nPick Workouts or Food at the top, then tap + on a widget to add it or the check to remove it. Changes save right away.\n\nFood widgets show below your workout charts. Weight trend starts off, and Daily water intake only shows while water tracking is on.")
     )
 
     // MARK: - Food
 
+    static let logMeal = HelpGuide(
+        id: "log-meal",
+        title: "Logging a meal",
+        summary: "Add food to a meal.",
+        icon: .asset("scroll"),
+        content: .demo(.logMeal)
+    )
+
     static let customFood = HelpGuide(
         id: "custom-food",
         title: "Adding a custom food",
+        summary: "Save a food that isn't in the database.",
         icon: .system("plus.circle"),
-        steps: [
-            HelpGuideStep(icon: .asset("bowl-food"),
-                          title: "Tap the notch at the top to switch to Food"),
-            HelpGuideStep(icon: .asset("orange"),
-                          title: "Open the Foods tab"),
-            HelpGuideStep(icon: .system("plus"),
-                          title: "Tap + in the top right"),
-            HelpGuideStep(icon: .system("plus.circle"),
-                          title: "Choose Create custom food"),
-            HelpGuideStep(icon: .asset("barcode"),
-                          title: "Or scan a barcode to fill it in for you"),
-            HelpGuideStep(icon: .system("chart.pie"),
-                          title: "Enter the serving size and macros"),
-            HelpGuideStep(icon: .asset("scroll"),
-                          title: "It's now searchable from Log. You can also send it to our team for review to be added to the public database")
-        ]
+        content: .demo(.customFood)
     )
 
     static let recipe = HelpGuide(
         id: "recipe",
         title: "Making a recipe",
+        summary: "Combine foods and log them as one.",
         icon: .system("list.bullet.rectangle"),
-        steps: [
-            HelpGuideStep(icon: .asset("orange"),
-                          title: "Open the Foods tab"),
-            HelpGuideStep(icon: .system("plus"),
-                          title: "Tap + in the top-right"),
-            HelpGuideStep(icon: .system("list.bullet.rectangle"),
-                          title: "Choose Create recipe"),
-            HelpGuideStep(icon: .system("plus"),
-                          title: "Add each ingredient and its amount"),
-            HelpGuideStep(icon: .system("divide"),
-                          title: "Set how many servings it makes"),
-            HelpGuideStep(icon: .system("chart.pie"),
-                          title: "Macros per serving are worked out for you"),
-            HelpGuideStep(icon: .asset("scroll"),
-                          title: "Log a serving from the Log tab like any other food")
-        ]
+        content: .demo(.recipe)
     )
 }

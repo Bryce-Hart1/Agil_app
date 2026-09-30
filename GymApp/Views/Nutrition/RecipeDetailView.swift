@@ -30,6 +30,8 @@ struct RecipeDetailView: View {
     var onLogged: (() -> Void)? = nil
 
     @State private var selectedMeal: MealType = .snack
+    // CLAUDE  Date 09/30/2026 — when it was eaten; MealTimePicker seeds it from the meal.
+    @State private var logTime = Date()
     // How many servings of the recipe are being logged, in the same FoodMeasurement
     // vocabulary every other amount in the app uses.
     @State private var measurement = FoodMeasurement(amount: 1, servingNoun: "serving")
@@ -202,21 +204,13 @@ struct RecipeDetailView: View {
     private var logBar: some View {
         let consumed = detail.per100.scaled(by: factor)
         return VStack(spacing: 10) {
-            HStack {
-                Text("Meal").font(.subheadline).foregroundStyle(.secondary)
-                Spacer()
-                Picker("Meal", selection: $selectedMeal) {
-                    ForEach(MealType.allCases) { meal in
-                        Label(meal.title, systemImage: meal.systemImage).tag(meal)
-                    }
-                }
-                .pickerStyle(.menu)
-                .tint(accent)
+            MealTimePicker(meal: $selectedMeal, time: $logTime, accent: accent) { meal in
+                store.suggestedLogTime(for: meal, on: date)
             }
             Button {
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
                 store.logFoodDetail(detail, consumed: consumed, measurement: measurement,
-                                    meal: selectedMeal, on: date)
+                                    meal: selectedMeal, on: date, at: logTime)
                 onLogged?()
                 dismiss()
             } label: {

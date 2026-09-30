@@ -73,6 +73,11 @@ struct FoodEntry: Identifiable, Codable, Hashable {
     // servings stepper.
     var isRedialable: Bool { measurement != nil && basis != nil }
 
+    // CLAUDE  Date 09/30/2026
+    // A bare calorie/macro log with no food behind it (AppStore.logQuickAdd). Every
+    // food-backed path sets foodId and none sets it nil, so no stored flag is needed.
+    var isQuickAdd: Bool { foodId == nil && basis == nil }
+
     // Claude  Date 06/16/2026
     // What was actually consumed: the per-serving snapshot scaled by serving count.
     // This is the value totaled into a day / meal.

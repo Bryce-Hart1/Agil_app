@@ -335,11 +335,13 @@ struct FoodLibraryView: View {
             // diary picker pushes it — so this sheet provides the stack and the Done.)
             .sheet(item: $detailFood) { detail in
                 NavigationStack {
+                    // CLAUDE  Date 09/30/2026 — logs onto today at the picked time.
                     FoodDetailView(food: detail,
                                    initialMeasurement: store.lastMeasurements[detail.id],
-                                   onLog: { meal, consumed, measurement in
+                                   suggestedTimes: store.suggestedLogTimes(on: Date()),
+                                   onLog: { meal, consumed, measurement, time in
                         store.logFoodDetail(detail, consumed: consumed,
-                                            measurement: measurement, meal: meal)
+                                            measurement: measurement, meal: meal, at: time)
                     })
                     .toolbar {
                         ToolbarItem(placement: .confirmationAction) {

@@ -10,6 +10,9 @@ struct PendingUndo: Identifiable, Equatable {
 
     let id = UUID()
     let message: String
+    // CLAUDE  Date 09/30/2026 — the popup's leading icon. Removals keep the trash; the food
+    // Log passes a checkmark for "Logged greek yogurt", which can be undone the same way.
+    var systemImage = "trash"
     let deadline = Date().addingTimeInterval(PendingUndo.window)
     let restore: () -> Void
 
@@ -38,7 +41,8 @@ private struct UndoToastModifier: ViewModifier {
                 // restyle the caller's own removal animation, which shares the transaction.
                 ZStack {
                     if let undo = pending {
-                        UndoToast(message: undo.message, accent: accent, surface: surface) {
+                        UndoToast(message: undo.message, systemImage: undo.systemImage,
+                                  accent: accent, surface: surface) {
                             Haptics.soften()
                             withAnimation(.easeInOut(duration: 0.25)) {
                                 undo.restore()
@@ -70,13 +74,14 @@ private struct UndoToastModifier: ViewModifier {
 // it waits, so the ~10s it's up costs no frames on older phones.
 private struct UndoToast: View {
     let message: String
+    let systemImage: String
     let accent: Color
     let surface: Color
     let onUndo: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: "trash")
+            Image(systemName: systemImage)
                 .font(.footnote)
                 .foregroundStyle(.secondary)
             Text(message)

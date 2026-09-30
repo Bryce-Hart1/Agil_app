@@ -1532,7 +1532,9 @@ private enum SetFormat {
 /// A single editable set: "Set N — [reps] reps × [weight] lb".
 /// When the exercise has a target rep range, a colored mark and reps color show
 /// whether this set landed in range (green) or not (red).
-private struct SetRow: View {
+// CLAUDE  Date 09/26/2026: internal (was private) so the Help workout demo draws this exact
+// row over sample data. Access change only; nothing else about the row changed.
+struct SetRow: View {
     let number: Int
     // Claude  Date 06/14/2026
     // "Left"/"Right" for unilateral sets (nil for normal two-sided sets); `lagsBehind`

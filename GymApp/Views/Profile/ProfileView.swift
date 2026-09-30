@@ -242,7 +242,8 @@ struct ProfileView: View {
             // each step carrying the real on-screen icon. Sits next to Settings
             // because that's where the guided tour already lives — this is the
             // reference you read at your own pace, the tour is the one that walks
-            // you around. Copy is still being written; see HelpGuides.swift.
+            // you around. (CLAUDE 09/26/2026: now help paragraphs plus interactive
+            // demos; see HelpGuides.swift and Views/Help/Demos.)
             profileNavRow("Help & Demos", systemImage: "questionmark.circle") {
                 HelpGuidesView()
             }

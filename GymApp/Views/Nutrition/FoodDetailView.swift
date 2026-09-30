@@ -60,16 +60,24 @@ struct FoodDetailView: View {
     // re-log. nil = no history, or a stale one — fall back to the defaults.
     var initialMeasurement: FoodMeasurement? = nil
 
-    // Claude  Date 07/15/2026 last changed: 08/06/2026 by: Claude
-    // Logging hook. When non-nil the page shows a meal picker + "Add to <meal>" bar; on
-    // tap it fires with the selected meal, the nutrients consumed for the current
-    // amount (per-100 already scaled by `factor`), and the measurement the user dialed
-    // in — the caller writes all three. Nil = no logging affordance.
+    // CLAUDE  Date 09/30/2026
+    // Where the log bar's clock opens for each meal (AppStore.suggestedLogTimes). Plain
+    // data so the page stays store-free; a meal missing from it falls back to MealTiming's
+    // defaults for today.
+    var suggestedTimes: [MealType: Date] = [:]
+
+    // Claude  Date 07/15/2026 last changed: 09/30/2026 by: CLAUDE
+    // Logging hook. When non-nil the page shows a meal + time row and an "Add to <meal>"
+    // bar; on tap it fires with the selected meal, the nutrients consumed for the current
+    // amount (per-100 already scaled by `factor`), the measurement the user dialed in, and
+    // the picked time — the caller writes all four. Nil = no logging affordance.
     // (Declared last so call sites can keep passing it as a trailing closure.)
-    var onLog: ((MealType, Nutrients, FoodMeasurement) -> Void)? = nil
+    var onLog: ((MealType, Nutrients, FoodMeasurement, Date) -> Void)? = nil
 
     // Which meal the "Add" bar logs into. Seeded on appear (see `initialMeal`).
     @State private var selectedMeal: MealType = .snack
+    // When the food was eaten. Seeded and kept in step with the meal by MealTimePicker.
+    @State private var logTime = Date()
 
     // Claude  Date 07/15/2026 last changed: 08/06/2026 by: Claude
     // The dialed-in amount — the page's one piece of amount state, edited by the shared
@@ -362,23 +370,15 @@ struct FoodDetailView: View {
     // nothing. (The button shows the live calorie total so what you're about to log is
     // never a guess, drops the keyboard before reading the amount, and confirms with a
     // success haptic.)
-    private func logBar(_ onLog: @escaping (MealType, Nutrients, FoodMeasurement) -> Void) -> some View {
+    private func logBar(_ onLog: @escaping (MealType, Nutrients, FoodMeasurement, Date) -> Void) -> some View {
         let consumed = food.per100.scaled(by: factor)
         return VStack(spacing: 10) {
-            HStack {
-                Text("Meal").font(.subheadline).foregroundStyle(.secondary)
-                Spacer()
-                Picker("Meal", selection: $selectedMeal) {
-                    ForEach(MealType.allCases) { meal in
-                        Label(meal.title, systemImage: meal.systemImage).tag(meal)
-                    }
-                }
-                .pickerStyle(.menu)
-                .tint(accent)
+            MealTimePicker(meal: $selectedMeal, time: $logTime, accent: accent) { meal in
+                suggestedTimes[meal] ?? MealTiming.suggestedTime(for: meal, on: Date(), log: [])
             }
             Button {
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
-                onLog(selectedMeal, food.per100.scaled(by: factor), measurement)
+                onLog(selectedMeal, food.per100.scaled(by: factor), measurement, logTime)
                 dismiss()
             } label: {
                 Text("Add to \(selectedMeal.title) · \(Int(consumed.calories.rounded())) kcal")
@@ -397,13 +397,9 @@ struct FoodDetailView: View {
 
     // Claude  Date 07/15/2026
     // Best-guess meal from the current hour so the picker opens on the likely choice.
+    // (CLAUDE 09/30/2026: the hour table now lives on MealType.window, shared with MealTiming.)
     static func mealForNow(_ date: Date = Date()) -> MealType {
-        switch Calendar.current.component(.hour, from: date) {
-        case 4..<11:  return .breakfast
-        case 11..<15: return .lunch
-        case 18..<22: return .dinner
-        default:      return .snack
-        }
+        MealType.forTime(date)
     }
 
     // MARK: - Number formatting
@@ -451,7 +447,7 @@ private extension FoodDetail {
 // credentials from it — a preview without one traps at runtime.)
 #Preview("Populated · logging") {
     NavigationStack {
-        FoodDetailView(food: .sample, onLog: { meal, consumed, _ in
+        FoodDetailView(food: .sample, onLog: { meal, consumed, _, _ in
             print("log \(meal.title): \(consumed.calories) kcal")
         })
     }
@@ -488,7 +484,7 @@ private extension FoodDetail {
             basisUnit: "ml",
             per100: Nutrients(calories: 45, protein: 0.7, carbs: 10.4, fat: 0.2,
                               fiber: 0.2, sugar: 8.4, sodium: 1),
-            micros: Micros(vC: 50, potassium: 200)), onLog: { _, _, _ in })
+            micros: Micros(vC: 50, potassium: 200)), onLog: { _, _, _, _ in })
     }
     .environmentObject(ThemeManager())
     .environmentObject(CardSyncService())
@@ -502,7 +498,7 @@ private extension FoodDetail {
     NavigationStack {
         FoodDetailView(food: .sample,
                        initialMeasurement: FoodMeasurement(amount: 6, unit: .ounce),
-                       onLog: { _, _, _ in })
+                       onLog: { _, _, _, _ in })
     }
     .environmentObject(ThemeManager())
     .environmentObject(CardSyncService())
@@ -524,7 +520,7 @@ private extension FoodDetail {
             servingQuantity: 33,
             per100: Nutrients(calories: 594, protein: 21, carbs: 21, fat: 51,
                               fiber: 6, sugar: 6, sodium: 152),
-            micros: Micros(vE: 3.1)), onLog: { _, _, _ in })
+            micros: Micros(vE: 3.1)), onLog: { _, _, _, _ in })
     }
     .environmentObject(ThemeManager())
     .environmentObject(CardSyncService())
@@ -543,7 +539,7 @@ private extension FoodDetail {
             servingUnit: "bar",
             nutrients: Nutrients(calories: 210, protein: 20, carbs: 22, fat: 7,
                                  fiber: 3, sugar: 5, sodium: 140),
-            source: .custom)), onLog: { _, _, _ in })
+            source: .custom)), onLog: { _, _, _, _ in })
     }
     .environmentObject(ThemeManager())
 }

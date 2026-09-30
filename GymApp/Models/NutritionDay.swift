@@ -34,6 +34,12 @@ struct NutritionDay {
         entries.filter { $0.mealType == meal }
     }
 
+    // CLAUDE  Date 09/30/2026
+    // One meal's entries oldest first — the order the Log's time thread reads down in.
+    func chronological(for meal: MealType) -> [FoodEntry] {
+        entries(for: meal).reversed()
+    }
+
     // Claude  Date 06/16/2026
     // Σ consumed for one meal — drives each meal section's subtotal.
     func totals(for meal: MealType) -> Nutrients {
