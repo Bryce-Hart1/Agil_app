@@ -491,6 +491,7 @@ private struct FoodLibraryRow: View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 6) {
                 Text(food.displayName).font(.subheadline).fontWeight(.medium)
+                    .foodNameFont()
                     .lineLimit(1)
                 FoodSourceBadge(source: FoodTrust(food.source),
                                 verification: food.verification,

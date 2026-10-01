@@ -336,6 +336,7 @@ private struct MealDemoFoodPage: View {
             Text(food.name)
                 .font(.title2)
                 .fontWeight(.bold)
+                .foodNameFont()
             if !food.brand.isEmpty {
                 Text(food.brand).font(.subheadline).foregroundStyle(.secondary)
             }

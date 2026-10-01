@@ -3,19 +3,29 @@ import SwiftUI
 import UIKit
 #endif
 
-// Claude  Date 06/13/2026
+// Claude  Date 06/13/2026 last changed: 10/01/2026 by: Claude
 // The "achievement unlocked" moment — meant to feel earned. Layers, back to front:
 // a dimmed backdrop, a slowly rotating ray burst, expanding pulse rings, a confetti
 // burst, and the badge popping in with a spring + shine, plus the coins awarded.
 // Tap anywhere to dismiss (advances to the next queued unlock).
+// Taps are gated ~0.6s so spamming can't stack overlays; Skip to end batches the rest.
 struct CelebrationOverlay: View {
     let achievement: Achievement
     let remaining: Int            // how many more are queued behind this one
     let onDismiss: () -> Void
+    // CLAUDE  Date 10/01/2026 — jumps to the last queued badge (nil hides the button).
+    var onSkip: (() -> Void)? = nil
 
     @State private var appear = false
     @State private var spin = false
     @State private var ring = false
+    // CLAUDE  Date 10/01/2026
+    // canDismiss opens after minDwell so the badge finishes springing in before a tap
+    // counts. didDismiss latches after one dismiss/skip, so an overlay that is still
+    // fading out can't advance the queue a second time.
+    @State private var canDismiss = false
+    @State private var didDismiss = false
+    private static let minDwell: Duration = .milliseconds(600)
 
     private var tier: BadgeTier { achievement.tier }
 
@@ -54,14 +64,47 @@ struct CelebrationOverlay: View {
                     .font(.footnote)
                     .foregroundStyle(.white.opacity(0.65))
                     .padding(.top, 10)
+                    // Fades in when taps start counting, so the gate reads as deliberate.
+                    .opacity(canDismiss ? 1 : 0)
             }
             .padding(40)
             .scaleEffect(appear ? 1 : 0.92)
             .opacity(appear ? 1 : 0)
         }
+        .overlay(alignment: .topTrailing) { skipButton }
         .contentShape(Rectangle())
-        .onTapGesture { onDismiss() }
+        .onTapGesture {
+            guard canDismiss, !didDismiss else { return }
+            didDismiss = true
+            onDismiss()
+        }
         .onAppear(perform: start)
+        .task {
+            try? await Task.sleep(for: Self.minDwell)
+            withAnimation(.easeOut(duration: 0.2)) { canDismiss = true }
+        }
+    }
+
+    // CLAUDE  Date 10/01/2026
+    // "Skip to end" — only while more badges are queued. Not gated by the dwell (it's
+    // the escape hatch, and one batched skip is cheap), but shares the didDismiss latch.
+    @ViewBuilder private var skipButton: some View {
+        if remaining > 0, let onSkip {
+            Button {
+                guard !didDismiss else { return }
+                didDismiss = true
+                onSkip()
+            } label: {
+                Label("Skip to end", systemImage: "forward.end.fill")
+                    .font(.footnote.weight(.bold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 14).padding(.vertical, 8)
+                    .background(.white.opacity(0.14), in: Capsule())
+                    .overlay(Capsule().stroke(.white.opacity(0.25), lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+            .padding(16)
+        }
     }
 
     // Claude  Date 06/13/2026 last changed: 06/14/2026 by: Claude
@@ -95,6 +138,8 @@ struct CelebrationOverlay: View {
     }
 
     // A slowly rotating starburst of tier-colored rays behind everything.
+    // CLAUDE  Date 10/01/2026 — dropped a 0.5pt blur here: it cost an offscreen pass
+    // every frame on a layer that never stops rotating, for a barely visible softening.
     private var rays: some View {
         ZStack {
             ForEach(0..<14, id: \.self) { i in
@@ -111,7 +156,6 @@ struct CelebrationOverlay: View {
         .rotationEffect(.degrees(spin ? 360 : 0))
         .scaleEffect(appear ? 1 : 0.4)
         .opacity(appear ? 1 : 0)
-        .blur(radius: 0.5)
         .allowsHitTesting(false)
     }
 

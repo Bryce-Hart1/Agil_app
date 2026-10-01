@@ -1,9 +1,9 @@
 import SwiftUI
 
-// Claude  Date 08/29/2026
-// The supplement tracker's manage screen: build the stack, split it across times of day,
-// and jump into a slot's reminder schedule. Pushed from the journal card and from
-// Settings → Supplements, so it has no NavigationStack of its own.
+// Claude  Date 08/29/2026 last changed: 10/01/2026 by: CLAUDE
+// The supplement tracker's manage screen: build the stack and jump into a slot's reminder
+// schedule. Pushed from the Focus sheet and the journal card, so it has no NavigationStack
+// of its own. "Add a time of day" is gone — everyone has the one "Daily" slot.
 //
 // Laid out one Section per slot rather than one flat list, because the slot is what carries
 // the schedule — seeing "Post-workout · 6:30 PM · Mon, Wed, Fri" directly above the three
@@ -16,7 +16,6 @@ struct SupplementsView: View {
     @State private var addingToSlot: SupplementSlot?
     // The supplement being renamed (nil = closed).
     @State private var editing: Supplement?
-    @State private var showingNewSlot = false
     // CLAUDE  Date 09/24/2026 — the optional follow-up reminder (see SupplementFollowUp).
     @AppStorage(SupplementFollowUp.enabledKey) private var followUpOn = false
     @AppStorage(SupplementFollowUp.timeKey) private var followUpMinutes = SupplementFollowUp.defaultMinutes
@@ -27,7 +26,6 @@ struct SupplementsView: View {
             ForEach(store.supplementSlots) { slot in
                 slotSection(slot)
             }
-            newSlotSection
             followUpSection
         }
         .navigationTitle("Supplements")
@@ -52,7 +50,6 @@ struct SupplementsView: View {
                 slot: store.supplementSlots.first { $0.id == supplement.slotId },
                 existing: supplement)
         }
-        .sheet(isPresented: $showingNewSlot) { NewSlotSheet() }
     }
 
     private func slotSection(_ slot: SupplementSlot) -> some View {
@@ -120,22 +117,6 @@ struct SupplementsView: View {
             } else if !store.canAddSupplement {
                 Text("You've reached the limit of \(Supplement.maxCount) supplements.")
             }
-        }
-    }
-
-    private var newSlotSection: some View {
-        Section {
-            if store.canAddSupplementSlot {
-                Button {
-                    showingNewSlot = true
-                } label: {
-                    Label("Add a time of day", systemImage: "clock.badge.checkmark")
-                }
-            }
-        } footer: {
-            Text(store.canAddSupplementSlot
-                 ? "Split your stack across the day — a morning group and a bedtime group can be reminded separately."
-                 : "You've reached the limit of \(SupplementSlot.maxCount) times of day.")
         }
     }
 
@@ -279,47 +260,6 @@ private struct SupplementEditorSheet: View {
                                 slotId: slotId)
         }
         dismiss()
-    }
-}
-
-// Claude  Date 08/29/2026
-// Naming a new time of day. Just the name — the schedule is set in the slot editor
-// immediately afterwards, so this stays a one-field prompt rather than a second big form.
-private struct NewSlotSheet: View {
-    @EnvironmentObject private var store: AppStore
-    @EnvironmentObject private var theme: ThemeManager
-    @Environment(\.dismiss) private var dismiss
-
-    @State private var name = ""
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    TextField("Name", text: $name)
-                        .onChange(of: name) { newValue in
-                            name = String(newValue.prefix(SupplementSlot.maxNameLength))
-                        }
-                } footer: {
-                    Text("Something you'd recognise on a lock screen — \"Morning\", \"Post-workout\", \"Bedtime\".")
-                }
-            }
-            .navigationTitle("New Time of Day")
-            .navigationBarTitleDisplayMode(.inline)
-            .themed(theme.current)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        store.addSupplementSlot(name: name)
-                        dismiss()
-                    }
-                    .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
-                }
-            }
-        }
     }
 }
 

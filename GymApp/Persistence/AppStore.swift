@@ -757,6 +757,24 @@ final class AppStore: ObservableObject {
         pendingCelebrations.removeFirst()
     }
 
+    // CLAUDE  Date 10/01/2026
+    // "Skip to end": open every queued badge but the last in ONE batch (one publish, one
+    // disk write — per-tap churn is what lagged older phones), leaving just the final,
+    // highest-tier reveal. Replays stay untouched. Side effect: syncRewardCards runs once,
+    // so gem-card reveals for skipped badges still play after the last badge.
+    func skipToLastCelebration() {
+        guard pendingCelebrations.count > 1, let last = pendingCelebrations.last else { return }
+        var newlyOpened: Set<String> = []
+        for skipped in pendingCelebrations.dropLast() where previewCelebrationIDs.remove(skipped.id) == nil {
+            newlyOpened.insert(skipped.id)
+        }
+        if !newlyOpened.isEmpty {
+            openedAchievementIDs.formUnion(newlyOpened)
+            persistence.save(openedAchievementIDs, to: Self.openedFile)
+        }
+        pendingCelebrations = [last]
+    }
+
     // Claude  Date 07/12/2026
     // Play the Founders Edition unlock celebration for every founders card. The
     // grant itself is idempotent and lives in ThemeManager; this only fires the

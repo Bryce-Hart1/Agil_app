@@ -152,6 +152,7 @@ struct FoodDetailView: View {
         VStack(alignment: .leading, spacing: 10) {
             Text(food.displayName)
                 .font(.title2).fontWeight(.bold)
+                .foodNameFont()
                 .fixedSize(horizontal: false, vertical: true)
             if !food.displayBrand.trimmingCharacters(in: .whitespaces).isEmpty {
                 Text(food.displayBrand).font(.subheadline).foregroundStyle(.secondary)

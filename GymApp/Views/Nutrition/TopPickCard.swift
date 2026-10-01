@@ -24,6 +24,7 @@ struct TopPickCard: View {
             }
             Text(food.displayName)
                 .font(.subheadline).fontWeight(.medium)
+                .foodNameFont()
                 .foregroundStyle(.primary)
                 .multilineTextAlignment(.leading)
                 .lineLimit(2)

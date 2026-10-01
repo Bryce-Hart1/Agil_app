@@ -20,6 +20,13 @@ struct RankPromotionOverlay: View {
     // Drives the newest segment of the RankRing sweeping in (0 → 1) just after the crest
     // springs on — the "you just earned this rank" beat.
     @State private var reveal: Double = 0
+    // CLAUDE  Date 10/01/2026
+    // Same tap gate as CelebrationOverlay: taps count only after minDwell (the crest has
+    // sprung in), and didDismiss latches so a fading-out overlay can't advance the queue
+    // twice. Keeps spam-tapping from stacking these on older phones.
+    @State private var canDismiss = false
+    @State private var didDismiss = false
+    private static let minDwell: Duration = .milliseconds(600)
 
     private var color: Color { rank.tier.color }
 
@@ -53,14 +60,23 @@ struct RankPromotionOverlay: View {
                     .font(.footnote)
                     .foregroundStyle(.white.opacity(0.65))
                     .padding(.top, 10)
+                    .opacity(canDismiss ? 1 : 0)
             }
             .padding(40)
             .scaleEffect(appear ? 1 : 0.92)
             .opacity(appear ? 1 : 0)
         }
         .contentShape(Rectangle())
-        .onTapGesture { onDismiss() }
+        .onTapGesture {
+            guard canDismiss, !didDismiss else { return }
+            didDismiss = true
+            onDismiss()
+        }
         .onAppear(perform: start)
+        .task {
+            try? await Task.sleep(for: Self.minDwell)
+            withAnimation(.easeOut(duration: 0.2)) { canDismiss = true }
+        }
     }
 
     // Claude  Date 06/15/2026 last changed: 07/09/2026 by: Claude

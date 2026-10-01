@@ -356,6 +356,7 @@ private struct FoodPickRow: View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 6) {
                 Text(food.displayLabel).font(.subheadline).fontWeight(.medium)
+                    .foodNameFont()
                     .lineLimit(1)
                 FoodSourceBadge(source: FoodTrust(food.source),
                                 verification: food.verification,

@@ -78,15 +78,15 @@ struct NutritionJournalView: View {
             // Centered mode-switcher pill in the nav bar (shared by all root tabs).
             .modeNotchToolbar(tab: AgilTabItem.journal.tag)
             .toolbar {
-                // CLAUDE  Date 09/22/2026
-                // Top-left: focus goals, the same sheet Log's scope button opens. Every root
-                // screen keeps a button on both sides — with only the trailing target, UIKit
-                // centred the mode notch in the leftover space and shoved it left.
+                // CLAUDE  Date 09/22/2026 last changed: 10/01/2026 by: CLAUDE
+                // Top-left: the Focus sheet — focus goals plus the way into supplements (same
+                // sheet Log's scope button opens). Every root screen keeps a button on both
+                // sides — with only the trailing target, UIKit shoved the mode notch left.
                 ToolbarItem(placement: .topBarLeading) {
                     Button(action: openFocusGoals) {
                         Image(systemName: "scope")
                     }
-                    .accessibilityLabel("Focus goals")
+                    .accessibilityLabel("Focus and supplements")
                 }
                 // CLAUDE  Date 09/20/2026
                 // The target button now opens Body & plan, which owns the daily targets since

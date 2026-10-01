@@ -89,6 +89,7 @@ struct RecipeDetailView: View {
         VStack(alignment: .leading, spacing: 10) {
             Text(recipe.displayName)
                 .font(.title2).fontWeight(.bold)
+                .foodNameFont()
                 .fixedSize(horizontal: false, vertical: true)
             Text(yieldCaption)
                 .font(.subheadline).foregroundStyle(.secondary)
@@ -170,6 +171,7 @@ struct RecipeDetailView: View {
                         HStack(alignment: .firstTextBaseline) {
                             Text(item.displayName)
                                 .font(.subheadline)
+                                .foodNameFont()
                                 .fixedSize(horizontal: false, vertical: true)
                             Spacer(minLength: 8)
                             Text(item.measurement.displayText)

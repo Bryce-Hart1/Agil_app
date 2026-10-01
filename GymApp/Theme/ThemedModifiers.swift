@@ -30,6 +30,14 @@ extension View {
         systemTypeface()
     }
 
+    // CLAUDE  Date 09/30/2026
+    // Food and recipe names, wherever they're drawn. The theme's monospaced face made long
+    // names ("greek yogurt · fage 0% plain") truncate or wrap early; the system face fits far
+    // more. Face only, like the two above — size and weight stay the caller's.
+    func foodNameFont() -> some View {
+        systemTypeface()
+    }
+
     // Claude  Date 07/16/2026
     // Menu-style Pickers are UIKit-backed and resolve the .tint in effect when
     // they're first created — after a theme swap, any picker that was already

@@ -280,6 +280,7 @@ private struct RecipeDemoBuilder: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.food.name)
                     .font(.subheadline)
+                    .foodNameFont()
                 Text("\(Int(item.nutrients.calories.rounded())) kcal")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
@@ -336,6 +337,7 @@ private struct RecipeDemoAmountPage: View {
                         Text(food.name)
                             .font(.title3)
                             .fontWeight(.semibold)
+                            .foodNameFont()
                             .frame(maxWidth: .infinity, alignment: .leading)
                         MeasurementEditor(basis: food.basis,
                                           measurement: Binding(get: { state.measurement }, set: { _ in }),

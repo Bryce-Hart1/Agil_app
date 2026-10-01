@@ -15,8 +15,11 @@ struct MealTimePicker: View {
     @State private var timeTouched = false
 
     var body: some View {
+        // CLAUDE  Date 09/30/2026 — both controls fixedSize: a menu Picker is flexible, so
+        // it split the leftover width with the Spacer and wrapped "Breakfast" letter by letter.
         HStack(spacing: 8) {
             Text("When").font(.subheadline).foregroundStyle(.secondary)
+                .lineLimit(1)
             Spacer(minLength: 4)
             Picker("Meal", selection: $meal) {
                 ForEach(MealType.allCases) { meal in
@@ -25,9 +28,11 @@ struct MealTimePicker: View {
             }
             .pickerStyle(.menu)
             .tint(accent)
+            .fixedSize()
             DatePicker("Time", selection: timeBinding, displayedComponents: .hourAndMinute)
                 .labelsHidden()
                 .tint(accent)
+                .fixedSize()
         }
         .onAppear { if !timeTouched { time = suggest(meal) } }
         .onChange(of: meal) { newMeal in

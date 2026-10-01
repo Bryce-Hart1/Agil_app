@@ -184,7 +184,9 @@ struct RootTabView: View {
                 CelebrationOverlay(
                     achievement: achievement,
                     remaining: store.pendingCelebrations.count - 1,
-                    onDismiss: { store.dismissCurrentCelebration() }
+                    onDismiss: { store.dismissCurrentCelebration() },
+                    // CLAUDE  Date 10/01/2026 — batch-opens the rest, lands on the last badge.
+                    onSkip: { store.skipToLastCelebration() }
                 )
                 .id(achievement.id)
                 .transition(.opacity)

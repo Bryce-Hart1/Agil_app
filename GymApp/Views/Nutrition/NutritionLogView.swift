@@ -339,6 +339,7 @@ struct ThreadEntryRow: View {
                 .frame(width: ThreadLayout.dotSize, height: ThreadLayout.dotSize)
             VStack(alignment: .leading, spacing: 2) {
                 Text(entry.displayName).font(.subheadline).fontWeight(.medium)
+                    .foodNameFont()
                     .lineLimit(1)
                 detailLine(c)
                     .font(.caption2).foregroundStyle(.secondary)
@@ -467,6 +468,7 @@ private struct UsualChip: View {
                 .font(.caption2.weight(.bold))
                 .foregroundStyle(accent)
             Text(name)
+                .foodNameFont()
                 .lineLimit(1)
                 .frame(maxWidth: 130, alignment: .leading)
                 .fixedSize(horizontal: true, vertical: false)
