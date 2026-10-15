@@ -521,6 +521,24 @@ final class AppStore: ObservableObject {
                     backfilledEquipment = true
                 }
             }
+            // CLAUDE  Date 10/14/2026
+            // Same nil-only, name-matched fill for the plate calculator's loadStyle and starting
+            // plateSetup, so existing installs learn barbell vs dumbbell, plate-loaded vs pin-stack.
+            // Side effect: a brand variant inherits its seed's T-Bar/EZ setup until it saves its own.
+            let seedsByName: [String: Exercise] = Dictionary(
+                AppStore.seedExercises.map { ($0.name.lowercased(), $0) },
+                uniquingKeysWith: { first, _ in first })
+            for index in self.exercises.indices {
+                guard let seed = seedsByName[self.exercises[index].name.lowercased()] else { continue }
+                if self.exercises[index].loadStyle == nil, let style = seed.loadStyle {
+                    self.exercises[index].loadStyle = style
+                    backfilledEquipment = true
+                }
+                if self.exercises[index].plateSetup == nil, let setup = seed.plateSetup {
+                    self.exercises[index].plateSetup = setup
+                    backfilledEquipment = true
+                }
+            }
         }
 
         if loadedExercises.isEmpty || backfilledEquipment || syncedSeeds {
@@ -1161,13 +1179,14 @@ final class AppStore: ObservableObject {
                      primaryMover: String = "", quality: LiftQuality? = nil,
                      isBodyweight: Bool = false, note: String? = nil,
                      brand: String = "", equipmentType: EquipmentType? = nil,
-                     cardioMachine: CardioMachine? = nil) -> Exercise {
+                     cardioMachine: CardioMachine? = nil, loadStyle: LoadStyle? = nil) -> Exercise {
         let exercise = Exercise(name: name, region: region, category: category,
                                 isUnilateral: isUnilateral, liftType: liftType,
                                 primaryMover: primaryMover, quality: quality,
                                 isBodyweight: isBodyweight, note: note,
                                 brand: Exercise.normalizedBrand(brand, in: exercises),
-                                equipmentType: equipmentType, cardioMachine: cardioMachine)
+                                equipmentType: equipmentType, cardioMachine: cardioMachine,
+                                loadStyle: loadStyle)
         exercises.append(exercise)
         return exercise
     }
@@ -1205,7 +1224,11 @@ final class AppStore: ObservableObject {
                                quality: source.quality, isBodyweight: source.isBodyweight,
                                note: source.note, brand: canonical,
                                equipmentType: source.equipmentType,
-                               cardioMachine: source.cardioMachine)
+                               cardioMachine: source.cardioMachine,
+                               // CLAUDE  Date 10/14/2026 — loadStyle rides along (still plate-
+                               // loaded); plateSetup doesn't, since another brand's sled weighs
+                               // something else.
+                               loadStyle: source.loadStyle)
         exercises.append(variant)
         return variant
     }
@@ -2222,7 +2245,9 @@ final class AppStore: ObservableObject {
                                 quality: template.quality, isBodyweight: template.isBodyweight,
                                 note: template.note, brand: template.brand,
                                 equipmentType: template.equipmentType,
-                                cardioMachine: template.cardioMachine)
+                                cardioMachine: template.cardioMachine,
+                                // CLAUDE  Date 10/14/2026 — plate calculator tags (see seedExercises).
+                                loadStyle: template.loadStyle, plateSetup: template.plateSetup)
         created.append(exercise)
         return exercise.id
     }
@@ -2491,23 +2516,27 @@ extension AppStore {
         "weighted cable crunch":    "Cable Crunch",
     ]
 
+    // CLAUDE  Date 10/14/2026
+    // Free-weight and strength-machine seeds carry a loadStyle (and EZ-Bar Curl, Skull
+    // Crusher, T-Bar Row a starting plateSetup) for the plate calculator. Tag-only edits like
+    // that need no seedLibraryVersion bump: the backfill in init copies them onto existing rows.
     static let seedExercises: [Exercise] = [
         // MARK: Legs — Quads
-        Exercise(name: "Hack Squat", region: .legs, category: "Quads", primaryMover: "Quadriceps", quality: .optimal, equipmentType: .machine),
-        Exercise(name: "Barbell Back Squat", region: .legs, category: "Quads", liftType: .squat, primaryMover: "Quadriceps", quality: .classic, equipmentType: .freeWeight),
-        Exercise(name: "Leg Press", region: .legs, category: "Quads", primaryMover: "Quadriceps", quality: .optimal, equipmentType: .machine),
-        Exercise(name: "Leg Extension", region: .legs, category: "Quads", primaryMover: "Quadriceps", quality: .optimal, equipmentType: .machine),
-        Exercise(name: "Bulgarian Split Squat", region: .legs, category: "Quads", isUnilateral: true, primaryMover: "Quadriceps", quality: .optimal, equipmentType: .freeWeight),
+        Exercise(name: "Hack Squat", region: .legs, category: "Quads", primaryMover: "Quadriceps", quality: .optimal, equipmentType: .machine, loadStyle: .plateLoaded),
+        Exercise(name: "Barbell Back Squat", region: .legs, category: "Quads", liftType: .squat, primaryMover: "Quadriceps", quality: .classic, equipmentType: .freeWeight, loadStyle: .barbell),
+        Exercise(name: "Leg Press", region: .legs, category: "Quads", primaryMover: "Quadriceps", quality: .optimal, equipmentType: .machine, loadStyle: .plateLoaded),
+        Exercise(name: "Leg Extension", region: .legs, category: "Quads", primaryMover: "Quadriceps", quality: .optimal, equipmentType: .machine, loadStyle: .pinStack),
+        Exercise(name: "Bulgarian Split Squat", region: .legs, category: "Quads", isUnilateral: true, primaryMover: "Quadriceps", quality: .optimal, equipmentType: .freeWeight, loadStyle: .dumbbell),
 
         // MARK: Legs — Hamstrings
-        Exercise(name: "Seated Leg Curl", region: .legs, category: "Hamstrings", primaryMover: "Hamstrings", quality: .optimal, equipmentType: .machine),
-        Exercise(name: "Romanian Deadlift", region: .legs, category: "Hamstrings", primaryMover: "Hamstrings", quality: .classic, equipmentType: .freeWeight),
-        Exercise(name: "Lying Leg Curl", region: .legs, category: "Hamstrings", primaryMover: "Hamstrings", quality: .classic, equipmentType: .machine),
-        Exercise(name: "Stiff-Leg Deadlift", region: .legs, category: "Hamstrings", primaryMover: "Hamstrings", quality: .optimal, equipmentType: .freeWeight),
+        Exercise(name: "Seated Leg Curl", region: .legs, category: "Hamstrings", primaryMover: "Hamstrings", quality: .optimal, equipmentType: .machine, loadStyle: .pinStack),
+        Exercise(name: "Romanian Deadlift", region: .legs, category: "Hamstrings", primaryMover: "Hamstrings", quality: .classic, equipmentType: .freeWeight, loadStyle: .barbell),
+        Exercise(name: "Lying Leg Curl", region: .legs, category: "Hamstrings", primaryMover: "Hamstrings", quality: .classic, equipmentType: .machine, loadStyle: .pinStack),
+        Exercise(name: "Stiff-Leg Deadlift", region: .legs, category: "Hamstrings", primaryMover: "Hamstrings", quality: .optimal, equipmentType: .freeWeight, loadStyle: .barbell),
 
         // MARK: Legs — Glutes
-        Exercise(name: "Hip Thrust", region: .legs, category: "Glutes", primaryMover: "Gluteus Maximus", quality: .classic, equipmentType: .freeWeight),
-        Exercise(name: "Walking Lunge", region: .legs, category: "Glutes", isUnilateral: true, primaryMover: "Gluteus Maximus", quality: .optimal, equipmentType: .freeWeight),
+        Exercise(name: "Hip Thrust", region: .legs, category: "Glutes", primaryMover: "Gluteus Maximus", quality: .classic, equipmentType: .freeWeight, loadStyle: .barbell),
+        Exercise(name: "Walking Lunge", region: .legs, category: "Glutes", isUnilateral: true, primaryMover: "Gluteus Maximus", quality: .optimal, equipmentType: .freeWeight, loadStyle: .dumbbell),
         Exercise(name: "Cable Kickback", region: .legs, category: "Glutes", isUnilateral: true, primaryMover: "Gluteus Maximus", quality: .optimal, equipmentType: .cable),
 
         // Claude  Date 09/06/2026
@@ -2515,18 +2544,18 @@ extension AppStore {
         // movers in Exercise.commonPrimaryMovers but had no lift using them; the two
         // machines fill that gap. `category` is free text, so no enum change is needed.
         // MARK: Legs — Adductors
-        Exercise(name: "Hip Adductor", region: .legs, category: "Adductors", primaryMover: "Adductors", quality: .optimal, equipmentType: .machine),
+        Exercise(name: "Hip Adductor", region: .legs, category: "Adductors", primaryMover: "Adductors", quality: .optimal, equipmentType: .machine, loadStyle: .pinStack),
 
         // MARK: Legs — Abductors
-        Exercise(name: "Hip Abductor", region: .legs, category: "Abductors", primaryMover: "Abductors", quality: .optimal, equipmentType: .machine),
+        Exercise(name: "Hip Abductor", region: .legs, category: "Abductors", primaryMover: "Abductors", quality: .optimal, equipmentType: .machine, loadStyle: .pinStack),
 
         // MARK: Legs — Calves
-        Exercise(name: "Standing Calf Raise", region: .legs, category: "Calves", primaryMover: "Gastrocnemius", quality: .optimal, equipmentType: .machine),
-        Exercise(name: "Seated Calf Raise", region: .legs, category: "Calves", primaryMover: "Soleus", quality: .optimal, equipmentType: .machine),
+        Exercise(name: "Standing Calf Raise", region: .legs, category: "Calves", primaryMover: "Gastrocnemius", quality: .optimal, equipmentType: .machine, loadStyle: .pinStack),
+        Exercise(name: "Seated Calf Raise", region: .legs, category: "Calves", primaryMover: "Soleus", quality: .optimal, equipmentType: .machine, loadStyle: .plateLoaded),
 
         // MARK: Chest
-        Exercise(name: "Incline Barbell Press", region: .chest, category: "Chest", primaryMover: "Pectorals (Upper)", quality: .optimal, equipmentType: .freeWeight),
-        Exercise(name: "Barbell Bench Press", region: .chest, category: "Chest", liftType: .bench, primaryMover: "Pectorals", quality: .classic, equipmentType: .freeWeight),
+        Exercise(name: "Incline Barbell Press", region: .chest, category: "Chest", primaryMover: "Pectorals (Upper)", quality: .optimal, equipmentType: .freeWeight, loadStyle: .barbell),
+        Exercise(name: "Barbell Bench Press", region: .chest, category: "Chest", liftType: .bench, primaryMover: "Pectorals", quality: .classic, equipmentType: .freeWeight, loadStyle: .barbell),
         Exercise(name: "Cable Fly", region: .chest, category: "Chest", primaryMover: "Pectorals", quality: .optimal, equipmentType: .cable),
         Exercise(name: "Weighted Dip", region: .chest, category: "Chest", primaryMover: "Pectorals (Lower)", quality: .classic, equipmentType: .bodyweight),
 
@@ -2538,23 +2567,23 @@ extension AppStore {
         Exercise(name: "Single-Arm Cable Pullover", region: .back, category: "Lats", isUnilateral: true, primaryMover: "Latissimus Dorsi", quality: .optimal, equipmentType: .cable),
 
         // MARK: Back — Mid-Back / Traps
-        Exercise(name: "Chest-Supported Row", region: .back, category: "Mid-Back", primaryMover: "Rhomboids / Mid Traps", quality: .optimal, equipmentType: .machine),
-        Exercise(name: "Kelso Shrug", region: .back, category: "Mid-Back", primaryMover: "Rhomboids / Mid Traps", quality: .optimal, equipmentType: .freeWeight),
-        Exercise(name: "T-Bar Row", region: .back, category: "Mid-Back", primaryMover: "Mid-Back", quality: .classic, equipmentType: .machine),
+        Exercise(name: "Chest-Supported Row", region: .back, category: "Mid-Back", primaryMover: "Rhomboids / Mid Traps", quality: .optimal, equipmentType: .machine, loadStyle: .plateLoaded),
+        Exercise(name: "Kelso Shrug", region: .back, category: "Mid-Back", primaryMover: "Rhomboids / Mid Traps", quality: .optimal, equipmentType: .freeWeight, loadStyle: .dumbbell),
+        Exercise(name: "T-Bar Row", region: .back, category: "Mid-Back", primaryMover: "Mid-Back", quality: .classic, equipmentType: .machine, loadStyle: .plateLoaded, plateSetup: PlateSetup(loadedSides: 1)),
         Exercise(name: "Seated Cable Row", region: .back, category: "Mid-Back", primaryMover: "Mid-Back", quality: .classic, equipmentType: .cable),
-        Exercise(name: "Barbell Shrug", region: .back, category: "Traps", primaryMover: "Upper Trapezius", quality: .optimal, equipmentType: .freeWeight),
+        Exercise(name: "Barbell Shrug", region: .back, category: "Traps", primaryMover: "Upper Trapezius", quality: .optimal, equipmentType: .freeWeight, loadStyle: .barbell),
 
         // MARK: Back — Lower Back
-        Exercise(name: "Conventional Deadlift", region: .back, category: "Lower Back", liftType: .deadlift, primaryMover: "Spinal Erectors", quality: .classic, equipmentType: .freeWeight),
-        Exercise(name: "Back Extension", region: .back, category: "Lower Back", primaryMover: "Spinal Erectors", quality: .optimal, equipmentType: .machine),
+        Exercise(name: "Conventional Deadlift", region: .back, category: "Lower Back", liftType: .deadlift, primaryMover: "Spinal Erectors", quality: .classic, equipmentType: .freeWeight, loadStyle: .barbell),
+        Exercise(name: "Back Extension", region: .back, category: "Lower Back", primaryMover: "Spinal Erectors", quality: .optimal, equipmentType: .machine, loadStyle: .pinStack),
 
         // MARK: Shoulders — Side Delts
         Exercise(name: "Cable Lateral Raise", region: .shoulders, category: "Side Delts", primaryMover: "Lateral Deltoid", quality: .optimal, equipmentType: .cable),
-        Exercise(name: "Dumbbell Lateral Raise", region: .shoulders, category: "Side Delts", primaryMover: "Lateral Deltoid", quality: .classic, equipmentType: .freeWeight),
-        Exercise(name: "Overhead Press", region: .shoulders, category: "Side Delts", primaryMover: "Anterior / Lateral Deltoid", quality: .classic, equipmentType: .freeWeight),
+        Exercise(name: "Dumbbell Lateral Raise", region: .shoulders, category: "Side Delts", primaryMover: "Lateral Deltoid", quality: .classic, equipmentType: .freeWeight, loadStyle: .dumbbell),
+        Exercise(name: "Overhead Press", region: .shoulders, category: "Side Delts", primaryMover: "Anterior / Lateral Deltoid", quality: .classic, equipmentType: .freeWeight, loadStyle: .barbell),
 
         // MARK: Shoulders — Rear Delts
-        Exercise(name: "Reverse Pec Deck", region: .shoulders, category: "Rear Delts", primaryMover: "Posterior Deltoid", quality: .optimal, equipmentType: .machine),
+        Exercise(name: "Reverse Pec Deck", region: .shoulders, category: "Rear Delts", primaryMover: "Posterior Deltoid", quality: .optimal, equipmentType: .machine, loadStyle: .pinStack),
         Exercise(name: "Face Pull", region: .shoulders, category: "Rear Delts", primaryMover: "Posterior Deltoid", quality: .optimal, equipmentType: .cable),
 
         // MARK: Arms — Biceps
@@ -2562,23 +2591,23 @@ extension AppStore {
         // A standard curl for the library. No explicit liftType tag needed — every
         // exercise below counts toward the Bicep Curl badge automatically via
         // Exercise.effectiveLiftType (region == .arms && category == "Biceps").
-        Exercise(name: "Barbell Curl", region: .arms, category: "Biceps", primaryMover: "Biceps Brachii", quality: .classic, equipmentType: .freeWeight),
-        Exercise(name: "Incline Dumbbell Curl", region: .arms, category: "Biceps", primaryMover: "Biceps Brachii", quality: .optimal, equipmentType: .freeWeight),
+        Exercise(name: "Barbell Curl", region: .arms, category: "Biceps", primaryMover: "Biceps Brachii", quality: .classic, equipmentType: .freeWeight, loadStyle: .barbell),
+        Exercise(name: "Incline Dumbbell Curl", region: .arms, category: "Biceps", primaryMover: "Biceps Brachii", quality: .optimal, equipmentType: .freeWeight, loadStyle: .dumbbell),
         Exercise(name: "Cable Curl", region: .arms, category: "Biceps", primaryMover: "Biceps Brachii", quality: .optimal, equipmentType: .cable),
-        Exercise(name: "EZ-Bar Curl", region: .arms, category: "Biceps", primaryMover: "Biceps Brachii", quality: .classic, equipmentType: .freeWeight),
-        Exercise(name: "Hammer Curl", region: .arms, category: "Biceps", primaryMover: "Brachialis / Brachioradialis", quality: .optimal, equipmentType: .freeWeight),
+        Exercise(name: "EZ-Bar Curl", region: .arms, category: "Biceps", primaryMover: "Biceps Brachii", quality: .classic, equipmentType: .freeWeight, loadStyle: .barbell, plateSetup: PlateSetup(bar: .ez)),
+        Exercise(name: "Hammer Curl", region: .arms, category: "Biceps", primaryMover: "Brachialis / Brachioradialis", quality: .optimal, equipmentType: .freeWeight, loadStyle: .dumbbell),
 
         // MARK: Arms — Triceps
         Exercise(name: "Overhead Cable Extension", region: .arms, category: "Triceps", primaryMover: "Triceps (Long Head)", quality: .optimal, equipmentType: .cable),
-        Exercise(name: "Close-Grip Bench Press", region: .arms, category: "Triceps", primaryMover: "Triceps", quality: .classic, equipmentType: .freeWeight),
+        Exercise(name: "Close-Grip Bench Press", region: .arms, category: "Triceps", primaryMover: "Triceps", quality: .classic, equipmentType: .freeWeight, loadStyle: .barbell),
         Exercise(name: "Triceps Pushdown", region: .arms, category: "Triceps", primaryMover: "Triceps (Lateral Head)", quality: .classic, equipmentType: .cable),
         Exercise(name: "Single-Arm Triceps Pushdown", region: .arms, category: "Triceps", isUnilateral: true, primaryMover: "Triceps (Lateral Head)", quality: .optimal, equipmentType: .cable),
-        Exercise(name: "Skull Crusher", region: .arms, category: "Triceps", primaryMover: "Triceps (Long Head)", quality: .optimal, equipmentType: .freeWeight),
+        Exercise(name: "Skull Crusher", region: .arms, category: "Triceps", primaryMover: "Triceps (Long Head)", quality: .optimal, equipmentType: .freeWeight, loadStyle: .barbell, plateSetup: PlateSetup(bar: .ez)),
 
         // MARK: Arms — Forearms
-        Exercise(name: "Wrist Curl", region: .arms, category: "Forearms", primaryMover: "Wrist Flexors", quality: .optimal, equipmentType: .freeWeight),
-        Exercise(name: "Reverse Wrist Curl", region: .arms, category: "Forearms", primaryMover: "Wrist Extensors", quality: .optimal, equipmentType: .freeWeight),
-        Exercise(name: "Farmer's Carry", region: .arms, category: "Forearms", primaryMover: "Grip / Forearms", quality: .classic, equipmentType: .freeWeight),
+        Exercise(name: "Wrist Curl", region: .arms, category: "Forearms", primaryMover: "Wrist Flexors", quality: .optimal, equipmentType: .freeWeight, loadStyle: .barbell),
+        Exercise(name: "Reverse Wrist Curl", region: .arms, category: "Forearms", primaryMover: "Wrist Extensors", quality: .optimal, equipmentType: .freeWeight, loadStyle: .barbell),
+        Exercise(name: "Farmer's Carry", region: .arms, category: "Forearms", primaryMover: "Grip / Forearms", quality: .classic, equipmentType: .freeWeight, loadStyle: .dumbbell),
 
         // MARK: Core
         Exercise(name: "Cable Crunch", region: .core, category: "Core", primaryMover: "Rectus Abdominis", quality: .optimal, equipmentType: .cable),

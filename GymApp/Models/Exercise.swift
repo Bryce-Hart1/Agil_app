@@ -88,6 +88,32 @@ enum EquipmentType: String, Codable, CaseIterable, Hashable {
     }
 }
 
+// CLAUDE  Date 10/14/2026
+// How a free weight or machine actually takes its load, one level below EquipmentType.
+// Splits barbells from dumbbells and plate-loaded machines from pin-stacks, which is what
+// decides whether the plate calculator is offered. nil = untagged (custom lifts).
+enum LoadStyle: String, Codable, CaseIterable, Hashable {
+    case barbell, dumbbell, plateLoaded, pinStack
+
+    var title: String {
+        switch self {
+        case .barbell:     return "Barbell"
+        case .dumbbell:    return "Dumbbell"
+        case .plateLoaded: return "Plate-Loaded"
+        case .pinStack:    return "Pin-Stack"
+        }
+    }
+
+    /// The styles that make sense for an equipment type; empty means the picker hides.
+    static func options(for equipment: EquipmentType?) -> [LoadStyle] {
+        switch equipment {
+        case .freeWeight: return [.barbell, .dumbbell]
+        case .machine:    return [.plateLoaded, .pinStack]
+        default:          return []
+        }
+    }
+}
+
 /// A movement you can perform, e.g. "Barbell Bench Press".
 /// This is your reusable exercise library; individual workouts reference it by `id`.
 struct Exercise: Identifiable, Codable, Hashable {
@@ -143,6 +169,12 @@ struct Exercise: Identifiable, Codable, Hashable {
     // editor's set rows for bout rows (duration + distance) and routes the entry through
     // CardioPolicy. nil on every strength lift, which is all of them before this shipped.
     var cardioMachine: CardioMachine?
+    // CLAUDE  Date 10/14/2026
+    // Barbell vs dumbbell, plate-loaded vs pin-stack (see LoadStyle), plus the plate
+    // calculator's remembered bar / sled weight / sides for this lift. Stored per lift so a
+    // machine's starting resistance is the same every session and totals stay comparable.
+    var loadStyle: LoadStyle?
+    var plateSetup: PlateSetup?
 
     /// The one read site for "log this as cardio, not as reps x weight".
     var isCardio: Bool { cardioMachine != nil }
@@ -152,7 +184,8 @@ struct Exercise: Identifiable, Codable, Hashable {
          primaryMover: String = "", quality: LiftQuality? = nil,
          isBodyweight: Bool = false, note: String? = nil,
          brand: String = "", equipmentType: EquipmentType? = nil,
-         cardioMachine: CardioMachine? = nil) {
+         cardioMachine: CardioMachine? = nil,
+         loadStyle: LoadStyle? = nil, plateSetup: PlateSetup? = nil) {
         self.id = id
         self.name = name
         self.region = region
@@ -166,6 +199,28 @@ struct Exercise: Identifiable, Codable, Hashable {
         self.brand = brand
         self.equipmentType = equipmentType
         self.cardioMachine = cardioMachine
+        self.loadStyle = loadStyle
+        self.plateSetup = plateSetup
+    }
+
+    // CLAUDE  Date 10/14/2026
+    // Whether the workout editor offers the Plates button. Permissive when loadStyle is
+    // unknown (same rule as canBeBranded): only custom lifts are untagged, and hiding the
+    // button behind a field they never filled in would look broken.
+    var usesPlateCalculator: Bool { plateCalculatorMode != nil }
+
+    // CLAUDE  Date 10/14/2026
+    // Which calculator layout this lift gets: a bar for free weights, sled weight + sleeves
+    // for machines and Smith machines. nil = no calculator (cardio, cable, bodyweight,
+    // dumbbell, pin-stack, or equipment never classified).
+    var plateCalculatorMode: PlateCalculatorMode? {
+        guard !isCardio, !isBodyweight else { return nil }
+        switch equipmentType {
+        case .freeWeight:   return loadStyle == .dumbbell ? nil : .barbell
+        case .machine:      return loadStyle == .pinStack ? nil : .machine
+        case .smithMachine: return .machine
+        case .cable, .bodyweight, nil: return nil
+        }
     }
 
     // Claude  Date 08/18/2026
@@ -236,11 +291,12 @@ struct Exercise: Identifiable, Codable, Hashable {
     // (08/04) Added note (the perma note) — absent on older exercises, so nil.
     // (08/18) Added brand + equipmentType — absent on older exercises, so "" / nil.
     // (09/07) Added cardioMachine — absent on older exercises, so nil = a strength lift.
+    // (10/14) Added loadStyle + plateSetup — absent on older exercises, so nil (CLAUDE).
     // NOTE: encode(to:) is synthesized off CodingKeys, so a field left out of the enum
     // below is silently dropped on every save. Add new fields to BOTH lists.
     enum CodingKeys: String, CodingKey {
         case id, name, region, category, isUnilateral, liftType, primaryMover, quality, isBodyweight,
-             note, brand, equipmentType, cardioMachine
+             note, brand, equipmentType, cardioMachine, loadStyle, plateSetup
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -259,6 +315,10 @@ struct Exercise: Identifiable, Codable, Hashable {
         // Claude  Date 09/07/2026 — absent on every exercise saved before cardio existed,
         // so nil, which means "a strength lift" and preserves the old logging behavior.
         cardioMachine = try c.decodeIfPresent(CardioMachine.self, forKey: .cardioMachine)
+        // CLAUDE  Date 10/14/2026 — absent before the plate calculator; AppStore's backfill
+        // fills the seed lifts' tags, and plateSetup stays nil until the calculator saves one.
+        loadStyle = try c.decodeIfPresent(LoadStyle.self, forKey: .loadStyle)
+        plateSetup = try c.decodeIfPresent(PlateSetup.self, forKey: .plateSetup)
     }
 }
 

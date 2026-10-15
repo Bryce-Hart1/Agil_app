@@ -9,10 +9,22 @@ struct MealTimePicker: View {
     @Binding var meal: MealType
     @Binding var time: Date
     let accent: Color
+    // CLAUDE  Date 10/02/2026
+    // Optional home for the "user set the time" flag, for a caller whose picker unmounts and
+    // comes back (quick add's review step). Otherwise the flag resets and onAppear suggests
+    // over a hand-set time. nil keeps the flag in the picker's own state, as before.
+    var touched: Binding<Bool>? = nil
     // The time to show for a meal the user hasn't timed by hand (AppStore.suggestedLogTime).
     let suggest: (MealType) -> Date
 
-    @State private var timeTouched = false
+    @State private var ownTouched = false
+
+    private var timeTouched: Bool {
+        get { touched?.wrappedValue ?? ownTouched }
+        nonmutating set {
+            if let touched { touched.wrappedValue = newValue } else { ownTouched = newValue }
+        }
+    }
 
     var body: some View {
         // CLAUDE  Date 09/30/2026 — both controls fixedSize: a menu Picker is flexible, so

@@ -51,6 +51,10 @@ struct NewExerciseView: View {
     // isn't — this sheet is the one place both fields can be set, so keeping them agreed
     // here is what stops a "cardio" lift that logs reps or a leg press that logs miles.
     @State private var cardioMachine: CardioMachine?
+    // CLAUDE  Date 10/14/2026
+    // Barbell vs dumbbell, plate-loaded vs pin-stack (see LoadStyle). Only offered for Free
+    // Weight and Machine; decides whether the workout editor shows the Plates button.
+    @State private var loadStyle: LoadStyle?
     @State private var showingMoverHelp = false
 
     // Claude  Date 07/09/2026
@@ -79,6 +83,7 @@ struct NewExerciseView: View {
         _equipmentType = State(initialValue: editing?.equipmentType)
         _brand = State(initialValue: editing?.brand ?? "")
         _cardioMachine = State(initialValue: editing?.cardioMachine)
+        _loadStyle = State(initialValue: editing?.loadStyle)
     }
 
     private var trimmedName: String { name.trimmingCharacters(in: .whitespaces) }
@@ -245,6 +250,22 @@ struct NewExerciseView: View {
                     Text("Equipment")
                 } footer: {
                     Text("How the lift is loaded. Machines, cables and Smith machines can carry a brand, since the same movement can feel completely different from one manufacturer to another.")
+                }
+
+                // CLAUDE  Date 10/14/2026
+                // The second level under Equipment, shown only where it has options. Barbells
+                // and plate-loaded machines get the plate calculator in the workout editor.
+                if !LoadStyle.options(for: equipmentType).isEmpty {
+                    Section {
+                        Picker("Loading", selection: $loadStyle) {
+                            Text("Unspecified").tag(LoadStyle?.none)
+                            ForEach(LoadStyle.options(for: equipmentType), id: \.self) { style in
+                                Text(style.title).tag(LoadStyle?.some(style))
+                            }
+                        }
+                    } footer: {
+                        Text("Barbell and plate-loaded lifts get the plate calculator while you log sets.")
+                    }
                 }
 
                 if canBeBranded {
@@ -505,6 +526,14 @@ struct NewExerciseView: View {
         region == .cardio ? (cardioMachine ?? .treadmill) : nil
     }
 
+    // CLAUDE  Date 10/14/2026
+    // The load style to save: dropped when the equipment no longer offers it, so a lift
+    // switched from Machine to Free Weight doesn't keep a stale "Pin-Stack".
+    private var resolvedLoadStyle: LoadStyle? {
+        guard let loadStyle, LoadStyle.options(for: equipmentType).contains(loadStyle) else { return nil }
+        return loadStyle
+    }
+
     private func saveInPlace() {
         guard let target = editing else { return saveAsNew() }
         var existing = store.exercise(for: target.id) ?? target
@@ -522,6 +551,7 @@ struct NewExerciseView: View {
         // Claude  Date 09/07/2026 — resolvedCardioMachine, not the raw state: switching a
         // lift's region away from Cardio has to drop the machine, or it keeps logging bouts.
         existing.cardioMachine = resolvedCardioMachine
+        existing.loadStyle = resolvedLoadStyle
         store.updateExercise(existing)
         onCreate(existing)
         dismiss()
@@ -549,7 +579,8 @@ struct NewExerciseView: View {
             note: editing?.note,
             brand: canBeBranded ? brand : "",
             equipmentType: equipmentType,
-            cardioMachine: resolvedCardioMachine
+            cardioMachine: resolvedCardioMachine,
+            loadStyle: resolvedLoadStyle
         )
         onCreate(created)
         dismiss()

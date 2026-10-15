@@ -858,6 +858,10 @@ private struct ExerciseLogSection: View {
     // Drives the exercise picker opened by the row's "Swap" button.
     @State private var showingSwapPicker = false
 
+    // CLAUDE  Date 10/14/2026
+    // Drives the full-page plate calculator opened by the row's "Plates" button.
+    @State private var showingPlateCalculator = false
+
     // Claude  Date 09/01/2026
     // Drag-reorder sheet for this exercise's sets, opened from a set's long-press menu.
     @State private var showingReorderSets = false
@@ -1054,7 +1058,10 @@ private struct ExerciseLogSection: View {
         // Swap sits beside Remove (see ExerciseActionsRow). Swap re-opens the exercise
         // picker and replaces this entry's lift in place, keeping its position in the
         // workout; Remove drops it entirely.
-        ExerciseActionsRow(onSwap: { showingSwapPicker = true }, onRemove: onRemove)
+        // CLAUDE  Date 10/14/2026 — "Plates" leads the row on barbell and plate-loaded lifts only
+        // (see Exercise.plateCalculatorMode); every other lift keeps the plain Swap | Remove pair.
+        ExerciseActionsRow(onSwap: { showingSwapPicker = true }, onRemove: onRemove,
+                           onCalculate: calculatorMode == nil ? nil : { showingPlateCalculator = true })
             // Claude  Date 09/01/2026
             // Warm the Taptic Engine as the lift scrolls in, so the FIRST swipe of the
             // session lands with the animation instead of a beat behind it.
@@ -1070,6 +1077,57 @@ private struct ExerciseLogSection: View {
                 // sort to the top (see Exercise.related). Typing a search cancels that.
                 ExercisePickerView(relatedTo: store.exercise(for: logged.exerciseId)) { onSwap($0) }
             }
+            // CLAUDE  Date 10/14/2026
+            // Opens solved for the first open set's weight; Apply writes the total back into
+            // that set (or a new one when every set is checked off). See applyCalculatedWeight.
+            .fullScreenCover(isPresented: $showingPlateCalculator) {
+                if let exercise = store.exercise(for: logged.exerciseId), let mode = calculatorMode {
+                    let target = calculatorTarget
+                    PlateCalculatorView(exercise: exercise, mode: mode,
+                                        // No open set: what Add Set would carry forward.
+                                        startingWeight: target?.group.sets.first?.weight
+                                            ?? logged.sets.last?.weight ?? logged.adaptive?.weight ?? 0,
+                                        targetSetNumber: target?.number,
+                                        nextSetNumber: rowGroups.count + 1,
+                                        onApply: applyCalculatedWeight)
+                }
+            }
+    }
+
+    // CLAUDE  Date 10/14/2026
+    // Which calculator layout this lift gets, or nil to hide the Plates button.
+    private var calculatorMode: PlateCalculatorMode? {
+        store.exercise(for: logged.exerciseId)?.plateCalculatorMode
+    }
+
+    // CLAUDE  Date 10/14/2026
+    // The set the calculator writes to: the first row (a whole L/R pair when unilateral) with
+    // anything not yet checked off, and its on-screen number. nil when every set is done.
+    private var calculatorTarget: (group: SetGroup, number: Int)? {
+        let groups = rowGroups
+        guard let position = groups.firstIndex(where: { !isCompleted($0.setIDs) }) else { return nil }
+        return (groups[position], position + 1)
+    }
+
+    // CLAUDE  Date 10/14/2026
+    // Writes the calculator's total onto the target row's unchecked sets, both sides of a pair
+    // in one write (so the unilateral first-entry fill never sees it). With no open row, adds a
+    // set first, carrying reps forward exactly like Add Set. Side effect: a success haptic.
+    private func applyCalculatedWeight(_ weight: Double) {
+        let ids: [UUID]
+        if let target = calculatorTarget {
+            ids = target.group.setIDs
+        } else {
+            let before = Set(logged.sets.map(\.id))
+            addSet()
+            ids = logged.sets.map(\.id).filter { !before.contains($0) }
+        }
+        var sets = logged.sets
+        for index in sets.indices where ids.contains(sets[index].id) && sets[index].completedAt == nil {
+            sets[index].weight = weight
+        }
+        logged.sets = sets
+        Haptics.success()
     }
 
     // Claude  Date 06/14/2026
@@ -1521,7 +1579,9 @@ private struct AdaptiveHintRow: View {
 // Claude  Date 07/01/2026
 // Formatting shared by adaptive weight hints: drop a trailing ".0" (135.0 → "135",
 // 2.5 → "2.5") so weights read cleanly.
-private enum SetFormat {
+// CLAUDE  Date 10/14/2026: internal (was private) so the plate calculator formats weights the
+// same way. Access change only.
+enum SetFormat {
     static func weight(_ value: Double) -> String {
         value.truncatingRemainder(dividingBy: 1) == 0
             ? String(Int(value))

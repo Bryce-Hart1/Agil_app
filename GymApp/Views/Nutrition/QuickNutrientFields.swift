@@ -1,70 +1,11 @@
 import SwiftUI
 
 // CLAUDE  Date 09/30/2026
-// Quick calories: log a bare kcal/macro amount with no food behind it, for eating out or
-// estimating. Opened from the ⚡︎ beside a meal's Add food on the Log. Writes through
-// AppStore.logQuickAdd; the entry stays editable in EditFoodEntryView's same fields.
-struct QuickAddSheet: View {
-    @EnvironmentObject private var store: AppStore
-    @EnvironmentObject private var theme: ThemeManager
-    @Environment(\.dismiss) private var dismiss
-
-    let date: Date
-    @State private var meal: MealType
-    @State private var time = Date()
-    @State private var draft = QuickNutrientDraft()
-    @State private var label = ""
-
-    init(meal: MealType, date: Date) {
-        self.date = date
-        _meal = State(initialValue: meal)
-    }
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    QuickNutrientFields(draft: $draft, autofocus: true)
-                } footer: {
-                    Text("Leave calories blank to count them from the macros.")
-                }
-                Section {
-                    TextField("Label (optional)", text: $label)
-                    MealTimePicker(meal: $meal, time: $time, accent: theme.current.accent) { meal in
-                        store.suggestedLogTime(for: meal, on: date)
-                    }
-                }
-            }
-            .navigationTitle("Quick add")
-            .navigationBarTitleDisplayMode(.inline)
-            .themed(theme.current)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Add", action: add)
-                        .fontWeight(.semibold)
-                        .disabled(!draft.isLoggable)
-                }
-            }
-        }
-        .presentationDetents([.medium, .large])
-    }
-
-    private func add() {
-        let name = label.trimmingCharacters(in: .whitespaces)
-        store.logQuickAdd(name: name.isEmpty ? "quick add" : name, nutrients: draft.nutrients,
-                          meal: meal, on: date, at: time)
-        Haptics.success()
-        dismiss()
-    }
-}
-
-// CLAUDE  Date 09/30/2026
 // The four quick-add numbers as typed text (so every keystroke counts, unlike a formatted
 // TextField that only commits on return). Calories left blank are counted from the macros
-// at 4/4/9 kcal per gram. Shared by QuickAddSheet and the entry editor.
+// at 4/4/9 kcal per gram. Shared by QuickAddFlow and the entry editor.
+// CLAUDE  Date 10/02/2026: the 4/4/9 math moved to QuickAddMath so the flow's over-check
+// and these fields can't disagree. (QuickAddSheet was replaced by QuickAddFlow.)
 struct QuickNutrientDraft: Equatable {
     var calories = ""
     var protein = ""
@@ -82,7 +23,8 @@ struct QuickNutrientDraft: Equatable {
     }
 
     var macroCalories: Double {
-        4 * Self.parse(protein) + 4 * Self.parse(carbs) + 9 * Self.parse(fat)
+        QuickAddMath.macroCalories(protein: Self.parse(protein), fat: Self.parse(fat),
+                                   carbs: Self.parse(carbs))
     }
 
     var resolvedCalories: Double {

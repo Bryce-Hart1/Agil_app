@@ -76,8 +76,10 @@ struct NutritionLogView: View {
             .sheet(item: $addingToMeal) { meal in
                 FoodPickerView(meal: meal, date: selectedDate)
             }
-            .sheet(item: $quickAddMeal) { meal in
-                QuickAddSheet(meal: meal, date: selectedDate)
+            // CLAUDE  Date 10/02/2026
+            // The bolt's quick add is a fullscreen step flow now (was a half-height sheet).
+            .fullScreenCover(item: $quickAddMeal) { meal in
+                QuickAddFlow(meal: meal, date: selectedDate)
             }
             .sheet(item: $editingEntry) { entry in
                 EditFoodEntryView(entry: entry)
