@@ -333,6 +333,10 @@ private struct WorkoutEditor: View {
                         // or the next note typed here would inherit "expiring".
                         logged.noteIsCarriedForward = nil
                         logged.adaptive = nil
+                        // CLAUDE  Date 10/19/2026
+                        // The old lift's last set means nothing for the new one, so re-anchor
+                        // on the new lift's own history (nil if never done).
+                        logged.savedWeight = store.savedWeight(for: exercise.id)
                     } onRemove: {
                         removeExercise(logged.id)
                     }
@@ -548,7 +552,11 @@ private struct WorkoutEditor: View {
                                        targetRepRange: store.defaultRepRange(for: exercise.id),
                                        // Claude  Date 09/14/2026 — cardio arrives with its one
                                        // time/distance entry ready to fill in.
-                                       sets: exercise.cardioMachine != nil ? [.cardioEntry()] : []))
+                                       sets: exercise.cardioMachine != nil ? [.cardioEntry()] : [],
+                                       // CLAUDE  Date 10/19/2026
+                                       // Last time's best set (nil for cardio and for a lift
+                                       // never done), seeds Add Set.
+                                       savedWeight: store.savedWeight(for: exercise.id)))
                 }
             }
         }
@@ -802,7 +810,8 @@ private struct WorkoutEditor: View {
     private func applySetEdit(_ edited: ExerciseSet, exerciseIndex: Int) {
         var sets = workout.exercises[exerciseIndex].sets
         writeSetEdit(edited, into: &sets, isUnilateral: isUnilateral(workout.exercises[exerciseIndex]),
-                     fills: &session.unilateralFills)
+                     fills: &session.unilateralFills,
+                     estimator: workout.exercises[exerciseIndex].weightEstimator)
         workout.exercises[exerciseIndex].sets = sets
     }
 
@@ -926,6 +935,11 @@ private struct ExerciseLogSection: View {
         // refuses to make a new one, since a bout has no working weight to progress.
         if let adaptive = logged.adaptive, !isCardio {
             AdaptiveHintRow(suggestion: adaptive, accent: accent)
+        }
+        // CLAUDE  Date 10/19/2026
+        // Says where the starting weight came from, since it follows the reps until you type one.
+        if let saved = logged.weightEstimator, !isCardio {
+            SavedWeightHintRow(saved: saved, isBodyweight: isBodyweight, accent: accent)
         }
 
         // Claude  Date 09/01/2026
@@ -1086,7 +1100,7 @@ private struct ExerciseLogSection: View {
                     PlateCalculatorView(exercise: exercise, mode: mode,
                                         // No open set: what Add Set would carry forward.
                                         startingWeight: target?.group.sets.first?.weight
-                                            ?? logged.sets.last?.weight ?? logged.adaptive?.weight ?? 0,
+                                            ?? logged.sets.last?.weight ?? logged.seedWeight(forReps: nextSetReps),
                                         targetSetNumber: target?.number,
                                         nextSetNumber: rowGroups.count + 1,
                                         onApply: applyCalculatedWeight)
@@ -1220,7 +1234,8 @@ private struct ExerciseLogSection: View {
             set: { edited in
                 var sets = logged.sets
                 writeSetEdit(edited, into: &sets, isUnilateral: isUnilateral,
-                             fills: &session.unilateralFills)
+                             fills: &session.unilateralFills,
+                             estimator: logged.weightEstimator)
                 logged.sets = sets
             })
     }
@@ -1261,6 +1276,15 @@ private struct ExerciseLogSection: View {
     private var tipDelete: Bool { !isCardio && !usedSwipeToDelete }
     private var tipReorder: Bool { !isCardio && !usedHoldToReorder && rowGroups.count >= 2 }
 
+    // CLAUDE  Date 10/19/2026
+    // Reps a new set starts with: the previous set's, else the low end of the target range, else 8.
+    // Shared by Add Set and the plate calculator's starting weight so the two can't disagree.
+    private var nextSetReps: Int {
+        logged.sets.last?.reps
+            ?? logged.targetRepRange.map { Swift.min($0.min, $0.max) }
+            ?? 8
+    }
+
     /// Adds a set, defaulting to the previous set's reps/weight (or the low end of
     /// the target rep range) for fast entry. Unilateral exercises add a matched
     /// Left+Right pair so each logical set covers both sides.
@@ -1272,13 +1296,12 @@ private struct ExerciseLogSection: View {
         // (09/14) Cardio no longer adds entries — it holds exactly one (.cardioEntry()).
         if isCardio { return }
         let last = logged.sets.last
-        let defaultReps = last?.reps
-            ?? logged.targetRepRange.map { Swift.min($0.min, $0.max) }
-            ?? 8
-        // Claude  Date 07/01/2026
+        let defaultReps = nextSetReps
+        // Claude  Date 07/01/2026 last changed: 10/19/2026 by: CLAUDE
         // Seed the first set's weight from the adaptive suggestion (when present);
         // subsequent sets carry the previous set's weight forward as before.
-        let defaultWeight = last?.weight ?? logged.adaptive?.weight ?? 0
+        // (10/19) No adaptive suggestion: the saved weight, estimated for this set's reps.
+        let defaultWeight = last?.weight ?? logged.seedWeight(forReps: defaultReps)
         if isUnilateral {
             logged.sets.append(ExerciseSet(reps: defaultReps, weight: defaultWeight, side: .left))
             logged.sets.append(ExerciseSet(reps: defaultReps, weight: defaultWeight, side: .right))
@@ -1507,7 +1530,20 @@ private struct SetGroup: Identifiable {
 // Writes an edited set. Unilateral first-entry fill: the FIRST time a pair's reps or weight is
 // entered (either side), the other side copies it; after that each side is independent. Skipped
 // once either side is checked off, or if the sides already differ. Side effect: updates `fills`.
+// CLAUDE  Date 10/19/2026
+// With an `estimator`, a rep change re-estimates the weight of any open set whose weight is still
+// the untouched estimate (the edited set, and its pair partner when the fill moved its reps).
+// A weight the user typed is never overwritten, and a weight edit never re-estimates.
 private func writeSetEdit(_ edited: ExerciseSet, into sets: inout [ExerciseSet],
+                          isUnilateral: Bool, fills: inout UnilateralFillState,
+                          estimator: SavedWeight? = nil) {
+    let before = sets
+    writeFilling(edited, into: &sets, isUnilateral: isUnilateral, fills: &fills)
+    estimator?.reestimate(&sets, after: before)
+}
+
+// The pair-fill write itself, split out so writeSetEdit can look at the sets before and after.
+private func writeFilling(_ edited: ExerciseSet, into sets: inout [ExerciseSet],
                           isUnilateral: Bool, fills: inout UnilateralFillState) {
     guard let index = sets.firstIndex(where: { $0.id == edited.id }) else { return }
     let old = sets[index]
@@ -1572,6 +1608,26 @@ private struct AdaptiveHintRow: View {
         case .increased: return .green
         case .deloaded:  return .orange
         case .held:      return accent
+        }
+    }
+}
+
+// CLAUDE  Date 10/19/2026
+// One quiet line naming the set a lift's starting weight was estimated from. Informational
+// only, like AdaptiveHintRow; the weights in the set rows stay fully editable.
+private struct SavedWeightHintRow: View {
+    let saved: SavedWeight
+    let isBodyweight: Bool
+    let accent: Color
+
+    var body: some View {
+        Label {
+            Text("Based on \(isBodyweight ? "+" : "")\(SetFormat.weight(saved.weight)) lb × \(saved.reps) last time")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        } icon: {
+            Image(systemName: "clock.arrow.circlepath")
+                .foregroundStyle(accent)
         }
     }
 }

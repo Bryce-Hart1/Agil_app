@@ -126,6 +126,11 @@ struct PlateCalculatorView: View {
                         .font(.system(size: 40, weight: .bold).monospacedDigit())
                         .focused($targetFocused)
                         .frame(maxWidth: 180)
+                        .padding(.vertical, 6)
+                        .background(theme.current.surface,
+                                    in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .strokeBorder(accent, lineWidth: 1.5))
                         // Focus once the field exists; setting it in the same tap that
                         // creates the field can land before there's anything to focus.
                         .onAppear { targetFocused = true }
@@ -138,8 +143,7 @@ struct PlateCalculatorView: View {
                 }
             } else {
                 Button {
-                    targetText = SetFormat.weight(total)
-                    isTypingTarget = true
+                    beginTypingTarget()
                 } label: {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Text(SetFormat.weight(total))
@@ -167,8 +171,31 @@ struct PlateCalculatorView: View {
                     .foregroundStyle(.orange)
                     .multilineTextAlignment(.center)
             }
+
+            // CLAUDE  Date 10/15/2026
+            // The visible way in: type the weight you want and the plates load themselves.
+            // The total above still works as a shortcut, but nothing about it says so.
+            if !isTypingTarget {
+                Button {
+                    beginTypingTarget()
+                } label: {
+                    Label("Enter a weight", systemImage: "keyboard")
+                        .fontWeight(.semibold)
+                }
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.capsule)
+                .controlSize(.large)
+                .tint(accent)
+                .padding(.top, 6)
+                .accessibilityHint("Type a target weight and the plates load for you")
+            }
         }
         .frame(maxWidth: .infinity)
+    }
+
+    private func beginTypingTarget() {
+        targetText = SetFormat.weight(total)
+        isTypingTarget = true
     }
 
     // "45 lb bar + 90 per side", or for a machine "70 start + 90 per side".

@@ -2337,6 +2337,36 @@ final class AppStore: ObservableObject {
         return AdaptiveSuggestion(weight: latest.weight, deltaFromLast: 0, outcome: .held)
     }
 
+    // MARK: - Saved weights
+
+    // CLAUDE  Date 10/19/2026
+    // What a lift last did, read from finished workouts (no separate store to migrate or drift;
+    // deleting a workout forgets it). The anchor is the best estimated-1RM set of the NEWEST
+    // session that has a checked-off set for the lift; bodyweight lifts take their heaviest
+    // added load instead. nil for cardio and for a lift with nothing loaded on record.
+    func savedWeight(for exerciseId: UUID) -> SavedWeight? {
+        guard let exercise = exercise(for: exerciseId), !exercise.isCardio else { return nil }
+        let isBodyweight = exercise.isBodyweight
+        let sessions = workouts.filter { $0.isFinished }.sorted { $0.date > $1.date }
+        for workout in sessions {
+            let sets = workout.exercises
+                .filter { $0.exerciseId == exerciseId }
+                .flatMap { $0.sets }
+                .filter { $0.completedAt != nil && !$0.isCardioBout && $0.reps > 0
+                          && (isBodyweight || $0.weight > 0) }
+            let best = isBodyweight
+                ? sets.max { ($0.weight, $0.reps) < ($1.weight, $1.reps) }
+                : sets.max { BestSetScoring.e1RM(weight: $0.weight, reps: $0.reps)
+                             < BestSetScoring.e1RM(weight: $1.weight, reps: $1.reps) }
+            guard let best else { continue }
+            // The newest session with this lift decides: a bodyweight session with nothing
+            // added gives no weight to start from, and older sessions shouldn't override it.
+            guard best.weight > 0 else { return nil }
+            return SavedWeight(weight: best.weight, reps: best.reps, scalesWithReps: !isBodyweight)
+        }
+        return nil
+    }
+
     /// Looks up a preset by id (nil when it no longer exists).
     // Claude  Date 07/13/2026
     // Mirror of exercise(for:) — used by the workout editor to resolve a workout's
@@ -2371,12 +2401,18 @@ final class AppStore: ObservableObject {
                                      increment: smartIncrement(for: item.exerciseId,
                                                                override: item.weightIncrement))
                 : nil
+            // CLAUDE  Date 10/19/2026
+            // A lift with no adaptive suggestion starts from what it last did (savedWeight),
+            // so a plain preset isn't re-typed from 0 each session.
+            let saved = adaptive == nil ? savedWeight(for: item.exerciseId) : nil
             let carried = carriedNote(for: item.exerciseId, from: previous)
             return LoggedExercise(exerciseId: item.exerciseId, targetRepRange: range,
                                   note: carried, restSeconds: item.restSeconds,
-                                  sets: initialSets(for: item, range: range, adaptive: adaptive),
+                                  sets: initialSets(for: item, range: range, adaptive: adaptive,
+                                                    saved: saved),
                                   adaptive: adaptive,
-                                  noteIsCarriedForward: carried != nil ? true : nil)
+                                  noteIsCarriedForward: carried != nil ? true : nil,
+                                  savedWeight: saved)
         }, notes: preset.notes ?? "", presetID: preset.id)
     }
 
@@ -2411,15 +2447,19 @@ final class AppStore: ObservableObject {
     // suggestion (else 0) — the same defaults "Add Set" uses. Nothing is checked off, so
     // these count toward nothing until the user completes them. Unilateral exercises get
     // a matched Left+Right pair per logical set (mirroring ExerciseLogSection.addSet).
+    // CLAUDE  Date 10/19/2026
+    // `saved` seeds the weight when there is no adaptive suggestion, estimated for the reps
+    // each set starts at.
     private func initialSets(for item: PresetItem, range: RepRange,
-                             adaptive: AdaptiveSuggestion?) -> [ExerciseSet] {
+                             adaptive: AdaptiveSuggestion?,
+                             saved: SavedWeight?) -> [ExerciseSet] {
         // Claude  Date 09/14/2026 — cardio is done once per workout, not in sets: always
         // exactly one time/distance entry, whatever targetSets the preset carries.
         if exercise(for: item.exerciseId)?.cardioMachine != nil { return [.cardioEntry()] }
         guard let count = item.targetSets, count > 0 else { return [] }
         let low = Swift.min(range.min, range.max)
         let reps = low > 0 ? low : 8
-        let weight = adaptive?.weight ?? 0
+        let weight = adaptive?.weight ?? saved?.estimate(forReps: reps) ?? 0
         let unilateral = exercise(for: item.exerciseId)?.isUnilateral ?? false
         return (0..<count).flatMap { _ -> [ExerciseSet] in
             unilateral

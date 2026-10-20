@@ -133,10 +133,16 @@ struct LoggedExercise: Identifiable, Codable, Hashable {
     // Optional because LoggedExercise uses synthesized Codable — a non-optional would fail
     // to decode every workout saved before this existed.
     var noteIsCarriedForward: Bool?
+    // CLAUDE  Date 10/19/2026
+    // What this lift last did (best set of its latest finished session), so new sets start near
+    // the right weight and follow rep changes. Never set alongside `adaptive`, which wins (see
+    // SavedWeight.swift). Optional: synthesized Codable decodes older workouts as nil.
+    var savedWeight: SavedWeight?
 
     init(id: UUID = UUID(), exerciseId: UUID, targetRepRange: RepRange? = nil,
          note: String? = nil, restSeconds: Int? = nil, sets: [ExerciseSet] = [],
-         adaptive: AdaptiveSuggestion? = nil, noteIsCarriedForward: Bool? = nil) {
+         adaptive: AdaptiveSuggestion? = nil, noteIsCarriedForward: Bool? = nil,
+         savedWeight: SavedWeight? = nil) {
         self.id = id
         self.exerciseId = exerciseId
         self.targetRepRange = targetRepRange
@@ -145,6 +151,7 @@ struct LoggedExercise: Identifiable, Codable, Hashable {
         self.sets = sets
         self.adaptive = adaptive
         self.noteIsCarriedForward = noteIsCarriedForward
+        self.savedWeight = savedWeight
     }
 }
 
