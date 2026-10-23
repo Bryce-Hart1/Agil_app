@@ -217,10 +217,10 @@ struct RootTabView: View {
                 .transition(.opacity)
                 .zIndex(1)
             } else if !store.pendingFoundersUnlock.isEmpty {
-                // Claude  Date 07/12/2026
-                // Founders Edition unlock celebration (dev-triggered today; IAP
-                // purchase-success later). Sits last in the chain — nothing else is
-                // ever queued at the same time as it.
+                // Claude  Date 07/12/2026 last changed: 10/23/2026 by: CLAUDE
+                // Founders Edition unlock celebration (Founders Pack purchase or the dev
+                // tool). Sits last in the chain — nothing else is ever queued at the same
+                // time as it.
                 FoundersUnlockOverlay(
                     cards: store.pendingFoundersUnlock,
                     onDismiss: { store.dismissFoundersUnlock() }

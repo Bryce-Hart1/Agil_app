@@ -1,17 +1,10 @@
 import Foundation
 
-// Claude  Date 08/03/2026
-// Keeps the coin wallet alive across app deletion and new devices.
-//
-// Why this has to exist: coin packs are StoreKit *consumables*, and consumables do
-// not appear in Transaction.currentEntitlements. Once we grant and finish() one,
-// StoreKit's obligation is over — there is no "restore purchases" that can bring
-// coins back. Everything else in Agil lives as JSON in the app's Documents folder,
-// which iOS deletes with the app, and there are no user accounts to anchor to (the
-// anonymous Friends id is itself in Documents, and Ghost Mode users don't have one).
-// So without this file, deleting the app destroys coins somebody paid money for,
-// with no way for us to verify a support claim. Apple's rule is that purchased
-// currency may not expire.
+// Claude  Date 08/03/2026 last changed: 10/23/2026 by: CLAUDE
+// Keeps the coin wallet (earned high-water mark, spend ledger) and the unlocked themes and
+// cards alive across app deletion and new devices. Everything else in Agil lives as JSON in
+// Documents, which iOS deletes with the app, and there are no accounts to anchor to.
+// (10/23) Coins aren't sold any more; the Founders Pack restores through StoreKit itself.
 //
 // NSUbiquitousKeyValueStore is the cheapest thing that solves it: it's keyed to the
 // same Apple ID that made the purchase, it survives reinstall, and it follows the
@@ -33,7 +26,7 @@ final class CloudWalletSync {
 
     // Claude  Date 08/03/2026
     // What we sync. The wallet and the unlock sets travel TOGETHER and this is not
-    // negotiable: restoring purchased coins without the ledger of what they were
+    // negotiable: restoring earned coins without the ledger of what they were
     // spent on would silently refund every past purchase, and restoring the ledger
     // without the unlocks would charge for items the user no longer owns.
     private struct Payload: Codable {

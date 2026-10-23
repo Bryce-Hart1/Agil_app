@@ -74,14 +74,12 @@ targets:
     #   GymApp/GymApp.entitlements       Release — App Group + iCloud KVS
     #   GymApp/GymAppDebug.entitlements  Debug   — App Group only
     #
-    # Why they had to split: iCloud key-value storage backs the coin wallet (see
-    # CloudWalletSync — coin packs are StoreKit *consumables*, so they're absent from
-    # Transaction.currentEntitlements and no "restore purchases" can bring them back;
-    # everything else Agil stores is JSON in Documents, which iOS deletes with the
-    # app). But a free/personal Apple team cannot provision iCloud at all, so with
-    # com.apple.developer.ubiquity-kvstore-identifier present, device debug builds
-    # failed to sign before compiling. Release keeps it, so shipping behavior and the
-    # "purchased currency may not expire" guarantee are unchanged.
+    # Why they had to split: iCloud key-value storage backs the coin wallet and
+    # unlocks (see CloudWalletSync; everything else Agil stores is JSON in Documents,
+    # which iOS deletes with the app). But a free/personal Apple team cannot provision
+    # iCloud at all, so with com.apple.developer.ubiquity-kvstore-identifier present,
+    # device debug builds failed to sign before compiling. Release keeps it, so
+    # shipping behavior is unchanged.
     #
     # Splitting via `settings: configs:` alone does NOT work — an `entitlements:`
     # block here sets CODE_SIGN_ENTITLEMENTS for every configuration and silently
@@ -125,7 +123,7 @@ targets:
         # description is required or that request silently fails. (LAN test only.)
         NSLocalNetworkUsageDescription: Agil connects to your Agil server on the local network to sync your profile card and look up foods.
     # Claude  Date 08/03/2026
-    # Point the Run action at the local StoreKit configuration so coin packs are
+    # Point the Run action at the local StoreKit configuration so the Founders Pack is
     # buyable in the simulator without App Store Connect (which can't even host the
     # products until the Paid Apps agreement is active). Declared here rather than
     # set in Xcode's scheme editor because `xcodegen generate` rewrites the scheme

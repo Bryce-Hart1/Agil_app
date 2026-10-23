@@ -75,7 +75,7 @@ enum Coins {
     // about at the worst possible moment. Floor can only ever understate.
     //
     // Full, grouped numbers (`.formatted()`) stay everywhere there's room for them — the
-    // Shop's own chip, the Profile Shop row, CoinShopView — so this is the exception, not
+    // Shop's own chip, the Profile Shop row — so this is the exception, not
     // the house style.
     static func compact(_ amount: Int) -> String {
         let value = max(0, amount)

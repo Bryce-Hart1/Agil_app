@@ -18,7 +18,7 @@ struct DevToolsView: View {
         List {
             // Claude  Date 06/13/2026 last changed: 09/19/2026 by: Claude
             // Achievement testing: gallery, per-badge forcing, bulk unlock/unopen/reset,
-            // and the Founders unlock celebration (preview of the future IAP moment).
+            // and the Founders unlock celebration (grants the cards without buying the pack).
             Section {
                 NavigationLink {
                     BadgeGalleryView()

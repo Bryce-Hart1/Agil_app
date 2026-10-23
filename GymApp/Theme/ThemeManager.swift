@@ -29,10 +29,10 @@ final class ThemeManager: ObservableObject {
     // here alongside theme purchases so all coin spending flows through one wallet.
     @Published var unlockedCardStyleIDs: Set<String> { didSet { save() } }
 
-    // Claude  Date 08/03/2026
-    // The coin wallet: earned high-water mark, purchased coins, and the spend ledger.
+    // Claude  Date 08/03/2026 last changed: 10/23/2026 by: CLAUDE
+    // The coin wallet: earned high-water mark and the spend ledger.
     // private(set) because nothing outside this class may move money — go through
-    // purchase(_:), creditPurchasedCoins(...) or noteEarned(_:).
+    // purchase(_:) or noteEarned(_:).
     @Published private(set) var wallet: Wallet { didSet { save() } }
 
     // Claude  Date 08/03/2026
@@ -146,8 +146,6 @@ final class ThemeManager: ObservableObject {
                                               cardIDs: stored.unlockedCardStyleIDs,
                                               customThemes: stored.customThemes)
         }
-
-        grantFoundersCards()
     }
 
     // Claude  Date 08/03/2026
@@ -165,14 +163,10 @@ final class ThemeManager: ObservableObject {
         return wallet
     }
 
-    // Claude  Date 07/12/2026 last changed: 07/12/2026 by: Claude
-    // Grant every Founders Edition card. Idempotent — returns true only if something
-    // was newly granted, so a caller can decide whether to celebrate. Founders cards
-    // aren't sold anywhere, so there's no purchase flow to unlock them through; the
-    // real IAP purchase-success handler will call this later. There's no accounts/IAP
-    // system yet to gate on, so today it's simply "if you're running this build, you're
-    // a founder" (true while Bryce is the only tester) — see the launch-time call in
-    // init(). Swap that gate for a real receipt/account check before a wider release.
+    // Claude  Date 07/12/2026 last changed: 10/23/2026 by: CLAUDE
+    // Grant every Founders Edition card. Idempotent: returns true only if something was
+    // newly granted, so a caller can decide whether to celebrate. (10/23) Gated by the
+    // Founders Pack purchase now (FoundersStore); the launch-time grant in init() is gone.
     @discardableResult
     func grantFoundersCards() -> Bool {
         var granted = false
@@ -180,6 +174,13 @@ final class ThemeManager: ObservableObject {
             if unlockedCardStyleIDs.insert(style.id).inserted { granted = true }
         }
         return granted
+    }
+
+    // CLAUDE  Date 10/23/2026
+    // Whether every Founders Edition card is unlocked, i.e. the Founders Pack is owned (or
+    // was granted by the dev tool). The Shop's pack banner and page read this.
+    var ownsFoundersCards: Bool {
+        CardStyle.all.filter(\.isFounders).allSatisfy { unlockedCardStyleIDs.contains($0.id) }
     }
 
     /// Presets first, then the user's custom themes.
@@ -222,10 +223,9 @@ final class ThemeManager: ObservableObject {
     // to move afterwards.
     var coinsSpent: Int { wallet.spentTotal }
 
-    // Claude  Date 06/13/2026 last changed: 08/03/2026 by: Claude
-    // The spendable balance. No max(0,…) clamp any more: every term of the wallet is
-    // monotonic, so it can't go negative on its own, and the clamp was capable of
-    // absorbing coins the user had paid real money for.
+    // Claude  Date 06/13/2026 last changed: 10/23/2026 by: CLAUDE
+    // The spendable balance. No max(0,…) clamp: both terms of the wallet are monotonic
+    // and every spend checks affordability first, so it can't go negative on its own.
     var balance: Int { wallet.balance }
 
     // Claude  Date 08/03/2026
@@ -236,16 +236,6 @@ final class ThemeManager: ObservableObject {
     func noteEarned(_ earned: Int) {
         guard earned > wallet.earnedHighWater else { return }
         wallet.noteEarned(earned)
-    }
-
-    // Claude  Date 08/03/2026
-    // Credit a verified StoreKit purchase. Returns false if this transaction id was
-    // already credited (StoreKit re-delivers) or if we're in safe mode. The caller
-    // must not finish() the transaction unless this returned true — see CoinStore.
-    @discardableResult
-    func creditPurchasedCoins(transactionID: UInt64, coins: Int) -> Bool {
-        guard !isSafeMode else { return false }
-        return wallet.credit(transactionID: transactionID, coins: coins)
     }
 
     // Claude  Date 08/03/2026
@@ -382,8 +372,9 @@ final class ThemeManager: ObservableObject {
     //
     // Clears isSafeMode first ON PURPOSE — safe mode exists to stop us overwriting a
     // file we couldn't parse, but a deliberate account deletion is exactly the case
-    // where destroying that file is the goal. Side effect: this wipes PURCHASED coins
-    // and everything bought with them, and the save() it triggers pushes the emptied
+    // where destroying that file is the goal. Side effect: this wipes every coin and
+    // everything bought with them (a Founders Pack comes back through Restore Purchases),
+    // and the save() it triggers pushes the emptied
     // wallet to iCloud through onWalletChanged (AccountDeletion also removes the
     // iCloud copy outright).
     func eraseAllData() {

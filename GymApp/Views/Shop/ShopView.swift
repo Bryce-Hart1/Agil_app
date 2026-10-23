@@ -16,24 +16,24 @@ import SwiftUI
 // lives in Settings → Developer (beta) as ShopCatalogView, so it stays reachable
 // for testing without being a shopping route for players.
 //
-// Claude  Date 08/03/2026
+// Claude  Date 08/03/2026 last changed: 10/23/2026 by: CLAUDE
 // Two cadences now: four items that turn over daily and two that hold for the week
-// (see DailyShop.lineup). Coins can also be bought with real money, so the balance
-// lives in the navigation bar where it's always visible and always tappable, and an
-// item you can't afford offers a way to top up.
+// (see DailyShop.lineup). The balance lives in the navigation bar where it's always
+// visible. (10/23) Coins are earned only; the one real-money item is the Founders Pack,
+// reached from the banner at the bottom.
 struct ShopView: View {
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var theme: ThemeManager
-    @EnvironmentObject private var coinStore: CoinStore
+    @EnvironmentObject private var foundersStore: FoundersStore
 
     // The item shown full-size in the preview sheet (tap a tile to set it).
     @State private var previewItem: ShopItem?
-    @State private var showingCoinShop = false
+    @State private var showingFoundersPack = false
 
     // Both line-ups — a pure function of the date, recomputed on render.
     private var lineup: DailyShop.Lineup { DailyShop.lineup() }
 
-    // Spendable balance (earned high-water + purchased − spent; see Wallet).
+    // Spendable balance (earned high-water − spent; see Wallet).
     private var balance: Int { theme.balance }
 
     var body: some View {
@@ -50,32 +50,26 @@ struct ShopView: View {
                     cadence: "Rotates weekly",
                     rotation: lineup.weekly
                 )
+                foundersBanner
             }
             .padding()
         }
         .navigationTitle("Shop")
         .themed(theme.current)
-        // Claude  Date 08/03/2026
+        // Claude  Date 08/03/2026 last changed: 10/23/2026 by: CLAUDE
         // Balance in the top right, where it stays put while the grid scrolls — it
         // used to be a row at the top of the content and scrolled away exactly when
-        // you were deciding whether you could afford something. Tapping it opens the
-        // coin shop. (.topBarTrailing is @available(iOS 14) + @backDeployed, so it's
-        // fine at the 16.1 deployment target.)
+        // you were deciding whether you could afford something. (10/23) A plain label
+        // now: there's no coin shop to open. (.topBarTrailing is fine at iOS 16.1.)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button { showingCoinShop = true } label: {
-                    Label("\(balance.formatted())", systemImage: "circle.hexagongrid.fill")
-                        .font(.subheadline.weight(.semibold))
-                        .monospacedDigit()
-                }
-                .tint(theme.current.accent)
-                .accessibilityLabel("\(balance) coins. Tap to get more.")
+                BalanceChip(balance: balance, tint: theme.current.accent)
             }
         }
-        .sheet(isPresented: $showingCoinShop) {
-            CoinShopView()
+        .sheet(isPresented: $showingFoundersPack) {
+            FoundersPackView()
                 .environmentObject(theme)
-                .environmentObject(coinStore)
+                .environmentObject(foundersStore)
         }
         // Claude  Date 06/17/2026 last changed: 08/03/2026 by: Claude
         // fullScreenCover, not a sheet. The old .sheet opened at a .medium detent that
@@ -92,11 +86,9 @@ struct ShopView: View {
                 canAfford: balance >= item.price,
                 balance: balance,
                 onBuy: { buy(item) },
-                onEquip: { equip(item) },
-                onGetCoins: { showingCoinShop = true }
+                onEquip: { equip(item) }
             )
             .environmentObject(theme)
-            .environmentObject(coinStore)
         }
     }
 
@@ -140,6 +132,50 @@ struct ShopView: View {
                 }
             }
         }
+    }
+
+    // MARK: - Founders Pack
+
+    // CLAUDE  Date 10/23/2026
+    // The way into the Founders Pack, Agil's one real-money item. Last on the page on
+    // purpose: coins are earned by training, and the shop leads with what they buy.
+    // Stays after purchase (reading "Owned") so the page is still there to look at.
+    private var foundersBanner: some View {
+        let gold = CardTier.founders.color
+        return Button { showingFoundersPack = true } label: {
+            HStack(spacing: 14) {
+                if let card = CardStyle.all.first(where: \.isFounders) {
+                    CardBackgroundView(background: card.background, cornerRadius: 8)
+                        .cardMotionDetail(.preview)
+                        .frame(width: 44, height: 60)
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                }
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Founders Pack")
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                    Text("Three animated cards you can't get with coins.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.leading)
+                }
+                Spacer(minLength: 8)
+                Text(theme.ownsFoundersCards ? "Owned" : (foundersStore.product?.displayPrice ?? ""))
+                    .font(.subheadline.weight(.bold))
+                    .monospacedDigit()
+                    .foregroundStyle(gold)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding()
+            .background(theme.current.surface, in: RoundedRectangle(cornerRadius: 14))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14)
+                    .stroke(gold.opacity(0.7), lineWidth: 1.5)
+            )
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Daily check-in
@@ -289,10 +325,8 @@ private extension ShopItem {
 struct ShopCatalogView: View {
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var theme: ThemeManager
-    @EnvironmentObject private var coinStore: CoinStore
 
     @State private var previewItem: ShopItem?
-    @State private var showingCoinShop = false
 
     // Every item, free base items included.
     // Claude  Date 07/12/2026 last changed: 07/23/2026 by: Claude
@@ -327,19 +361,8 @@ struct ShopCatalogView: View {
         .themed(theme.current)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button { showingCoinShop = true } label: {
-                    Label("\(balance.formatted())", systemImage: "circle.hexagongrid.fill")
-                        .font(.subheadline.weight(.semibold))
-                        .monospacedDigit()
-                }
-                .tint(theme.current.accent)
-                .accessibilityLabel("\(balance) coins. Tap to get more.")
+                BalanceChip(balance: balance, tint: theme.current.accent)
             }
-        }
-        .sheet(isPresented: $showingCoinShop) {
-            CoinShopView()
-                .environmentObject(theme)
-                .environmentObject(coinStore)
         }
         .fullScreenCover(item: $previewItem) { item in
             ShopItemDetailView(
@@ -349,11 +372,9 @@ struct ShopCatalogView: View {
                 canAfford: balance >= item.price,
                 balance: balance,
                 onBuy: { item.buy(store: store, theme: theme) },
-                onEquip: { item.equip(store: store, theme: theme) },
-                onGetCoins: { showingCoinShop = true }
+                onEquip: { item.equip(store: store, theme: theme) }
             )
             .environmentObject(theme)
-            .environmentObject(coinStore)
         }
     }
 }
@@ -482,7 +503,6 @@ private struct ShopItemDetailView: View {
     let balance: Int
     let onBuy: () -> Void
     let onEquip: () -> Void
-    let onGetCoins: () -> Void
 
     @EnvironmentObject private var theme: ThemeManager
     @Environment(\.dismiss) private var dismiss
@@ -614,27 +634,14 @@ private struct ShopItemDetailView: View {
             // of a TupleView, which flattened it into the parent stack as an extra
             // row below the button — and it was the first thing to fall off the
             // bottom edge. Keeping it explicit is what actually fixes the clipping.
+            // CLAUDE  Date 10/23/2026
+            // The "Get Coins" top-up button is gone with coin packs; training is the
+            // only way to earn more, so the line says so.
             if !isOwned && !canAfford {
-                Text("You need \((item.price - balance).formatted()) more coins.")
+                Text("You need \((item.price - balance).formatted()) more coins. Keep training to earn them.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-
-                // Claude  Date 08/03/2026
-                // The top-up path, shown only when you're actually short. Deliberately
-                // a secondary .bordered control rather than a prominent one: coins are
-                // meant to be earned by training, and this is an app that exists to get
-                // you to train. Offering the shortcut is fair; leading with it isn't.
-                Button {
-                    dismiss()
-                    onGetCoins()
-                } label: {
-                    Label("Get Coins", systemImage: "cart")
-                        .font(.subheadline.weight(.semibold))
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.regular)
-                .tint(theme.current.accent)
+                    .multilineTextAlignment(.center)
             }
 
             // The clear way out. Required, not decorative: a full-screen cover can't
@@ -684,6 +691,23 @@ private struct ShopItemDetailView: View {
 }
 
 // MARK: - Shared bits
+
+// CLAUDE  Date 10/23/2026
+// The coin balance in the Shop's and the catalogue's navigation bar. Display only: it was
+// a button into the coin shop until coins stopped being sold.
+private struct BalanceChip: View {
+    let balance: Int
+    let tint: Color
+
+    var body: some View {
+        Label("\(balance.formatted())", systemImage: "circle.hexagongrid.fill")
+            .font(.subheadline.weight(.semibold))
+            .monospacedDigit()
+            .foregroundStyle(tint)
+            .labelStyle(.titleAndIcon)
+            .accessibilityLabel("\(balance) coins")
+    }
+}
 
 // Claude  Date 06/17/2026
 // Small coloured rarity capsule, shared by the tile, the row, and the sheet.
@@ -765,5 +789,5 @@ private struct ThemeMiniMock: View {
     NavigationStack { ShopView() }
         .environmentObject(AppStore())
         .environmentObject(ThemeManager())
-        .environmentObject(CoinStore())
+        .environmentObject(FoundersStore())
 }

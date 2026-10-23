@@ -8,8 +8,8 @@ import UIKit
 // shown over the whole app when the founders cards are granted. Wired to
 // AppStore.pendingFoundersUnlock and presented from RootTabView's overlay stack,
 // matching the CelebrationOverlay / RankPromotionOverlay convention (dimmed
-// backdrop, confetti, spring pop-in, tap anywhere to dismiss). Fired by the alpha
-// dev tool today; by the real IAP purchase-success flow later. The cards are shown
+// backdrop, confetti, spring pop-in, tap anywhere to dismiss). Fired by a Founders Pack
+// purchase or restore (FoundersStore) and by the alpha dev tool. The cards are shown
 // as live mini-previews (CardBackgroundView renders their animated backgrounds),
 // staggered in so both reveal together but not in lockstep.
 struct FoundersUnlockOverlay: View {
@@ -20,11 +20,6 @@ struct FoundersUnlockOverlay: View {
 
     // Founders gold — matches CardTier.founders.color / the founders accent.
     private let gold = Color(red: 1.0, green: 0.82, blue: 0.25)
-
-    // Bryce (Claude) Date 07/23/2026
-    // Card preview aspect (width:height). The row sizes cards off the available
-    // width and derives height from this so proportions hold as cards shrink.
-    private let cardAspect: CGFloat = 168.0 / 120.0
 
     var body: some View {
         ZStack {
@@ -44,7 +39,7 @@ struct FoundersUnlockOverlay: View {
                     .font(.system(.largeTitle, design: .rounded).weight(.heavy))
                     .foregroundStyle(.white)
 
-                cardRow
+                FoundersCardRow(cards: cards, appear: appear, captionColor: .white)
 
                 VStack(spacing: 6) {
                     Text("Thanks for supporting Agil.")
@@ -74,14 +69,40 @@ struct FoundersUnlockOverlay: View {
         .onAppear(perform: start)
     }
 
-    // Bryce (Claude) 07/12/2026 last changed: 07/23/2026 by: Claude
+    private func start() {
+        withAnimation(.spring(response: 0.55, dampingFraction: 0.7)) { appear = true }
+        #if canImport(UIKit)
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        #endif
+    }
+}
+
+// CLAUDE  Date 10/23/2026
+// The Founders Edition cards as a row of live mini-previews. Shared by the unlock
+// celebration and the Shop's Founders Pack page. `appear` drives the staggered pop-in.
+struct FoundersCardRow: View {
+    let cards: [CardStyle]
+    let appear: Bool
+    let captionColor: Color
+
+    // Founders gold, matching CardTier.founders.color.
+    private let gold = Color(red: 1.0, green: 0.82, blue: 0.25)
+
+    // Bryce (Claude) Date 07/23/2026
+    // Card preview aspect (width:height). The row sizes cards off the available
+    // width and derives height from this so proportions hold as cards shrink.
+    private let cardAspect: CGFloat = 168.0 / 120.0
+
+    // Bryce (Claude) 07/12/2026 last changed: 10/23/2026 by: CLAUDE
     // The founders cards as live mini-previews, side by side, each popping in on a
     // slight per-card delay so the reveal builds. Cards now size off the available
     // width (capped at 120pt) so the row always fits on-screen — the previous
     // hard-fixed 120pt widths overflowed the bezel on every iPhone and clipped the
     // outer two cards. The GeometryReader is given a fixed height (the max card
     // height + caption room) so it doesn't consume the surrounding VStack's space.
-    private var cardRow: some View {
+    // (10/23) Pulled out of FoundersUnlockOverlay so the Shop's Founders Pack page
+    // shows the same row; captionColor lets it sit on a light theme too.
+    var body: some View {
         GeometryReader { geo in
             let spacing: CGFloat = 14
             let n = CGFloat(cards.count)
@@ -105,7 +126,7 @@ struct FoundersUnlockOverlay: View {
 
                         Text(cardShortName(style))
                             .font(.caption.weight(.semibold))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(captionColor)
                             .lineLimit(1)
                             .frame(width: cardW)
                     }
@@ -124,13 +145,6 @@ struct FoundersUnlockOverlay: View {
     // Drop the " — Founders Edition" suffix for the compact caption under each card.
     private func cardShortName(_ style: CardStyle) -> String {
         style.name.components(separatedBy: " — ").first ?? style.name
-    }
-
-    private func start() {
-        withAnimation(.spring(response: 0.55, dampingFraction: 0.7)) { appear = true }
-        #if canImport(UIKit)
-        UINotificationFeedbackGenerator().notificationOccurred(.success)
-        #endif
     }
 }
 

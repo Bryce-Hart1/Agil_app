@@ -12,11 +12,9 @@
 	     Anything added here must be added to GymAppDebug.entitlements too, unless
 	     it's a capability a personal Apple team can't provision.
 
-	     iCloud key-value storage below backs the coin wallet: coin packs are
-	     StoreKit consumables, absent from Transaction.currentEntitlements with no
-	     "restore purchases" path, so without this, deleting the app destroys coins
-	     somebody paid for. The App ID must have iCloud → Key-value storage enabled
-	     or release signing fails. -->
+	     iCloud key-value storage below backs the coin wallet and unlocked themes and
+	     cards (see CloudWalletSync), so deleting the app doesn't lose them. The App
+	     ID must have iCloud → Key-value storage enabled or release signing fails. -->
 	<key>com.apple.developer.ubiquity-kvstore-identifier</key>
 	<string>$(TeamIdentifierPrefix)$(CFBundleIdentifier)</string>
 	<key>com.apple.security.application-groups</key>

@@ -16,11 +16,11 @@ struct GymAppApp: App {
     // Shared profile-card sync (Friends mode). Owns the device identity + push/fetch;
     // no-ops entirely while the user is in Ghost Mode. See CardSyncService.
     @StateObject private var cardSync = CardSyncService()
-    // Claude  Date 08/03/2026
-    // Coin packs (StoreKit 2). Owned at app level, not by the Shop screen, because
-    // its transaction listener has to be running whether or not the Shop is open —
-    // an Ask to Buy approval or an interrupted purchase can land at any time.
-    @StateObject private var coinStore = CoinStore()
+    // Claude  Date 08/03/2026 last changed: 10/23/2026 by: CLAUDE
+    // The Founders Pack (StoreKit 2), which replaced coin packs. Owned at app level, not by
+    // the Shop screen, because its transaction listener has to be running whether or not
+    // the Shop is open: an Ask to Buy approval can land at any time.
+    @StateObject private var foundersStore = FoundersStore()
     // Claude  Date 08/03/2026
     // Keeps the wallet alive across reinstalls and new devices (see CloudWalletSync).
     // Not a @StateObject — it publishes nothing, it just bridges ThemeManager and
@@ -44,7 +44,7 @@ struct GymAppApp: App {
                 .environmentObject(theme)
                 .environmentObject(session)
                 .environmentObject(cardSync)
-                .environmentObject(coinStore)
+                .environmentObject(foundersStore)
                 .environmentObject(bodyStore)
                 // Claude  Date 07/16/2026 last changed: 08/03/2026 by: Claude
                 // Seed the home-screen widget's shared snapshot on launch. The
@@ -53,9 +53,9 @@ struct GymAppApp: App {
                 // until the user next logs food or changes the theme.
                 //
                 // 08/03: also brings the wallet up. Order matters — iCloud merges
-                // first so a reinstalled device has its purchased coins back before
-                // StoreKit starts crediting anything, and noteEarned seeds the
-                // earned high-water mark (the migration in ThemeManager.init can't:
+                // first so a reinstalled device has its spend ledger back, and
+                // noteEarned seeds the earned high-water mark (the migration in
+                // ThemeManager.init can't:
                 // it has no access to the workout history).
                 //
                 // Claude  Date 08/23/2026
@@ -81,7 +81,7 @@ struct GymAppApp: App {
                     // (init skips the didSets) and roll the follow-up window forward.
                     store.resyncSupplementReminders()
                     theme.noteEarned(store.totalCoinsEarned)
-                    coinStore.start(theme: theme)
+                    foundersStore.start(theme: theme, store: store)
                 }
         }
     }

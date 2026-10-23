@@ -144,6 +144,11 @@ enum PresetIcons {
 //  - `PresetItem.note` — retired (see its declaration); nothing writes it any more.
 // Order matters: the same lifts in a different order is a different session plan.
 extension WorkoutPreset {
+    // CLAUDE  Date 10/23/2026
+    // A preset with no exercises plans nothing, so it is never kept. Name, icon and notes
+    // don't count: a named preset with no lifts is still blank. Every save point checks this.
+    var isBlank: Bool { items.isEmpty }
+
     struct ContentKey: Hashable {
         let name: String
         let symbolName: String

@@ -192,6 +192,9 @@ struct PresetsListView: View {
     // Create-and-open a blank preset, unless an identical one is already saved — in
     // which case the alert offers to open that one instead. The check runs against the
     // preset that WOULD be added, so it stays honest if the blank's defaults change.
+    // CLAUDE  Date 10/23/2026
+    // The blank only lives while the editor is open: leaving it with no exercises deletes it
+    // (recheckAfterEditing), so this duplicate alert now only meets blanks saved before that.
     private func addBlankPreset() {
         let preset = WorkoutPreset(name: "New Preset")
         if let existing = store.duplicatePreset(of: preset) {
@@ -229,10 +232,19 @@ struct PresetsListView: View {
     // find the preset still present, and pop this alert about a preset the user just
     // agreed to throw away. Enqueuing after lets the delete land first, and the guard
     // then finds nothing.
+    //
+    // CLAUDE  Date 10/23/2026
+    // A preset still blank on the way out is deleted, silently: "+ > Blank Preset" has to
+    // save one up front so the editor has something to bind to, and a blank is never kept
+    // (WorkoutPreset.isBlank). Checked before the duplicate test, which a blank would trip.
     private func recheckAfterEditing(_ id: UUID) {
         DispatchQueue.main.async {
-            guard let edited = store.preset(for: id),
-                  let existing = store.duplicatePreset(of: edited) else { return }
+            guard let edited = store.preset(for: id) else { return }
+            if edited.isBlank {
+                store.deletePreset(id: id)
+                return
+            }
+            guard let existing = store.duplicatePreset(of: edited) else { return }
             duplicateAfterEdit = DuplicateAfterEdit(editedID: id, existing: existing)
         }
     }

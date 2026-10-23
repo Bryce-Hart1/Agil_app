@@ -504,12 +504,16 @@ private struct WorkoutEditor: View {
                                 Label("Reorder Exercises", systemImage: "arrow.up.arrow.down")
                             }
                         }
+                        // CLAUDE  Date 10/23/2026
+                        // Both greyed out for a workout with no exercises: saving or overriding
+                        // from it would leave a blank preset (the buttons below already hide).
                         if sourcePreset != nil {
                             Button {
                                 showingOverrideConfirm = true
                             } label: {
                                 Label("Override Preset", systemImage: "square.stack.3d.up")
                             }
+                            .disabled(workout.exercises.isEmpty)
                         }
                         Button {
                             presetName = ""
@@ -517,6 +521,7 @@ private struct WorkoutEditor: View {
                         } label: {
                             Label("Save as New Preset", systemImage: "square.stack.badge.plus")
                         }
+                        .disabled(workout.exercises.isEmpty)
                     } label: {
                         Image(systemName: "ellipsis.circle")
                     }
@@ -576,6 +581,9 @@ private struct WorkoutEditor: View {
             Button("Save") {
                 let name = presetName.trimmingCharacters(in: .whitespaces)
                 let preset = store.makePreset(from: workout, name: name.isEmpty ? "New Preset" : name)
+                // CLAUDE  Date 10/23/2026
+                // Never save an empty one (the menu item is disabled for it anyway).
+                guard !preset.isBlank else { return }
                 // Claude  Date 08/25/2026
                 // Refuse an exact copy of a preset that already exists — same name, same
                 // lifts in the same order, same rep ranges, sets, rest, and notes. The

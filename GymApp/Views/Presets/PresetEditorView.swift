@@ -48,6 +48,9 @@ private struct PresetEditor: View {
     // CLAUDE  Date 09/18/2026
     // The last removed exercise, still restorable for ~10s via the undo popup (nil = none).
     @State private var pendingUndo: PendingUndo?
+    // CLAUDE  Date 10/23/2026
+    // Raised when Remove is tapped on the only exercise left (see removeItem).
+    @State private var showingLastExerciseAlert = false
 
     /// The lift currently being swapped out, if any — what the picker ranks against.
     private var swappingExercise: Exercise? {
@@ -220,6 +223,12 @@ private struct PresetEditor: View {
                 } label: {
                     Label("Add Exercise", systemImage: "plus")
                 }
+            } footer: {
+                // CLAUDE  Date 10/23/2026
+                // Says why Finish is off. Backing out while this still shows deletes the preset.
+                if preset.isBlank {
+                    Text("Add an exercise to save this preset. One with no exercises is discarded when you leave.")
+                }
             }
 
             // Claude  Date 06/18/2026
@@ -245,6 +254,9 @@ private struct PresetEditor: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
+                // CLAUDE  Date 10/23/2026
+                // A blank preset can't be finished (see isBlank).
+                .disabled(preset.isBlank)
                 .listRowBackground(Color.clear)
             }
         }
@@ -336,6 +348,12 @@ private struct PresetEditor: View {
             Suggestions are always editable.
             """)
         }
+        // CLAUDE  Date 10/23/2026
+        .alert("Keep One Exercise", isPresented: $showingLastExerciseAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("A preset needs at least one exercise. Swap this one for a different lift, or delete the preset from the Presets list.")
+        }
         // Claude  Date 08/25/2026
         // This preset now matches another one exactly. "Delete This Copy" removes the one
         // being edited (never the original named in the message) and pops back; "Keep
@@ -368,7 +386,14 @@ private struct PresetEditor: View {
     // Remove an exercise from the preset and offer ~10s to take it back. Undo restores the
     // same item — rep range, sets, rest, weight step — to its old slot. Animated so the
     // section visibly collapses, same curve as the workout editor.
+    // CLAUDE  Date 10/23/2026
+    // The last exercise can't be removed: that would leave a saved preset blank. The alert
+    // points at Swap (replace it) and the list's delete (get rid of the preset).
     private func removeItem(_ id: UUID) {
+        guard preset.items.count > 1 else {
+            showingLastExerciseAlert = true
+            return
+        }
         guard let index = preset.items.firstIndex(where: { $0.id == id }) else { return }
         let removed = preset.items[index]
         let name = store.exercise(for: removed.exerciseId)?.displayLabel ?? "exercise"

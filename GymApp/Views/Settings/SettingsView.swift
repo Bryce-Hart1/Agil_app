@@ -284,7 +284,7 @@ struct SettingsView: View {
                 showDeleteAccountConfirm = true
             }
         } message: {
-            Text("This erases everything, immediately and permanently:\n\n• Your account, shared card, friend code, and friends list on the server\n• Every workout, exercise, meal, water and supplement log on this device\n• Every badge, rank and theme you've unlocked\n• Your weight history, body details and calorie plan\n• Your entire coin balance, including coins you purchased\n\nThere is no undo and no grace period. Agil will restart at the welcome screen.")
+            Text("This erases everything, immediately and permanently:\n\n• Your account, shared card, friend code, and friends list on the server\n• Every workout, exercise, meal, water and supplement log on this device\n• Every badge, rank and theme you've unlocked\n• Your weight history, body details and calorie plan\n• Your entire coin balance\n\nA Founders Pack you bought can be restored from the Shop. Everything else has no undo and no grace period. Agil will restart at the welcome screen.")
         }
         // Claude  Date 09/06/2026
         // Step 2: the typing gate. Alert buttons can't be reactively disabled from a
@@ -353,7 +353,7 @@ struct SettingsView: View {
             Text("Danger")
                 .foregroundStyle(Self.danger)
         } footer: {
-            Text("Ghost Mode turns off sharing and removes your card from our server. You have 24 hours to undo it.\n\nDelete Account erases everything, including coins you bought. This can't be undone.")
+            Text("Ghost Mode turns off sharing and removes your card from our server. You have 24 hours to undo it.\n\nDelete Account erases everything, including your coins. This can't be undone.")
         }
         // Fixed red regardless of the equipped theme: tints the switch and the
         // ProgressView, and paints the hazard band over the theme's surface.

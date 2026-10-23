@@ -2513,8 +2513,12 @@ final class AppStore: ObservableObject {
     // Claude  Date 07/13/2026 last changed: 08/04/2026 by: Claude
     // (08/04) The workout's notes now overwrite the preset's too — same rule as the
     // items: whatever the workout currently says wins.
+    // CLAUDE  Date 10/23/2026
+    // An empty workout is refused: overriding from it would strip every exercise out of the
+    // preset and leave a blank one saved (see WorkoutPreset.isBlank).
     func updatePreset(id: UUID, from workout: Workout) {
-        guard let index = presets.firstIndex(where: { $0.id == id }) else { return }
+        guard !workout.exercises.isEmpty,
+              let index = presets.firstIndex(where: { $0.id == id }) else { return }
         presets[index].notes = workout.notes.isEmpty ? nil : workout.notes
         let existing = presets[index].items
         presets[index].items = workout.exercises.map { logged in

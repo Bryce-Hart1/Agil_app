@@ -13,7 +13,7 @@ import WidgetKit
 // Side effects, in the order they land: the shared card and friends graph are gone
 // from the backend; the device identity and its Keychain secret are destroyed (a
 // future opt-in mints a brand-new one, so friends cannot re-find this user); every
-// workout, meal, badge and coin — including PURCHASED coins — is gone; and the app
+// workout, meal, badge and coin is gone (a Founders Pack restores from the Shop); and the app
 // drops back to the onboarding screen because profile.hasOnboarded is false again.
 @MainActor
 enum AccountDeletion {
