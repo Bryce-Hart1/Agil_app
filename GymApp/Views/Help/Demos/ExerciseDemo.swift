@@ -16,7 +16,8 @@ struct ExerciseDemoState {
     var path: [ExerciseDemoRoute] = []
     var showingNew = false
     var name: String?
-    var region: MuscleRegion = .other
+    // CLAUDE  Date 10/24/2026 — nil until picked, matching NewExerciseView (no Other default).
+    var region: MuscleRegion?
     var category = ""
     var cardioMachine: CardioMachine = .treadmill
     var equipment: EquipmentType?
@@ -87,7 +88,7 @@ struct ExerciseDemoScript: DemoScript {
         case .save:
             let isCardio = state.region == .cardio
             state.saved = Exercise(
-                name: state.name ?? "Cable Fly", region: state.region,
+                name: state.name ?? "Cable Fly", region: state.region ?? .chest,
                 category: state.category.isEmpty ? (isCardio ? "Cardio" : "Other") : state.category,
                 isUnilateral: !isCardio && state.isUnilateral,
                 primaryMover: ExerciseDemoMuscles.mover(for: state.category) ?? "",
@@ -287,23 +288,34 @@ private struct ExerciseDemoForm: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Exercise") {
+                Section {
                     DemoFieldText(value: state.name, placeholder: "Name")
                         .onTapGesture { runner.acknowledge(.nameField) }
                         .demoHighlight(runner.isTarget(.nameField), nudges: runner.nudges, inset: -4)
 
+                    // CLAUDE  Date 10/24/2026
+                    // Mirrors NewExerciseView: no Other, and "Choose" only until a region is picked.
                     Picker("Region", selection: Binding(get: { state.region },
-                                                        set: { runner.attempt(.setRegion($0)) })) {
-                        ForEach(MuscleRegion.allCases, id: \.self) { region in
-                            Text(region.title).tag(region)
+                                                        set: { if let picked = $0 { runner.attempt(.setRegion(picked)) } })) {
+                        if state.region == nil {
+                            Text("Choose").tag(MuscleRegion?.none)
+                        }
+                        ForEach(MuscleRegion.allCases.filter { $0 != .other }, id: \.self) { region in
+                            Text(region.title).tag(MuscleRegion?.some(region))
                         }
                     }
                     .demoHighlight(runner.isTarget(.regionPicker), nudges: runner.nudges, inset: -4)
 
                     groupRow
+                } header: {
+                    Text("Exercise")
+                } footer: {
+                    if state.region == nil {
+                        Text("Pick a region to save. It decides where this lift sits in your library and which muscle group it counts toward.")
+                    }
                 }
 
-                if !isCardio {
+                if state.region != nil && !isCardio {
                     moverSection
                 }
 
@@ -364,8 +376,8 @@ private struct ExerciseDemoForm: View {
         }
     }
 
-    // The row under Region, which depends on it: a machine for cardio, free text for Other,
-    // otherwise that region's muscle groups.
+    // The row under Region, which depends on it: a machine for cardio, otherwise that
+    // region's muscle groups, and nothing until a region is picked.
     @ViewBuilder private var groupRow: some View {
         if isCardio {
             Picker("Machine", selection: $runner.state.cardioMachine) {
@@ -373,12 +385,9 @@ private struct ExerciseDemoForm: View {
                     Text(machine.title).tag(machine)
                 }
             }
-        } else if state.region == .other {
-            DemoFieldText(value: nil, placeholder: "Muscle group (e.g. Quads, Chest, Biceps)")
-                .onTapGesture { runner.nudge() }
-        } else {
+        } else if let region = state.region {
             Picker("Muscle group", selection: $runner.state.category) {
-                ForEach(ExerciseDemoMuscles.groups(for: state.region), id: \.self) { Text($0).tag($0) }
+                ForEach(ExerciseDemoMuscles.groups(for: region), id: \.self) { Text($0).tag($0) }
             }
         }
     }

@@ -2,7 +2,7 @@ import SwiftUI
 
 /// A modal list of the exercise library. Picking one calls `onPick` and
 /// dismisses. Has a search field, an inline "create the typed name" shortcut,
-/// and a "Create New" button (top-right) for making one from scratch.
+/// and a "Create New" button (top-right). Both create paths open NewExerciseView.
 struct ExercisePickerView: View {
     @EnvironmentObject private var store: AppStore
     @Environment(\.dismiss) private var dismiss
@@ -99,7 +99,7 @@ struct ExercisePickerView: View {
                    }) {
                     Section {
                         Button {
-                            createExercise(named: query)
+                            createExercise()
                         } label: {
                             Label("Add \"\(query)\"", systemImage: "plus")
                         }
@@ -107,12 +107,12 @@ struct ExercisePickerView: View {
                 }
             }
             .searchable(text: $search, prompt: "Search exercises")
-            // Claude  Date 06/13/2026
-            // QoL: when the search matches no exercises, the Return key creates the
-            // typed exercise instead of just dismissing the keyboard. (With matches
-            // present, Return behaves as a normal search submit.)
+            // Claude  Date 06/13/2026 last changed: 10/24/2026 by: CLAUDE
+            // QoL: when the search matches no exercises, the Return key opens the new
+            // exercise form for the typed name instead of just dismissing the keyboard.
+            // (With matches present, Return behaves as a normal search submit.)
             .onSubmit(of: .search) {
-                if filtered.isEmpty { createExercise(named: search) }
+                if filtered.isEmpty { createExercise() }
             }
             .navigationTitle(relatedTo == nil ? "Add Exercise" : "Swap Exercise")
             .navigationBarTitleDisplayMode(.inline)
@@ -129,8 +129,10 @@ struct ExercisePickerView: View {
                     }
                 }
             }
+            // CLAUDE  Date 10/24/2026 — `query` (trimmed) so a name typed with a trailing
+            // space doesn't arrive in the form's Name field with it.
             .sheet(isPresented: $showingNew) {
-                NewExerciseView(initialName: search) { created in
+                NewExerciseView(initialName: query) { created in
                     onPick(created)
                     dismiss()
                 }
@@ -180,15 +182,13 @@ struct ExercisePickerView: View {
         }
     }
 
-    // Claude  Date 06/13/2026
-    // Create an exercise from a typed name (category "Other"), pick it, and close.
-    // Shared by the inline "Add …" row and the no-results Return shortcut.
-    private func createExercise(named name: String) {
-        let trimmed = name.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else { return }
-        let created = store.addExercise(name: trimmed, category: "Other")
-        onPick(created)
-        dismiss()
+    // Claude  Date 06/13/2026 last changed: 10/24/2026 by: CLAUDE
+    // Shared by the inline "Add …" row and the no-results Return shortcut. (10/24) Opens the
+    // new exercise form with the typed name filled in instead of silently saving it as
+    // "Other"; the sheet's save picks the lift and closes the picker, as before.
+    private func createExercise() {
+        guard !query.isEmpty else { return }
+        showingNew = true
     }
 }
 

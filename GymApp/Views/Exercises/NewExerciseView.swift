@@ -1,17 +1,19 @@
 import SwiftUI
 
-// Claude  Date 06/09/2026 last changed: 07/09/2026 by: Claude
+// Claude  Date 06/09/2026 last changed: 10/24/2026 by: CLAUDE
 // A form sheet for creating OR editing an exercise: name, region, muscle group, primary
 // mover, and the unilateral toggle. Shared by the Exercises tab (+), the workout
-// exercise picker ("Create New"), and the pencil in the workout editor's exercise
-// header. Pass `editing:` to edit an existing exercise in place (its liftType/quality
-// are preserved); otherwise it creates one. Calls `onCreate` with the saved exercise.
+// exercise picker ("Create New" and the typed-name "Add" row / Return key), and the pencil
+// in the workout editor's exercise header. Pass `editing:` to edit an existing exercise in
+// place (its liftType/quality are preserved); otherwise it creates one. Calls `onCreate`
+// with the saved exercise.
 //
 // The three muscle fields cascade, each sourced from the existing library so they can't
 // drift: Region → Muscle group (a picker of that region's sub-groups) → Primary mover
 // (auto-set + hidden when a group has a single mover, a picker when it has several, and
-// free-text when the group is new/unknown). Region = Other is the one place free-text
-// muscle entry lives, so you never pick "Other" twice.
+// free-text when the group is new/unknown).
+// (10/24) Region starts unpicked and Other is no longer offered: Save stays disabled until a
+// real region is chosen. Free-text muscle groups live under "Custom…" in any region.
 struct NewExerciseView: View {
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var theme: ThemeManager
@@ -25,10 +27,14 @@ struct NewExerciseView: View {
     let onCreate: (Exercise) -> Void
 
     @State private var name: String
-    // Claude  Date 06/14/2026 last changed: 06/18/2026 by: Claude
-    // Body region (primary grouping). Initialized in init — from the edited exercise,
-    // or Other for a new one so a quick custom add isn't forced to classify.
-    @State private var region: MuscleRegion
+    // Claude  Date 06/14/2026 last changed: 10/24/2026 by: CLAUDE
+    // Body region (primary grouping). nil = not picked yet, which blocks Save: a new lift
+    // starts here, and so does editing a lift still saved under Other (it's re-homed on save).
+    @State private var region: MuscleRegion?
+    // CLAUDE  Date 10/24/2026
+    // The free-text muscle group an Other lift was saved with (e.g. "Serratus"), so picking a
+    // region carries it over as a Custom… group instead of replacing it. "" when there's none.
+    private let legacyGroup: String
     @State private var category: String
     // Claude  Date 06/14/2026
     // The muscle this lift primarily drives — mirrors the curated library's primaryMover.
@@ -75,7 +81,10 @@ struct NewExerciseView: View {
         self.editing = editing
         self.onCreate = onCreate
         _name = State(initialValue: editing?.name ?? initialName)
-        _region = State(initialValue: editing?.region ?? .other)
+        let legacy = editing?.region == .other
+        _region = State(initialValue: legacy ? nil : editing?.region)
+        let legacyCategory = legacy ? (editing?.category ?? "") : ""
+        legacyGroup = legacyCategory == "Other" ? "" : legacyCategory
         _category = State(initialValue: editing?.category ?? "")
         _primaryMover = State(initialValue: editing?.primaryMover ?? "")
         _isUnilateral = State(initialValue: editing?.isUnilateral ?? false)
@@ -111,13 +120,21 @@ struct NewExerciseView: View {
         }
     }
 
-    private var canSave: Bool { !trimmedName.isEmpty && !duplicateExists }
+    // CLAUDE  Date 10/24/2026 — `region != nil` is the "pick a real region" gate; Other
+    // can't be chosen from the picker, so a non-nil region is always a real one.
+    private var canSave: Bool { !trimmedName.isEmpty && !duplicateExists && region != nil }
+
+    // CLAUDE  Date 10/24/2026
+    // Every region but Other. Lifts already saved as Other still display under it elsewhere;
+    // this form just won't file anything new there.
+    private let selectableRegions = MuscleRegion.allCases.filter { $0 != .other }
 
     // MARK: - Cascading options (all derived from the library)
 
     // Muscle sub-groups for the current region, keeping an edited exercise's own category
     // selectable even if it's a one-off not otherwise in the library.
     private var categoryOptions: [String] {
+        guard let region else { return [] }
         var opts = store.categories(in: region)
         if let existing = editing, existing.region == region,
            existing.category != "Other", !opts.contains(existing.category) {
@@ -129,7 +146,7 @@ struct NewExerciseView: View {
     // Known primary movers for the chosen group (empty for a custom/unknown group), again
     // keeping an edited exercise's own mover selectable.
     private var moverOptions: [String] {
-        guard region != .other, !categoryIsCustom else { return [] }
+        guard let region, !categoryIsCustom else { return [] }
         var opts = store.movers(in: category, region: region)
         if let existing = editing, existing.category == category,
            !existing.primaryMover.isEmpty, !opts.contains(existing.primaryMover) {
@@ -138,10 +155,10 @@ struct NewExerciseView: View {
         return opts
     }
 
-    // Free-text mover entry: Region = Other, a custom group, or a group with no known
-    // movers. Otherwise the mover is a picker (2+) or auto-assigned + hidden (exactly 1).
+    // Free-text mover entry: a custom group, or a group with no known movers. Otherwise
+    // the mover is a picker (2+) or auto-assigned + hidden (exactly 1).
     private var showsMoverFreeText: Bool {
-        region == .other || categoryIsCustom || moverOptions.isEmpty
+        categoryIsCustom || moverOptions.isEmpty
     }
 
     // Canonical movers matching what's typed (case-insensitive), for the free-text path.
@@ -195,11 +212,17 @@ struct NewExerciseView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Exercise") {
+                Section {
                     TextField("Name", text: $name)
+                    // CLAUDE  Date 10/24/2026
+                    // "Choose" is only listed while nothing is picked, so the picker has a
+                    // valid selection to show but you can't go back to an empty region.
                     Picker("Region", selection: $region) {
-                        ForEach(MuscleRegion.allCases, id: \.self) { region in
-                            Text(region.title).tag(region)
+                        if region == nil {
+                            Text("Choose").tag(MuscleRegion?.none)
+                        }
+                        ForEach(selectableRegions, id: \.self) { region in
+                            Text(region.title).tag(MuscleRegion?.some(region))
                         }
                     }
                     // Claude  Date 09/07/2026
@@ -216,11 +239,9 @@ struct NewExerciseView: View {
                             }
                         }
                     }
-                    // Region = Other: free-text group (the sole "uncategorized" path).
                     // Any real region: a picker of that region's sub-groups + Custom…
-                    else if region == .other {
-                        TextField("Muscle group (e.g. Quads, Chest, Biceps)", text: $category)
-                    } else {
+                    // (no muscle row until a region is picked; the footer says why).
+                    else if region != nil {
                         Picker("Muscle group", selection: categorySelection) {
                             ForEach(categoryOptions, id: \.self) { Text($0).tag($0) }
                             Text("Custom…").tag(customTag)
@@ -229,9 +250,15 @@ struct NewExerciseView: View {
                             TextField("New muscle group", text: $category)
                         }
                     }
+                } header: {
+                    Text("Exercise")
+                } footer: {
+                    if region == nil {
+                        Text(regionHint)
+                    }
                 }
 
-                if region != .cardio {
+                if region != nil && region != .cardio {
                     moverSection
                 }
 
@@ -341,13 +368,16 @@ struct NewExerciseView: View {
                 }
             }
             .onChange(of: region) { newRegion in
-                guard newRegion != .other else {
-                    categoryIsCustom = false
-                    moverIsCustom = false
-                    return
-                }
+                guard let newRegion else { return }
                 // Autofill a sub-group for the new region (unless the current one already
                 // fits, e.g. mid-edit), then cascade the mover.
+                // CLAUDE  Date 10/24/2026 — an Other lift's own typed group (and mover) is
+                // kept as a Custom… group rather than swapped for the region's first one.
+                if !legacyGroup.isEmpty, category == legacyGroup,
+                   !categoryOptions.contains(category) {
+                    categoryIsCustom = true
+                    return
+                }
                 if !categoryOptions.contains(category) {
                     categoryIsCustom = false
                     category = categoryOptions.first ?? newRegion.title
@@ -443,6 +473,15 @@ struct NewExerciseView: View {
         }
     }
 
+    // CLAUDE  Date 10/24/2026
+    // Inline reason Save is disabled, shown under the Region picker until one is picked.
+    // A lift still saved as Other gets told why it's being asked again.
+    private var regionHint: String {
+        editing?.region == .other
+            ? "Other is no longer a region. Pick the one this lift trains to save your changes."
+            : "Pick a region to save. It decides where this lift sits in your library and which muscle group it counts toward."
+    }
+
     private var moverFooter: String {
         if showsMoverFreeText {
             return "The main muscle this lift drives. Optional — leave blank if you're not sure."
@@ -456,16 +495,17 @@ struct NewExerciseView: View {
     // Set primaryMover to the group's first known mover (or clear it if the group has
     // none). Called when the group changes via the picker or a region switch.
     private func autofillMover() {
+        guard let region else { return }
         moverIsCustom = false
         primaryMover = store.movers(in: category, region: region).first ?? ""
     }
 
     // Reconcile the custom flags against the library once, on first appear (store isn't
-    // available in init). A new exercise starts at Region = Other → nothing to reconcile.
+    // available in init). No region yet (new or Other lift) → nothing to reconcile.
     private func primeCustomFlags() {
         guard !primed else { return }
         primed = true
-        guard region != .other else { return }
+        guard let region else { return }
         categoryIsCustom = !store.categories(in: region).contains(category)
         if !categoryIsCustom {
             let opts = store.movers(in: category, region: region)
@@ -475,9 +515,9 @@ struct NewExerciseView: View {
 
     // Resolve the muscle group + primary mover from the current form state. Shared by
     // every save path so in-place and new-lift saves normalize identically.
-    // Claude  Date 06/09/2026 last changed: 07/13/2026 by: Claude
-    // Region = Other keeps the free-text "Other" fallback; a real region is always a real
-    // sub-group (custom-but-blank falls back to a known one), never "Other". Free-typed
+    // Claude  Date 06/09/2026 last changed: 10/24/2026 by: CLAUDE
+    // A region is always a real sub-group (custom-but-blank falls back to a known one),
+    // never "Other". Free-typed
     // movers get snapped to canonical spelling; picked/auto ones are already canonical.
     // (07/13) Factored out of the old save() so "Save" and "Save as New Lift" share it.
     // Claude  Date 09/07/2026
@@ -488,16 +528,15 @@ struct NewExerciseView: View {
                 set: { cardioMachine = $0 })
     }
 
-    private func resolvedFields() -> (category: String, mover: String) {
+    // CLAUDE  Date 10/24/2026 — takes the (already unwrapped) region from the save paths;
+    // the old Region = Other "free text or Other" branch is gone with the Other option.
+    private func resolvedFields(in region: MuscleRegion) -> (category: String, mover: String) {
         // Claude  Date 09/07/2026 — cardio files under one flat "Cardio" group with no
         // primary mover, matching the seed machines, so it can never land a bar in the
         // sets-per-muscle-group chart under a stale group the user had picked before.
         if region == .cardio { return ("Cardio", "") }
         let resolvedCategory: String
-        if region == .other {
-            let t = category.trimmingCharacters(in: .whitespaces)
-            resolvedCategory = t.isEmpty ? "Other" : t
-        } else if categoryIsCustom {
+        if categoryIsCustom {
             let t = category.trimmingCharacters(in: .whitespaces)
             resolvedCategory = t.isEmpty ? (store.categories(in: region).first ?? region.title) : t
         } else {
@@ -536,8 +575,9 @@ struct NewExerciseView: View {
 
     private func saveInPlace() {
         guard let target = editing else { return saveAsNew() }
+        guard let region else { return }
         var existing = store.exercise(for: target.id) ?? target
-        let fields = resolvedFields()
+        let fields = resolvedFields(in: region)
         existing.name = trimmedName
         existing.region = region
         existing.category = fields.category
@@ -566,7 +606,8 @@ struct NewExerciseView: View {
     // tag. A lift created from scratch still passes nil for both — custom lifts aren't
     // big-3 — because `editing` is nil there.
     private func saveAsNew() {
-        let fields = resolvedFields()
+        guard let region else { return }
+        let fields = resolvedFields(in: region)
         let created = store.addExercise(
             name: trimmedName,
             region: region,
